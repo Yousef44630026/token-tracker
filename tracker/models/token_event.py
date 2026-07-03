@@ -14,6 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from tracker.models.enums import Additivity
 from tracker.models.token_quantity import TokenQuantity
 
 
@@ -65,6 +66,18 @@ class TokenEvent:
                 raise ValueError("provider_total_tokens cannot be negative")
         if any(not isinstance(q, TokenQuantity) for q in self.quantities):
             raise TypeError("quantities must contain TokenQuantity objects")
+        # Referential integrity for subtotals (INV-4): a SUBTOTAL_OF quantity breaks down a
+        # parent quantity within THIS event, so the named parent token_type must actually be
+        # present among the siblings. A dangling subtotal claims to break down something that
+        # isn't here — a structural contradiction, rejected like an empty subtotal_of already
+        # is. (Totals are unaffected — subtotals contribute 0 — but the breakdown must not lie.)
+        for q in self.quantities:
+            if q.additivity == Additivity.SUBTOTAL_OF:
+                if not any(other is not q and other.token_type.value == q.subtotal_of for other in self.quantities):
+                    raise ValueError(
+                        f"subtotal_of={q.subtotal_of!r} references a parent token_type not present "
+                        f"in this event (dangling subtotal)"
+                    )
         if self.superseded and not self.superseded_by:
             raise ValueError("a superseded event must identify superseded_by")
         if not self.superseded and self.superseded_by is not None:

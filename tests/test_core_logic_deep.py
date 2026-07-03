@@ -101,6 +101,30 @@ def random_quantity() -> TokenQuantity:
     )
 
 
+def random_quantities(n: int) -> list[TokenQuantity]:
+    """A random bag of quantities satisfying subtotal referential integrity (INV-4).
+
+    Every generated subtotal uses parent "input", so if any subtotal is present, guarantee a
+    plain input parent quantity for it to reference. A dangling subtotal is now a
+    structurally-invalid event (correctly rejected by the model); the fuzz must exercise the
+    contribution algebra over VALID events, so the added parent keeps the generated bag valid
+    without weakening the algebra check (``expected_contribution`` recomputes from this list)."""
+    quantities = [random_quantity() for _ in range(n)]
+    has_subtotal = any(q.additivity == Additivity.SUBTOTAL_OF for q in quantities)
+    has_input_parent = any(q.token_type == TokenType.INPUT and q.additivity != Additivity.SUBTOTAL_OF for q in quantities)
+    if has_subtotal and not has_input_parent:
+        quantities.append(
+            TokenQuantity(
+                token_type=TokenType.INPUT,
+                quantity=rng.choice(QUANTITY_POOL),
+                precision_level=PrecisionLevel.EXACT,
+                usage_source=UsageSource.PROVIDER_RESPONSE,
+                additivity=Additivity.TOTAL_CONTRIBUTING,
+            )
+        )
+    return quantities
+
+
 def expected_contribution(quantities, superseded, authoritative) -> int:
     if superseded or not authoritative:
         return 0
@@ -109,7 +133,7 @@ def expected_contribution(quantities, superseded, authoritative) -> int:
 
 def random_event() -> tuple[TokenEvent, bool, bool]:
     n = rng.randint(0, 12)
-    quantities = [random_quantity() for _ in range(n)]
+    quantities = random_quantities(n)
     superseded = rng.random() < 0.2
     authoritative = True if rng.random() < 0.85 else False
     kwargs = {}
@@ -160,7 +184,7 @@ for trace_i in range(N_TRACES):
     n_events = rng.randint(0, 20)
     for _ in range(n_events):
         n_q = rng.randint(0, 6)
-        quantities = [random_quantity() for _ in range(n_q)]
+        quantities = random_quantities(n_q)
         superseded = rng.random() < 0.2
         authoritative = rng.random() >= 0.1
         kwargs = {}
@@ -303,19 +327,21 @@ final_with_subtotal = TokenEvent(
     trace_id="t",
     span_id="s",
     quantities=[
+        TokenQuantity(TokenType.INPUT, 200, PrecisionLevel.EXACT, UsageSource.PROVIDER_RESPONSE, Additivity.TOTAL_CONTRIBUTING),
         out_q(100, UsageSource.PROVIDER_RESPONSE),
         TokenQuantity(
             TokenType.CACHED_INPUT, 80, PrecisionLevel.EXACT, UsageSource.PROVIDER_RESPONSE, Additivity.SUBTOTAL_OF, subtotal_of="input"
         ),
     ],
-    provider_total_tokens=100,
+    provider_total_tokens=300,
 )
 p_sub = partial("p-sub", "rc-sub", qty=15)
 reconcile_supersession([p_sub, final_with_subtotal])
 check(p_sub.superseded is True, "2.6: partial superseded as usual")
 check(
-    final_with_subtotal.event_contributing_tokens == 100,
-    "2.6: final's own subtotal (80, cached) correctly excluded — supersession machinery doesn't disturb additivity accounting",
+    final_with_subtotal.event_contributing_tokens == 300,
+    "2.6: final's own subtotal (80, cached) correctly excluded (input 200 + output 100) — "
+    "supersession machinery doesn't disturb additivity accounting",
 )
 
 # =====================================================================================
@@ -327,7 +353,9 @@ many_quantities = []
 expected_many = 0
 for i in range(50):
     additivity = [Additivity.TOTAL_CONTRIBUTING, Additivity.SUBTOTAL_OF, Additivity.UNVERIFIED][i % 3]
-    subtotal_of = "input" if additivity == Additivity.SUBTOTAL_OF else None
+    # every quantity here is token_type=OUTPUT, so a subtotal must name "output" as its present
+    # parent (there are many total_contributing outputs to reference) — not an absent "input".
+    subtotal_of = "output" if additivity == Additivity.SUBTOTAL_OF else None
     qty = i * 7
     many_quantities.append(
         TokenQuantity(TokenType.OUTPUT, qty, PrecisionLevel.EXACT, UsageSource.PROVIDER_RESPONSE, additivity, subtotal_of=subtotal_of)
@@ -351,6 +379,9 @@ ev_no_contrib = TokenEvent(
     trace_id="t",
     span_id="s",
     quantities=[
+        # input present but UNVERIFIED (contributes 0) — so it is a valid parent for the cached
+        # subtotal while keeping the event's intent: NO quantity is total_contributing.
+        TokenQuantity(TokenType.INPUT, 1000, PrecisionLevel.EXACT, UsageSource.PROVIDER_RESPONSE, Additivity.UNVERIFIED),
         TokenQuantity(
             TokenType.CACHED_INPUT, 500, PrecisionLevel.EXACT, UsageSource.PROVIDER_RESPONSE, Additivity.SUBTOTAL_OF, subtotal_of="input"
         ),

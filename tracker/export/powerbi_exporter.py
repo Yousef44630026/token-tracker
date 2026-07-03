@@ -407,9 +407,26 @@ def _round(value: float | None) -> float | None:
     return round(value, 3) if value is not None else None
 
 
+def _dedupe_events_by_id(events: Sequence[TokenEvent]) -> list[TokenEvent]:
+    """Collapse repeated event_ids (identity is the event_id), keeping first occurrence.
+
+    The Trace model already rejects duplicate event_ids, but these fact builders aggregate a
+    RAW sequence that bypasses that guard (e.g. an at-least-once collector delivery, or a
+    re-read of appended JSONL). Deduping here keeps the 'never double-count' promise at the
+    export boundary; order is preserved so output stays deterministic."""
+    seen: set[str] = set()
+    unique: list[TokenEvent] = []
+    for event in events:
+        if event.event_id in seen:
+            continue
+        seen.add(event.event_id)
+        unique.append(event)
+    return unique
+
+
 def fact_token_event_rows(events: Sequence[TokenEvent]) -> list[dict[str, Any]]:
     rows = []
-    for event in events:
+    for event in _dedupe_events_by_id(events):
         event_date, event_month, event_hour = _date_parts(event.timestamp)
         duration = _duration_ms(event)
         rows.append(
@@ -468,7 +485,7 @@ def fact_token_event_rows(events: Sequence[TokenEvent]) -> list[dict[str, Any]]:
 
 def fact_token_quantity_rows(events: Sequence[TokenEvent]) -> list[dict[str, Any]]:
     rows = []
-    for event in events:
+    for event in _dedupe_events_by_id(events):
         event_date, _, _ = _date_parts(event.timestamp)
         for quantity in event.quantities:
             rows.append(
