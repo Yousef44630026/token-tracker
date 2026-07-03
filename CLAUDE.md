@@ -244,6 +244,17 @@ Begin with PRE-FLIGHT now and STOP for my "go".
 
 ---
 
+## Engineering standards (always apply)
+These override any bias toward speed. Correctness first, every time.
+- Test-first: write a failing test that reproduces the issue BEFORE fixing it, and confirm it fails for the right reason.
+- Never claim something works without running it. Show the actual output, not a description of it.
+- When a test fails, diagnose the root cause before touching code — no guess-and-check, no shotgun edits.
+- Prefer the smallest correct change; call out assumptions and trade-offs explicitly.
+- Before editing, read the surrounding code and match its idioms, naming, and structure.
+- Respect the invariants (INV-1..INV-7) and the storage/derived boundary in every change — never serialize a derived field, never sum raw quantities.
+- Run the full suite after changes (`python tests/run_all.py`) and report pass/fail honestly, including anything skipped.
+- For non-trivial work: plan first, implement, then verify end-to-end and review the diff before committing.
+
 ## Notes for you (not part of the prompt)
 - The gates are the safeguard. If Claude Code tries to dump the whole repo at once, hold it to "stop after each phase" — that single rule is what prevents the untested-megabuild failure mode.
 - Phase 5's recorded-real-payload rule is what actually resolves the Bedrock/Anthropic additivity uncertainty. Hand-written fixtures would only reflect assumptions back at you.
