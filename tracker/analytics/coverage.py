@@ -18,8 +18,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from tracker.derive.trace_rollup import observed_total_contributing_tokens
-from tracker.models.enums import PrecisionLevel
+from tracker.derive.trace_rollup import (
+    observed_total_contributing_tokens,
+    total_is_lower_bound,
+)
+from tracker.models.enums import Additivity, PrecisionLevel
 from tracker.models.trace import Trace
 
 
@@ -35,18 +38,27 @@ def build_coverage_exactness(trace: Trace) -> dict[str, Any]:
     exact = sum(1 for q in quantities if q.precision_level == PrecisionLevel.EXACT)
     estimate = sum(1 for q in quantities if q.precision_level == PrecisionLevel.ESTIMATE)
     unknown = sum(1 for q in quantities if q.precision_level == PrecisionLevel.UNKNOWN)
+    unverified = sum(1 for q in quantities if q.additivity == Additivity.UNVERIFIED)
     known = exact + estimate
     events_with_total = sum(1 for e in events if e.provider_total_tokens is not None)
     mismatches = sum(1 for e in events if e.event_total_mismatch not in (None, 0))
 
     return {
         "observed_total_contributing_tokens": observed_total_contributing_tokens(trace),
+        # Whether that headline is a point value or a floor (see derive/trace_rollup) — kept
+        # adjacent so the number is never read without its epistemic status.
+        "total_is_lower_bound": total_is_lower_bound(trace),
         "event_count": len(events),
         "superseded_event_count": sum(1 for e in events if e.superseded),
         "quantity_count": len(quantities),
         "exact_quantity_count": exact,
         "estimate_quantity_count": estimate,
         "unknown_quantity_count": unknown,
+        # Precision says a quantity was MEASURED; this says how many measured-or-not quantities
+        # were nonetheless NOT COUNTED because their additivity is unverified (contribute 0).
+        # Without this, an exact-but-unverified quantity looks "fully measured" while silently
+        # vanishing from the total.
+        "unverified_quantity_count": unverified,
         "provider_total_mismatch_count": mismatches,
         "events_with_provider_total": events_with_total,
         "coverage_ratio": _ratio(events_with_total, len(events)),
