@@ -1,0 +1,1528 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI Token Tracker - Power BI Dashboard Design</title>
+  <style>
+    :root {
+      --bg: #f6f7f9;
+      --panel: #ffffff;
+      --panel-soft: #fbfcfd;
+      --line: #d9dee7;
+      --line-strong: #b8c0cc;
+      --text: #1f2937;
+      --muted: #667085;
+      --teal: #0f766e;
+      --blue: #2563eb;
+      --green: #15803d;
+      --amber: #d97706;
+      --red: #be123c;
+      --violet: #6d28d9;
+      --ink: #111827;
+      --shadow: 0 1px 2px rgba(17, 24, 39, 0.08);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 14px/1.45 "Segoe UI", Arial, sans-serif;
+      letter-spacing: 0;
+    }
+
+    button,
+    select {
+      font: inherit;
+    }
+
+    .shell {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: 260px 1fr;
+    }
+
+    .sidebar {
+      background: #ffffff;
+      border-right: 1px solid var(--line);
+      padding: 18px 14px;
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow: auto;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 4px 8px 18px;
+      border-bottom: 1px solid var(--line);
+      margin-bottom: 14px;
+    }
+
+    .mark {
+      width: 34px;
+      height: 34px;
+      border-radius: 8px;
+      display: grid;
+      place-items: center;
+      background: #e7f5f2;
+      color: var(--teal);
+      font-weight: 800;
+      border: 1px solid #b8ded7;
+    }
+
+    .brand h1 {
+      margin: 0;
+      font-size: 15px;
+      line-height: 1.2;
+      color: var(--ink);
+    }
+
+    .brand span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      margin-top: 2px;
+    }
+
+    .nav-title {
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      margin: 18px 8px 8px;
+    }
+
+    .nav {
+      display: grid;
+      gap: 4px;
+    }
+
+    .nav button {
+      border: 0;
+      background: transparent;
+      color: var(--text);
+      border-radius: 8px;
+      padding: 10px 10px;
+      text-align: left;
+      display: grid;
+      grid-template-columns: 24px 1fr auto;
+      gap: 8px;
+      align-items: center;
+      cursor: pointer;
+      min-height: 40px;
+    }
+
+    .nav button:hover {
+      background: #f0f4f8;
+    }
+
+    .nav button.active {
+      background: #e7f5f2;
+      color: #074c45;
+      font-weight: 700;
+    }
+
+    .nav .icon {
+      color: var(--muted);
+      font-weight: 700;
+      text-align: center;
+    }
+
+    .nav button.active .icon {
+      color: var(--teal);
+    }
+
+    .count {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .model-note {
+      margin: 18px 8px 0;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel-soft);
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .model-note strong {
+      color: var(--text);
+      display: block;
+      margin-bottom: 4px;
+    }
+
+    .main {
+      min-width: 0;
+      padding: 18px 22px 28px;
+    }
+
+    .topbar {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+      padding: 14px;
+      display: grid;
+      grid-template-columns: minmax(260px, 1fr) auto;
+      gap: 14px;
+      align-items: center;
+      margin-bottom: 14px;
+    }
+
+    .page-title h2 {
+      margin: 0;
+      font-size: 20px;
+      line-height: 1.2;
+      color: var(--ink);
+    }
+
+    .page-title p {
+      margin: 4px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .filters {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      justify-content: flex-end;
+    }
+
+    .filter {
+      display: grid;
+      gap: 3px;
+      min-width: 130px;
+    }
+
+    .filter label {
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    .filter select {
+      height: 34px;
+      border: 1px solid var(--line-strong);
+      border-radius: 6px;
+      background: #fff;
+      color: var(--text);
+      padding: 0 28px 0 9px;
+    }
+
+    .dashboard-page {
+      display: none;
+    }
+
+    .dashboard-page.active {
+      display: block;
+    }
+
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(150px, 1fr));
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+
+    .kpi {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+      padding: 13px;
+      min-height: 104px;
+      display: grid;
+      gap: 8px;
+    }
+
+    .kpi .label {
+      color: var(--muted);
+      font-weight: 700;
+      font-size: 11px;
+      text-transform: uppercase;
+    }
+
+    .kpi .value {
+      color: var(--ink);
+      font-size: 25px;
+      line-height: 1;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    .kpi .delta {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .delta .up {
+      color: var(--green);
+      font-weight: 800;
+    }
+
+    .delta .down {
+      color: var(--red);
+      font-weight: 800;
+    }
+
+    .delta .flat {
+      color: var(--amber);
+      font-weight: 800;
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: minmax(0, 1.5fr) minmax(320px, 1fr);
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+
+    .grid-wide {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+      min-width: 0;
+    }
+
+    .panel-head {
+      padding: 13px 14px 8px;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: flex-start;
+    }
+
+    .panel-head h3 {
+      margin: 0;
+      color: var(--ink);
+      font-size: 14px;
+      line-height: 1.2;
+    }
+
+    .panel-head p {
+      margin: 4px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .panel-body {
+      padding: 14px;
+      min-width: 0;
+    }
+
+    .badge {
+      border-radius: 999px;
+      padding: 4px 8px;
+      line-height: 1;
+      font-size: 11px;
+      font-weight: 800;
+      white-space: nowrap;
+      border: 1px solid transparent;
+    }
+
+    .badge.pass {
+      color: #0f5132;
+      background: #e7f6ec;
+      border-color: #bfe6cd;
+    }
+
+    .badge.warn {
+      color: #7c4400;
+      background: #fff4df;
+      border-color: #f4cf93;
+    }
+
+    .badge.fail {
+      color: #7f1d1d;
+      background: #fde8e8;
+      border-color: #f4b7b7;
+    }
+
+    .badge.info {
+      color: #1e3a8a;
+      background: #eaf1ff;
+      border-color: #c7d9ff;
+    }
+
+    .line-chart {
+      height: 248px;
+      position: relative;
+      border-left: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+      padding: 12px 10px 26px 10px;
+      display: flex;
+      align-items: end;
+      gap: 8px;
+    }
+
+    .line-chart::before,
+    .line-chart::after {
+      content: "";
+      position: absolute;
+      left: 0;
+      right: 0;
+      border-top: 1px dashed #e6eaf0;
+    }
+
+    .line-chart::before {
+      top: 34%;
+    }
+
+    .line-chart::after {
+      top: 66%;
+    }
+
+    .bar-day {
+      flex: 1;
+      min-width: 18px;
+      display: grid;
+      align-items: end;
+      height: 100%;
+      position: relative;
+    }
+
+    .bar-stack {
+      width: 100%;
+      min-height: 12px;
+      border-radius: 5px 5px 0 0;
+      overflow: hidden;
+      display: grid;
+      align-items: end;
+    }
+
+    .bar-fill {
+      display: block;
+      width: 100%;
+    }
+
+    .bar-fill.input {
+      background: var(--blue);
+    }
+
+    .bar-fill.output {
+      background: var(--teal);
+    }
+
+    .bar-fill.cache {
+      background: var(--amber);
+    }
+
+    .bar-label {
+      position: absolute;
+      bottom: -22px;
+      left: 50%;
+      transform: translateX(-50%);
+      color: var(--muted);
+      font-size: 11px;
+      white-space: nowrap;
+    }
+
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      color: var(--muted);
+      font-size: 12px;
+      align-items: center;
+    }
+
+    .legend span {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      display: inline-block;
+      background: var(--line-strong);
+    }
+
+    .dot.blue {
+      background: var(--blue);
+    }
+
+    .dot.teal {
+      background: var(--teal);
+    }
+
+    .dot.amber {
+      background: var(--amber);
+    }
+
+    .dot.green {
+      background: var(--green);
+    }
+
+    .dot.red {
+      background: var(--red);
+    }
+
+    .horizontal-bars {
+      display: grid;
+      gap: 12px;
+    }
+
+    .hbar {
+      display: grid;
+      grid-template-columns: minmax(110px, 160px) 1fr 70px;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .hbar .name {
+      color: var(--text);
+      font-weight: 700;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .track {
+      height: 10px;
+      border-radius: 999px;
+      background: #edf1f5;
+      overflow: hidden;
+    }
+
+    .track > span {
+      display: block;
+      height: 100%;
+      border-radius: 999px;
+      background: var(--teal);
+    }
+
+    .hbar .value {
+      text-align: right;
+      color: var(--muted);
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+
+    .metric-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .metric-row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 10px;
+      padding: 10px 0;
+      border-bottom: 1px solid #edf1f5;
+    }
+
+    .metric-row:last-child {
+      border-bottom: 0;
+    }
+
+    .metric-row strong {
+      color: var(--ink);
+    }
+
+    .metric-row span {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .metric-row .num {
+      color: var(--ink);
+      font-weight: 800;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    th,
+    td {
+      text-align: left;
+      border-bottom: 1px solid #edf1f5;
+      padding: 9px 8px;
+      vertical-align: middle;
+    }
+
+    th {
+      color: var(--muted);
+      font-size: 11px;
+      text-transform: uppercase;
+      background: var(--panel-soft);
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
+
+    td.num,
+    th.num {
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+
+    .table-wrap {
+      max-height: 360px;
+      overflow: auto;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+
+    .matrix {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .matrix-card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+      background: var(--panel-soft);
+      min-height: 108px;
+    }
+
+    .matrix-card .top {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      align-items: start;
+      margin-bottom: 10px;
+    }
+
+    .matrix-card strong {
+      color: var(--ink);
+      display: block;
+      font-size: 13px;
+    }
+
+    .matrix-card small {
+      color: var(--muted);
+      display: block;
+      margin-top: 2px;
+    }
+
+    .matrix-card .gap {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .donut-row {
+      display: grid;
+      grid-template-columns: 160px 1fr;
+      gap: 18px;
+      align-items: center;
+    }
+
+    .donut {
+      width: 148px;
+      aspect-ratio: 1;
+      border-radius: 50%;
+      background: conic-gradient(var(--green) 0 62%, var(--amber) 62% 85%, var(--red) 85% 100%);
+      position: relative;
+      margin: 0 auto;
+    }
+
+    .donut::after {
+      content: "";
+      position: absolute;
+      inset: 24px;
+      border-radius: 50%;
+      background: var(--panel);
+      border: 1px solid var(--line);
+    }
+
+    .donut strong {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      z-index: 1;
+      color: var(--ink);
+      font-size: 24px;
+    }
+
+    .small-chart {
+      height: 178px;
+      display: flex;
+      align-items: end;
+      gap: 8px;
+      border-bottom: 1px solid var(--line);
+      border-left: 1px solid var(--line);
+      padding: 12px 8px 0;
+    }
+
+    .thin-bar {
+      flex: 1;
+      min-width: 14px;
+      border-radius: 5px 5px 0 0;
+      background: var(--blue);
+    }
+
+    .map-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .region {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+      background: var(--panel-soft);
+    }
+
+    .region strong {
+      color: var(--ink);
+      display: block;
+      margin-bottom: 4px;
+    }
+
+    .region span {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(120px, 1fr));
+      gap: 10px;
+      align-items: stretch;
+    }
+
+    .flow-step {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel-soft);
+      padding: 12px;
+      min-height: 116px;
+      position: relative;
+    }
+
+    .flow-step strong {
+      display: block;
+      color: var(--ink);
+      margin-bottom: 6px;
+    }
+
+    .flow-step span {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .flow-step::after {
+      content: ">";
+      position: absolute;
+      right: -9px;
+      top: 44%;
+      color: var(--line-strong);
+      font-weight: 800;
+      background: var(--panel);
+      width: 18px;
+      height: 18px;
+      display: grid;
+      place-items: center;
+      border-radius: 50%;
+      border: 1px solid var(--line);
+    }
+
+    .flow-step:last-child::after {
+      display: none;
+    }
+
+    .relationships {
+      display: grid;
+      gap: 8px;
+    }
+
+    .rel {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+      gap: 8px;
+      align-items: center;
+      color: var(--muted);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px;
+      background: var(--panel-soft);
+    }
+
+    .rel code {
+      color: var(--ink);
+      overflow-wrap: anywhere;
+      font-size: 12px;
+    }
+
+    .rel .join {
+      color: var(--teal);
+      font-weight: 800;
+    }
+
+    .footer-note {
+      color: var(--muted);
+      font-size: 12px;
+      padding: 10px 2px 0;
+    }
+
+    @media (max-width: 1180px) {
+      .shell {
+        grid-template-columns: 1fr;
+      }
+
+      .sidebar {
+        height: auto;
+        position: static;
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .nav {
+        grid-template-columns: repeat(4, minmax(160px, 1fr));
+      }
+
+      .topbar,
+      .grid-2,
+      .grid-3,
+      .donut-row {
+        grid-template-columns: 1fr;
+      }
+
+      .kpi-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .matrix {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 720px) {
+      .main {
+        padding: 12px;
+      }
+
+      .filters {
+        justify-content: stretch;
+      }
+
+      .filter {
+        width: 100%;
+      }
+
+      .nav {
+        grid-template-columns: 1fr;
+      }
+
+      .kpi-grid,
+      .matrix,
+      .map-grid,
+      .flow {
+        grid-template-columns: 1fr;
+      }
+
+      .hbar {
+        grid-template-columns: 1fr;
+        gap: 5px;
+      }
+
+      .hbar .value {
+        text-align: left;
+      }
+
+      .flow-step::after {
+        display: none;
+      }
+
+      .rel {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="mark">TT</div>
+        <div>
+          <h1>AI Token Operations</h1>
+          <span>Power BI dashboard concept</span>
+        </div>
+      </div>
+
+      <div class="nav-title">Report pages</div>
+      <nav class="nav" aria-label="Dashboard pages">
+        <button class="active" data-page="executive"><span class="icon">01</span><span>Executive Usage</span><span class="count">KPI</span></button>
+        <button data-page="service"><span class="icon">02</span><span>Service Attribution</span><span class="count">Ops</span></button>
+        <button data-page="reliability"><span class="icon">03</span><span>Reliability</span><span class="count">SLO</span></button>
+        <button data-page="cache"><span class="icon">04</span><span>Cache Efficiency</span><span class="count">Reuse</span></button>
+        <button data-page="rag"><span class="icon">05</span><span>RAG & Agent</span><span class="count">Flow</span></button>
+        <button data-page="trust"><span class="icon">06</span><span>Trust Readiness</span><span class="count">Warn</span></button>
+        <button data-page="model"><span class="icon">07</span><span>Data Model</span><span class="count">BI</span></button>
+      </nav>
+
+      <div class="model-note">
+        <strong>Counting rule</strong>
+        Sum event totals or quantity totals, never both. Power BI measure: Total Contributing Tokens = SUM(fact_token_events[event_contributing_tokens]).
+      </div>
+    </aside>
+
+    <main class="main">
+      <section class="topbar">
+        <div class="page-title">
+          <h2 id="pageHeading">Executive Usage</h2>
+          <p id="pageSubtitle">Production usage, reliability, and trust posture across providers and services.</p>
+        </div>
+        <div class="filters" aria-label="Dashboard filters">
+          <div class="filter">
+            <label>Date range</label>
+            <select>
+              <option>Last 30 days</option>
+              <option>Last 7 days</option>
+              <option>Current month</option>
+            </select>
+          </div>
+          <div class="filter">
+            <label>Environment</label>
+            <select>
+              <option>Production</option>
+              <option>Staging</option>
+              <option>All</option>
+            </select>
+          </div>
+          <div class="filter">
+            <label>Provider</label>
+            <select>
+              <option>All providers</option>
+              <option>Azure OpenAI</option>
+              <option>Bedrock</option>
+              <option>OpenAI</option>
+              <option>Gemini</option>
+            </select>
+          </div>
+          <div class="filter">
+            <label>Service</label>
+            <select>
+              <option>All services</option>
+              <option>support-api</option>
+              <option>claims-agent</option>
+              <option>knowledge-rag</option>
+            </select>
+          </div>
+        </div>
+      </section>
+
+      <section id="executive" class="dashboard-page active">
+        <div class="kpi-grid">
+          <div class="kpi">
+            <div class="label">Total contributing tokens</div>
+            <div class="value">3.84M</div>
+            <div class="delta"><span class="up">+12.4%</span><span>vs previous period</span></div>
+          </div>
+          <div class="kpi">
+            <div class="label">Provider events</div>
+            <div class="value">18,642</div>
+            <div class="delta"><span class="up">+8.1%</span><span>complete calls tracked</span></div>
+          </div>
+          <div class="kpi">
+            <div class="label">Success rate</div>
+            <div class="value">98.7%</div>
+            <div class="delta"><span class="down">-0.3%</span><span>watch rate limits</span></div>
+          </div>
+          <div class="kpi">
+            <div class="label">P95 duration</div>
+            <div class="value">1.24s</div>
+            <div class="delta"><span class="flat">+40ms</span><span>latency drift</span></div>
+          </div>
+          <div class="kpi">
+            <div class="label">Trust readiness</div>
+            <div class="value">Warn</div>
+            <div class="delta"><span class="flat">0 fails</span><span>14 validation gaps</span></div>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <article class="panel">
+            <div class="panel-head">
+              <div>
+                <h3>Token Trend by Day</h3>
+                <p>Stacked input, output, and cache-read tokens from fact_token_events.</p>
+              </div>
+              <div class="legend">
+                <span><i class="dot blue"></i>Input</span>
+                <span><i class="dot teal"></i>Output</span>
+                <span><i class="dot amber"></i>Cache read</span>
+              </div>
+            </div>
+            <div class="panel-body">
+              <div class="line-chart" aria-label="Stacked daily token chart">
+                <div class="bar-day"><div class="bar-stack" style="height:54%"><span class="bar-fill input" style="height:56%"></span><span class="bar-fill output" style="height:28%"></span><span class="bar-fill cache" style="height:16%"></span></div><span class="bar-label">Jun 24</span></div>
+                <div class="bar-day"><div class="bar-stack" style="height:62%"><span class="bar-fill input" style="height:55%"></span><span class="bar-fill output" style="height:29%"></span><span class="bar-fill cache" style="height:16%"></span></div><span class="bar-label">Jun 25</span></div>
+                <div class="bar-day"><div class="bar-stack" style="height:58%"><span class="bar-fill input" style="height:52%"></span><span class="bar-fill output" style="height:31%"></span><span class="bar-fill cache" style="height:17%"></span></div><span class="bar-label">Jun 26</span></div>
+                <div class="bar-day"><div class="bar-stack" style="height:69%"><span class="bar-fill input" style="height:57%"></span><span class="bar-fill output" style="height:26%"></span><span class="bar-fill cache" style="height:17%"></span></div><span class="bar-label">Jun 27</span></div>
+                <div class="bar-day"><div class="bar-stack" style="height:76%"><span class="bar-fill input" style="height:54%"></span><span class="bar-fill output" style="height:28%"></span><span class="bar-fill cache" style="height:18%"></span></div><span class="bar-label">Jun 28</span></div>
+                <div class="bar-day"><div class="bar-stack" style="height:72%"><span class="bar-fill input" style="height:53%"></span><span class="bar-fill output" style="height:29%"></span><span class="bar-fill cache" style="height:18%"></span></div><span class="bar-label">Jun 29</span></div>
+                <div class="bar-day"><div class="bar-stack" style="height:84%"><span class="bar-fill input" style="height:55%"></span><span class="bar-fill output" style="height:26%"></span><span class="bar-fill cache" style="height:19%"></span></div><span class="bar-label">Jun 30</span></div>
+                <div class="bar-day"><div class="bar-stack" style="height:91%"><span class="bar-fill input" style="height:56%"></span><span class="bar-fill output" style="height:27%"></span><span class="bar-fill cache" style="height:17%"></span></div><span class="bar-label">Jul 01</span></div>
+                <div class="bar-day"><div class="bar-stack" style="height:88%"><span class="bar-fill input" style="height:54%"></span><span class="bar-fill output" style="height:29%"></span><span class="bar-fill cache" style="height:17%"></span></div><span class="bar-label">Jul 02</span></div>
+              </div>
+            </div>
+          </article>
+
+          <article class="panel">
+            <div class="panel-head">
+              <div>
+                <h3>Provider Share</h3>
+                <p>Tokens by provider and API surface.</p>
+              </div>
+              <span class="badge info">fact_service_daily</span>
+            </div>
+            <div class="panel-body">
+              <div class="horizontal-bars">
+                <div class="hbar"><div class="name">Azure OpenAI</div><div class="track"><span style="width:78%; background:var(--teal)"></span></div><div class="value">1.42M</div></div>
+                <div class="hbar"><div class="name">OpenAI</div><div class="track"><span style="width:62%; background:var(--blue)"></span></div><div class="value">1.12M</div></div>
+                <div class="hbar"><div class="name">Bedrock</div><div class="track"><span style="width:44%; background:var(--amber)"></span></div><div class="value">802K</div></div>
+                <div class="hbar"><div class="name">Gemini</div><div class="track"><span style="width:28%; background:var(--green)"></span></div><div class="value">506K</div></div>
+                <div class="hbar"><div class="name">Other</div><div class="track"><span style="width:14%; background:var(--violet)"></span></div><div class="value">253K</div></div>
+              </div>
+            </div>
+          </article>
+        </div>
+
+        <div class="grid-3">
+          <article class="panel">
+            <div class="panel-head"><div><h3>Operational Signals</h3><p>Reliability counters that should sit near the KPI cards.</p></div></div>
+            <div class="panel-body">
+              <div class="metric-list">
+                <div class="metric-row"><div><strong>Rate limited events</strong><br><span>429 or provider rate-limit status</span></div><div class="num">74</div></div>
+                <div class="metric-row"><div><strong>Retries</strong><br><span>Retry count from observation</span></div><div class="num">211</div></div>
+                <div class="metric-row"><div><strong>Flagged events</strong><br><span>Data quality warnings</span></div><div class="num">96</div></div>
+                <div class="metric-row"><div><strong>Total mismatches</strong><br><span>Provider total reconciliation issues</span></div><div class="num">0</div></div>
+              </div>
+            </div>
+          </article>
+
+          <article class="panel">
+            <div class="panel-head"><div><h3>Token Composition</h3><p>Input, output, cache and model internals.</p></div></div>
+            <div class="panel-body">
+              <div class="donut-row">
+                <div class="donut"><strong>3.84M</strong></div>
+                <div class="metric-list">
+                  <div class="metric-row"><div><strong>Input</strong><br><span>Prompt and retrieved context</span></div><div class="num">2.16M</div></div>
+                  <div class="metric-row"><div><strong>Output</strong><br><span>Generated tokens</span></div><div class="num">1.04M</div></div>
+                  <div class="metric-row"><div><strong>Cache read</strong><br><span>Provider cache reuse</span></div><div class="num">641K</div></div>
+                </div>
+              </div>
+            </div>
+          </article>
+
+          <article class="panel">
+            <div class="panel-head"><div><h3>Executive Decision Tiles</h3><p>What the owner should notice first.</p></div></div>
+            <div class="panel-body">
+              <div class="metric-list">
+                <div class="metric-row"><div><strong>Usage growth</strong><br><span>Driven by support-api and claims-agent</span></div><div class="num">High</div></div>
+                <div class="metric-row"><div><strong>Reliability</strong><br><span>Rate limits rising on Bedrock</span></div><div class="num">Watch</div></div>
+                <div class="metric-row"><div><strong>Validation</strong><br><span>No adapter-only failures remain</span></div><div class="num">Warn</div></div>
+                <div class="metric-row"><div><strong>Data model</strong><br><span>Ready for scheduled refresh</span></div><div class="num">Ready</div></div>
+              </div>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section id="service" class="dashboard-page">
+        <div class="kpi-grid">
+          <div class="kpi"><div class="label">Services tracked</div><div class="value">12</div><div class="delta"><span class="up">+3</span><span>new services</span></div></div>
+          <div class="kpi"><div class="label">Top service share</div><div class="value">38%</div><div class="delta"><span class="flat">support-api</span><span>dominant workload</span></div></div>
+          <div class="kpi"><div class="label">Regions</div><div class="value">7</div><div class="delta"><span class="up">multi-cloud</span><span>Azure, AWS, GCP</span></div></div>
+          <div class="kpi"><div class="label">Deployments</div><div class="value">21</div><div class="delta"><span class="flat">tracked</span><span>provider metadata</span></div></div>
+          <div class="kpi"><div class="label">Flagged groups</div><div class="value">4</div><div class="delta"><span class="down">review</span><span>quality flags</span></div></div>
+        </div>
+
+        <div class="grid-2">
+          <article class="panel">
+            <div class="panel-head">
+              <div><h3>Service Attribution Table</h3><p>Rows come from service, tenant, cloud, region, provider, surface, model and deployment.</p></div>
+              <span class="badge info">dim_service + fact_service_daily</span>
+            </div>
+            <div class="panel-body">
+              <div class="table-wrap">
+                <table>
+                  <thead><tr><th>Service</th><th>Cloud</th><th>Region</th><th>Provider</th><th>Model</th><th class="num">Tokens</th><th class="num">Events</th><th class="num">Avg ms</th></tr></thead>
+                  <tbody>
+                    <tr><td>support-api</td><td>azure</td><td>francecentral</td><td>azure_openai</td><td>gpt-prod</td><td class="num">1,462,000</td><td class="num">6,142</td><td class="num">872</td></tr>
+                    <tr><td>claims-agent</td><td>aws</td><td>eu-west-3</td><td>bedrock</td><td>nova</td><td class="num">802,400</td><td class="num">3,908</td><td class="num">1,184</td></tr>
+                    <tr><td>knowledge-rag</td><td>gcp</td><td>europe-west1</td><td>gemini</td><td>gemini-2.5</td><td class="num">506,100</td><td class="num">2,216</td><td class="num">934</td></tr>
+                    <tr><td>coding-suite</td><td>openai</td><td>unknown</td><td>openai</td><td>gpt-agent</td><td class="num">491,800</td><td class="num">2,714</td><td class="num">618</td></tr>
+                    <tr><td>case-search</td><td>azure</td><td>westeurope</td><td>azure_openai</td><td>embed-prod</td><td class="num">316,900</td><td class="num">2,104</td><td class="num">241</td></tr>
+                    <tr><td>rerank-worker</td><td>voyage</td><td>unknown</td><td>voyage</td><td>rerank</td><td class="num">261,600</td><td class="num">1,558</td><td class="num">322</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </article>
+
+          <article class="panel">
+            <div class="panel-head"><div><h3>Cloud and Region Split</h3><p>Operational ownership view for Azure, AWS and GCP.</p></div></div>
+            <div class="panel-body">
+              <div class="map-grid">
+                <div class="region"><strong>Azure / francecentral</strong><span>1.46M tokens, p95 1.1s, 99.1% success</span></div>
+                <div class="region"><strong>AWS / eu-west-3</strong><span>802K tokens, p95 1.8s, rate limits elevated</span></div>
+                <div class="region"><strong>GCP / europe-west1</strong><span>506K tokens, multimodal traffic stable</span></div>
+                <div class="region"><strong>OpenAI / global</strong><span>492K tokens, low retry rate</span></div>
+              </div>
+              <div class="footer-note">Use cloud_provider and region from observation, falling back to provider-derived cloud when missing.</div>
+            </div>
+          </article>
+        </div>
+
+        <div class="grid-3">
+          <article class="panel">
+            <div class="panel-head"><div><h3>Top Deployments</h3><p>Deployment is preserved separately from response model.</p></div></div>
+            <div class="panel-body">
+              <div class="horizontal-bars">
+                <div class="hbar"><div class="name">prod-gpt</div><div class="track"><span style="width:82%; background:var(--teal)"></span></div><div class="value">1.21M</div></div>
+                <div class="hbar"><div class="name">embed-prod</div><div class="track"><span style="width:51%; background:var(--blue)"></span></div><div class="value">752K</div></div>
+                <div class="hbar"><div class="name">nova-prod</div><div class="track"><span style="width:44%; background:var(--amber)"></span></div><div class="value">641K</div></div>
+              </div>
+            </div>
+          </article>
+          <article class="panel">
+            <div class="panel-head"><div><h3>Tenant Share</h3><p>Useful for chargeback-free operational ownership.</p></div></div>
+            <div class="panel-body">
+              <div class="small-chart">
+                <div class="thin-bar" style="height:88%; background:var(--teal)"></div>
+                <div class="thin-bar" style="height:62%; background:var(--blue)"></div>
+                <div class="thin-bar" style="height:41%; background:var(--amber)"></div>
+                <div class="thin-bar" style="height:24%; background:var(--green)"></div>
+              </div>
+            </div>
+          </article>
+          <article class="panel">
+            <div class="panel-head"><div><h3>Attribution Quality</h3><p>How many events carry service metadata.</p></div></div>
+            <div class="panel-body">
+              <div class="metric-list">
+                <div class="metric-row"><div><strong>Service coverage</strong><br><span>service_name present</span></div><div class="num">94%</div></div>
+                <div class="metric-row"><div><strong>Tenant coverage</strong><br><span>tenant_id present</span></div><div class="num">91%</div></div>
+                <div class="metric-row"><div><strong>Region coverage</strong><br><span>region present or inferred</span></div><div class="num">100%</div></div>
+              </div>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section id="reliability" class="dashboard-page">
+        <div class="kpi-grid">
+          <div class="kpi"><div class="label">Success rate</div><div class="value">98.7%</div><div class="delta"><span class="down">-0.3%</span><span>last 7 days</span></div></div>
+          <div class="kpi"><div class="label">Errors</div><div class="value">242</div><div class="delta"><span class="down">+31</span><span>mostly rate limits</span></div></div>
+          <div class="kpi"><div class="label">Rate limits</div><div class="value">74</div><div class="delta"><span class="down">+18</span><span>Bedrock spike</span></div></div>
+          <div class="kpi"><div class="label">Retries</div><div class="value">211</div><div class="delta"><span class="flat">1.13%</span><span>retry/event</span></div></div>
+          <div class="kpi"><div class="label">Usage missing</div><div class="value">19</div><div class="delta"><span class="down">watch</span><span>raw_usage_missing</span></div></div>
+        </div>
+
+        <div class="grid-2">
+          <article class="panel">
+            <div class="panel-head"><div><h3>Error and Retry Trend</h3><p>Use error_count, rate_limit_count and retry_count from fact_token_events.</p></div></div>
+            <div class="panel-body">
+              <div class="small-chart">
+                <div class="thin-bar" style="height:26%; background:var(--red)"></div>
+                <div class="thin-bar" style="height:31%; background:var(--red)"></div>
+                <div class="thin-bar" style="height:22%; background:var(--red)"></div>
+                <div class="thin-bar" style="height:44%; background:var(--amber)"></div>
+                <div class="thin-bar" style="height:58%; background:var(--amber)"></div>
+                <div class="thin-bar" style="height:71%; background:var(--red)"></div>
+                <div class="thin-bar" style="height:63%; background:var(--red)"></div>
+                <div class="thin-bar" style="height:49%; background:var(--amber)"></div>
+                <div class="thin-bar" style="height:38%; background:var(--amber)"></div>
+              </div>
+            </div>
+          </article>
+
+          <article class="panel">
+            <div class="panel-head"><div><h3>Provider Reliability</h3><p>Fast diagnosis by provider and surface.</p></div></div>
+            <div class="panel-body">
+              <div class="table-wrap">
+                <table>
+                  <thead><tr><th>Provider</th><th>Surface</th><th class="num">Success</th><th class="num">P95 ms</th><th class="num">Rate limits</th><th>Status</th></tr></thead>
+                  <tbody>
+                    <tr><td>azure_openai</td><td>responses</td><td class="num">99.2%</td><td class="num">1,110</td><td class="num">8</td><td><span class="badge pass">stable</span></td></tr>
+                    <tr><td>bedrock</td><td>converse</td><td class="num">96.8%</td><td class="num">1,820</td><td class="num">51</td><td><span class="badge warn">watch</span></td></tr>
+                    <tr><td>openai</td><td>responses</td><td class="num">99.0%</td><td class="num">890</td><td class="num">7</td><td><span class="badge pass">stable</span></td></tr>
+                    <tr><td>gemini</td><td>generate_content</td><td class="num">98.4%</td><td class="num">1,240</td><td class="num">4</td><td><span class="badge pass">stable</span></td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </article>
+        </div>
+
+        <div class="grid-3">
+          <article class="panel">
+            <div class="panel-head"><div><h3>Latency Distribution</h3><p>P50, P95 and P99 cards for SLO review.</p></div></div>
+            <div class="panel-body">
+              <div class="metric-list">
+                <div class="metric-row"><div><strong>P50 duration</strong><br><span>Typical provider call</span></div><div class="num">540 ms</div></div>
+                <div class="metric-row"><div><strong>P95 duration</strong><br><span>SLO threshold view</span></div><div class="num">1,240 ms</div></div>
+                <div class="metric-row"><div><strong>P99 duration</strong><br><span>Tail behavior</span></div><div class="num">2,910 ms</div></div>
+              </div>
+            </div>
+          </article>
+          <article class="panel">
+            <div class="panel-head"><div><h3>Quality Flags</h3><p>Data quality flags should be visible, not hidden.</p></div></div>
+            <div class="panel-body">
+              <div class="horizontal-bars">
+                <div class="hbar"><div class="name">raw_usage_missing</div><div class="track"><span style="width:44%; background:var(--red)"></span></div><div class="value">19</div></div>
+                <div class="hbar"><div class="name">provider_total_mismatch</div><div class="track"><span style="width:0%; background:var(--red)"></span></div><div class="value">0</div></div>
+                <div class="hbar"><div class="name">unverified_additivity</div><div class="track"><span style="width:24%; background:var(--amber)"></span></div><div class="value">11</div></div>
+              </div>
+            </div>
+          </article>
+          <article class="panel">
+            <div class="panel-head"><div><h3>Next Action</h3><p>What reliability page should push engineers toward.</p></div></div>
+            <div class="panel-body">
+              <div class="metric-list">
+                <div class="metric-row"><div><strong>Bedrock throttling</strong><br><span>Review concurrency, retry policy, quotas</span></div><div class="num">P1</div></div>
+                <div class="metric-row"><div><strong>Missing usage</strong><br><span>Trace provider responses with usage absent</span></div><div class="num">P2</div></div>
+                <div class="metric-row"><div><strong>Tail latency</strong><br><span>Separate model latency from tool latency</span></div><div class="num">P2</div></div>
+              </div>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section id="cache" class="dashboard-page">
+        <div class="kpi-grid">
+          <div class="kpi"><div class="label">Cache hit rate</div><div class="value">18.2%</div><div class="delta"><span class="up">+2.7%</span><span>prompt reuse up</span></div></div>
+          <div class="kpi"><div class="label">Cache read tokens</div><div class="value">641K</div><div class="delta"><span class="up">+91K</span><span>read from provider cache</span></div></div>
+          <div class="kpi"><div class="label">Cache creation</div><div class="value">214K</div><div class="delta"><span class="flat">warmup</span><span>creation input</span></div></div>
+          <div class="kpi"><div class="label">Cache savings</div><div class="value">641K</div><div class="delta"><span class="up">visible</span><span>tokens not resent</span></div></div>
+          <div class="kpi"><div class="label">Real cache proof</div><div class="value">Azure</div><div class="delta"><span class="up">real</span><span>2 cache fixtures</span></div></div>
+        </div>
+
+        <div class="grid-2">
+          <article class="panel">
+            <div class="panel-head"><div><h3>Cache Efficiency by Provider</h3><p>Cache-read tokens divided by input plus cache-read tokens.</p></div></div>
+            <div class="panel-body">
+              <div class="horizontal-bars">
+                <div class="hbar"><div class="name">Azure OpenAI Responses</div><div class="track"><span style="width:72%; background:var(--teal)"></span></div><div class="value">24.6%</div></div>
+                <div class="hbar"><div class="name">OpenAI Responses</div><div class="track"><span style="width:38%; background:var(--blue)"></span></div><div class="value">13.1%</div></div>
+                <div class="hbar"><div class="name">Gemini Generate</div><div class="track"><span style="width:61%; background:var(--green)"></span></div><div class="value">20.8%</div></div>
+                <div class="hbar"><div class="name">Bedrock Converse</div><div class="track"><span style="width:18%; background:var(--amber)"></span></div><div class="value">6.4%</div></div>
+              </div>
+            </div>
+          </article>
+
+          <article class="panel">
+            <div class="panel-head"><div><h3>Cache Trend</h3><p>Cache-read token volume over time.</p></div></div>
+            <div class="panel-body">
+              <div class="small-chart">
+                <div class="thin-bar" style="height:42%; background:var(--amber)"></div>
+                <div class="thin-bar" style="height:46%; background:var(--amber)"></div>
+                <div class="thin-bar" style="height:48%; background:var(--amber)"></div>
+                <div class="thin-bar" style="height:52%; background:var(--amber)"></div>
+                <div class="thin-bar" style="height:61%; background:var(--amber)"></div>
+                <div class="thin-bar" style="height:67%; background:var(--amber)"></div>
+                <div class="thin-bar" style="height:72%; background:var(--amber)"></div>
+                <div class="thin-bar" style="height:75%; background:var(--amber)"></div>
+              </div>
+            </div>
+          </article>
+        </div>
+
+        <div class="grid-3">
+          <article class="panel">
+            <div class="panel-head"><div><h3>Prompt Reuse Candidates</h3><p>Services with high repeated prompt patterns.</p></div></div>
+            <div class="panel-body">
+              <div class="metric-list">
+                <div class="metric-row"><div><strong>support-api</strong><br><span>Policy context repeated</span></div><div class="num">High</div></div>
+                <div class="metric-row"><div><strong>claims-agent</strong><br><span>Tool instruction blocks repeated</span></div><div class="num">Medium</div></div>
+                <div class="metric-row"><div><strong>knowledge-rag</strong><br><span>Retrieved context differs often</span></div><div class="num">Low</div></div>
+              </div>
+            </div>
+          </article>
+          <article class="panel">
+            <div class="panel-head"><div><h3>Counting Guard</h3><p>Cache fields are visible diagnostics.</p></div></div>
+            <div class="panel-body">
+              <div class="metric-list">
+                <div class="metric-row"><div><strong>OpenAI/Azure cache</strong><br><span>subtotal_of input, contributes 0</span></div><div class="num">Safe</div></div>
+                <div class="metric-row"><div><strong>Anthropic cache</strong><br><span>separate input buckets</span></div><div class="num">Safe</div></div>
+                <div class="metric-row"><div><strong>Bedrock cache</strong><br><span>unverified until real proof</span></div><div class="num">Warn</div></div>
+              </div>
+            </div>
+          </article>
+          <article class="panel">
+            <div class="panel-head"><div><h3>Dashboard Measures</h3><p>DAX cards to create first.</p></div></div>
+            <div class="panel-body">
+              <div class="metric-list">
+                <div class="metric-row"><div><strong>Cache Hit Rate</strong><br><span>Cached / input plus cached</span></div><div class="num">DAX</div></div>
+                <div class="metric-row"><div><strong>Cache Savings Tokens</strong><br><span>SUM cached_input_tokens</span></div><div class="num">DAX</div></div>
+                <div class="metric-row"><div><strong>Cache Creation Tokens</strong><br><span>SUM cache_creation_input_tokens</span></div><div class="num">DAX</div></div>
+              </div>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section id="rag" class="dashboard-page">
+        <div class="kpi-grid">
+          <div class="kpi"><div class="label">Vector searches</div><div class="value">4,821</div><div class="delta"><span class="up">+9%</span><span>RAG spans</span></div></div>
+          <div class="kpi"><div class="label">Avg vector latency</div><div class="value">18ms</div><div class="delta"><span class="up">stable</span><span>retriever healthy</span></div></div>
+          <div class="kpi"><div class="label">Context utilization</div><div class="value">31%</div><div class="delta"><span class="flat">watch</span><span>prompt pressure</span></div></div>
+          <div class="kpi"><div class="label">Agent runs</div><div class="value">1,284</div><div class="delta"><span class="up">+14%</span><span>workflow adoption</span></div></div>
+          <div class="kpi"><div class="label">Tool calls</div><div class="value">3,916</div><div class="delta"><span class="flat">3.1/run</span><span>agent fanout</span></div></div>
+        </div>
+
+        <div class="grid-wide">
+          <article class="panel">
+            <div class="panel-head"><div><h3>RAG and Agent Execution Flow</h3><p>Span metadata connects retrieval, prompt assembly, LLM generation, agent step and tool calls.</p></div></div>
+            <div class="panel-body">
+              <div class="flow">
+                <div class="flow-step"><strong>Vector search</strong><span>fact_spans span_type=vector_search with num_results and latency_ms.</span></div>
+                <div class="flow-step"><strong>Prompt assembly</strong><span>retrieved_context_estimated_tokens and downstream_llm_span_id.</span></div>
+                <div class="flow-step"><strong>LLM event</strong><span>fact_token_events joins by span_id to token totals and latency.</span></div>
+                <div class="flow-step"><strong>Agent step</strong><span>agent_run_id, step_index, retry_count and loop signals.</span></div>
+                <div class="flow-step"><strong>Tool call</strong><span>tool_name, tool_result_estimated_tokens and injection metadata.</span></div>
+              </div>
+            </div>
+          </article>
+        </div>
+
+        <div class="grid-3">
+          <article class="panel">
+            <div class="panel-head"><div><h3>RAG Efficiency</h3><p>Are retrieved tokens actually useful?</p></div></div>
+            <div class="panel-body">
+              <div class="metric-list">
+                <div class="metric-row"><div><strong>Retrieved tokens</strong><br><span>Context assembled into prompt</span></div><div class="num">884K</div></div>
+                <div class="metric-row"><div><strong>Injected ratio</strong><br><span>Injected / retrieved</span></div><div class="num">76%</div></div>
+                <div class="metric-row"><div><strong>Context utilization</strong><br><span>Retrieved context / input</span></div><div class="num">31%</div></div>
+              </div>
+            </div>
+          </article>
+          <article class="panel">
+            <div class="panel-head"><div><h3>Agent Efficiency</h3><p>Workflow complexity and retries.</p></div></div>
+            <div class="panel-body">
+              <div class="metric-list">
+                <div class="metric-row"><div><strong>Agent tokens</strong><br><span>Events attached to agent spans</span></div><div class="num">742K</div></div>
+                <div class="metric-row"><div><strong>Tool result estimate</strong><br><span>Visible, not provider-token total</span></div><div class="num">188K</div></div>
+                <div class="metric-row"><div><strong>Max steps reached</strong><br><span>Agent stopping behavior</span></div><div class="num">23</div></div>
+              </div>
+            </div>
+          </article>
+          <article class="panel">
+            <div class="panel-head"><div><h3>Tool Call Mix</h3><p>Which tools increase context pressure.</p></div></div>
+            <div class="panel-body">
+              <div class="horizontal-bars">
+                <div class="hbar"><div class="name">search_cases</div><div class="track"><span style="width:78%; background:var(--teal)"></span></div><div class="value">1,902</div></div>
+                <div class="hbar"><div class="name">lookup_policy</div><div class="track"><span style="width:53%; background:var(--blue)"></span></div><div class="value">1,284</div></div>
+                <div class="hbar"><div class="name">summarize_file</div><div class="track"><span style="width:31%; background:var(--amber)"></span></div><div class="value">730</div></div>
+              </div>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section id="trust" class="dashboard-page">
+        <div class="kpi-grid">
+          <div class="kpi"><div class="label">Overall status</div><div class="value">Warn</div><div class="delta"><span class="flat">0 fail</span><span>validation gaps remain</span></div></div>
+          <div class="kpi"><div class="label">Surfaces</div><div class="value">15</div><div class="delta"><span class="up">all mapped</span><span>adapter coverage</span></div></div>
+          <div class="kpi"><div class="label">Pass</div><div class="value">1</div><div class="delta"><span class="up">Gemini</span><span>real + simulated</span></div></div>
+          <div class="kpi"><div class="label">Warn</div><div class="value">14</div><div class="delta"><span class="flat">fixture gaps</span><span>no adapter-only</span></div></div>
+          <div class="kpi"><div class="label">Fail</div><div class="value">0</div><div class="delta"><span class="up">clean</span><span>no missing fixture</span></div></div>
+        </div>
+
+        <div class="grid-wide">
+          <article class="panel">
+            <div class="panel-head">
+              <div><h3>Provider Validation Matrix</h3><p>Show this page to make validation honesty impossible to miss.</p></div>
+              <span class="badge warn">overall warn</span>
+            </div>
+            <div class="panel-body">
+              <div class="matrix">
+                <div class="matrix-card"><div class="top"><div><strong>azure_openai</strong><small>responses</small></div><span class="badge warn">warn</span></div><div class="gap">real_only, no_simulated_fixture, no_stream_fixture</div></div>
+                <div class="matrix-card"><div class="top"><div><strong>azure_openai</strong><small>embeddings</small></div><span class="badge warn">warn</span></div><div class="gap">simulated_only, no_real_fixture</div></div>
+                <div class="matrix-card"><div class="top"><div><strong>bedrock</strong><small>converse</small></div><span class="badge warn">warn</span></div><div class="gap">real_and_simulated, no_stream_fixture</div></div>
+                <div class="matrix-card"><div class="top"><div><strong>gemini</strong><small>generate_content</small></div><span class="badge pass">pass</span></div><div class="gap">real_and_simulated, no visible gaps</div></div>
+                <div class="matrix-card"><div class="top"><div><strong>openai</strong><small>responses</small></div><span class="badge warn">warn</span></div><div class="gap">simulated_only, no_real_fixture, no_stream_fixture</div></div>
+                <div class="matrix-card"><div class="top"><div><strong>vertex_ai</strong><small>generate_content</small></div><span class="badge warn">warn</span></div><div class="gap">simulated_only, no_real_fixture</div></div>
+                <div class="matrix-card"><div class="top"><div><strong>voyage</strong><small>rerank</small></div><span class="badge warn">warn</span></div><div class="gap">simulated_only, no_real_fixture</div></div>
+                <div class="matrix-card"><div class="top"><div><strong>anthropic</strong><small>messages</small></div><span class="badge warn">warn</span></div><div class="gap">simulated_only, no_real_fixture, no_stream_fixture</div></div>
+              </div>
+            </div>
+          </article>
+        </div>
+
+        <div class="grid-3">
+          <article class="panel">
+            <div class="panel-head"><div><h3>What This Page Proves</h3><p>Dashboard trust in one glance.</p></div></div>
+            <div class="panel-body">
+              <div class="metric-list">
+                <div class="metric-row"><div><strong>No adapter-only surfaces</strong><br><span>Every adapter has at least one fixture</span></div><div class="num">0</div></div>
+                <div class="metric-row"><div><strong>Real validated surfaces</strong><br><span>Provider captures exist</span></div><div class="num">3</div></div>
+                <div class="metric-row"><div><strong>Simulated validated surfaces</strong><br><span>Behavior shape exists</span></div><div class="num">14</div></div>
+              </div>
+            </div>
+          </article>
+          <article class="panel">
+            <div class="panel-head"><div><h3>Remaining Validation Work</h3><p>Directly maps to the route to 20/20.</p></div></div>
+            <div class="panel-body">
+              <div class="metric-list">
+                <div class="metric-row"><div><strong>Real captures</strong><br><span>OpenAI, Anthropic, Bedrock, Mistral, Cohere, Voyage</span></div><div class="num">P1</div></div>
+                <div class="metric-row"><div><strong>Streaming fixtures</strong><br><span>responses, chat, messages, converse</span></div><div class="num">P1</div></div>
+                <div class="metric-row"><div><strong>CI strict gate</strong><br><span>provider-matrix --fail-on-gaps later</span></div><div class="num">P2</div></div>
+              </div>
+            </div>
+          </article>
+          <article class="panel">
+            <div class="panel-head"><div><h3>Trust Trend</h3><p>Show status over releases.</p></div></div>
+            <div class="panel-body">
+              <div class="small-chart">
+                <div class="thin-bar" style="height:32%; background:var(--red)"></div>
+                <div class="thin-bar" style="height:42%; background:var(--amber)"></div>
+                <div class="thin-bar" style="height:58%; background:var(--amber)"></div>
+                <div class="thin-bar" style="height:76%; background:var(--green)"></div>
+                <div class="thin-bar" style="height:84%; background:var(--green)"></div>
+              </div>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section id="model" class="dashboard-page">
+        <div class="kpi-grid">
+          <div class="kpi"><div class="label">Fact tables</div><div class="value">4</div><div class="delta"><span class="up">events</span><span>quantities, spans, daily</span></div></div>
+          <div class="kpi"><div class="label">Dimensions</div><div class="value">4</div><div class="delta"><span class="up">service</span><span>model, provider, token type</span></div></div>
+          <div class="kpi"><div class="label">Metrics table</div><div class="value">1</div><div class="delta"><span class="up">snapshots</span><span>derived KPIs</span></div></div>
+          <div class="kpi"><div class="label">Manifest</div><div class="value">Yes</div><div class="delta"><span class="up">refresh</span><span>stable schema</span></div></div>
+          <div class="kpi"><div class="label">DAX starter</div><div class="value">17</div><div class="delta"><span class="up">measures</span><span>included</span></div></div>
+        </div>
+
+        <div class="grid-2">
+          <article class="panel">
+            <div class="panel-head"><div><h3>Power BI Star Schema</h3><p>The import folder should map to this model.</p></div></div>
+            <div class="panel-body">
+              <div class="relationships">
+                <div class="rel"><code>fact_token_quantities[event_id]</code><span class="join">joins</span><code>fact_token_events[event_id]</code></div>
+                <div class="rel"><code>fact_spans[span_id]</code><span class="join">joins</span><code>fact_token_events[span_id]</code></div>
+                <div class="rel"><code>fact_token_events[provider, api_surface]</code><span class="join">joins</span><code>dim_provider_surface[provider, api_surface]</code></div>
+                <div class="rel"><code>fact_token_events[provider, api_surface, model, deployment]</code><span class="join">joins</span><code>dim_model[provider, api_surface, model, deployment]</code></div>
+                <div class="rel"><code>fact_token_events[service, tenant, cloud, region]</code><span class="join">slices</span><code>dim_service service ownership</code></div>
+              </div>
+            </div>
+          </article>
+
+          <article class="panel">
+            <div class="panel-head"><div><h3>Core Measures</h3><p>Initial DAX from measures.dax.</p></div></div>
+            <div class="panel-body">
+              <div class="table-wrap">
+                <table>
+                  <thead><tr><th>Measure</th><th>Purpose</th></tr></thead>
+                  <tbody>
+                    <tr><td>Total Contributing Tokens</td><td>Main event-grain token total</td></tr>
+                    <tr><td>Cache Hit Rate</td><td>Provider cache reuse efficiency</td></tr>
+                    <tr><td>Success Rate</td><td>Complete provider calls divided by total calls</td></tr>
+                    <tr><td>Error Rate</td><td>Reliability and rate-limit monitoring</td></tr>
+                    <tr><td>P95 Duration MS</td><td>Tail latency card and SLO dashboard</td></tr>
+                    <tr><td>Provider Mismatch Events</td><td>Reconciliation correctness warning</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </article>
+        </div>
+
+        <div class="grid-3">
+          <article class="panel">
+            <div class="panel-head"><div><h3>Safe to Sum</h3><p>Columns approved for totals.</p></div></div>
+            <div class="panel-body">
+              <div class="metric-list">
+                <div class="metric-row"><div><strong>event_contributing_tokens</strong><br><span>event grain</span></div><div class="num">Yes</div></div>
+                <div class="metric-row"><div><strong>quantity_in_total</strong><br><span>quantity grain</span></div><div class="num">Yes</div></div>
+                <div class="metric-row"><div><strong>error_count</strong><br><span>event counter</span></div><div class="num">Yes</div></div>
+              </div>
+            </div>
+          </article>
+          <article class="panel">
+            <div class="panel-head"><div><h3>Not Safe to Sum</h3><p>Inspection fields only.</p></div></div>
+            <div class="panel-body">
+              <div class="metric-list">
+                <div class="metric-row"><div><strong>provider_total_tokens</strong><br><span>raw event-level provider total</span></div><div class="num">No</div></div>
+                <div class="metric-row"><div><strong>quantity</strong><br><span>raw quantity; may be subtotal</span></div><div class="num">No</div></div>
+                <div class="metric-row"><div><strong>duration_ms</strong><br><span>use average or percentile</span></div><div class="num">No</div></div>
+              </div>
+            </div>
+          </article>
+          <article class="panel">
+            <div class="panel-head"><div><h3>Refresh Design</h3><p>How the dashboard stays current.</p></div></div>
+            <div class="panel-body">
+              <div class="metric-list">
+                <div class="metric-row"><div><strong>1. Tracker writes JSONL</strong><br><span>Append-only event source</span></div><div class="num">Source</div></div>
+                <div class="metric-row"><div><strong>2. powerbi-export</strong><br><span>Builds import folder</span></div><div class="num">Job</div></div>
+                <div class="metric-row"><div><strong>3. Power BI refresh</strong><br><span>Imports CSV and DAX</span></div><div class="num">Report</div></div>
+              </div>
+            </div>
+          </article>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    const titles = {
+      executive: ["Executive Usage", "Production usage, reliability, and trust posture across providers and services."],
+      service: ["Service Attribution", "Service, tenant, cloud, region, provider, model and deployment ownership."],
+      reliability: ["Reliability", "Errors, rate limits, retries, latency, and data-quality signals."],
+      cache: ["Cache Efficiency", "Provider cache reuse, savings tokens, and cache validation confidence."],
+      rag: ["RAG & Agent", "Retriever, prompt assembly, LLM, agent, and tool span behavior."],
+      trust: ["Trust Readiness", "Provider validation matrix, fixture coverage, and remaining evidence gaps."],
+      model: ["Data Model", "Power BI import schema, relationships, DAX measures, and counting rules."]
+    };
+
+    document.querySelectorAll(".nav button").forEach((button) => {
+      button.addEventListener("click", () => {
+        const page = button.dataset.page;
+        document.querySelectorAll(".nav button").forEach((item) => item.classList.remove("active"));
+        document.querySelectorAll(".dashboard-page").forEach((section) => section.classList.remove("active"));
+        button.classList.add("active");
+        document.getElementById(page).classList.add("active");
+        document.getElementById("pageHeading").textContent = titles[page][0];
+        document.getElementById("pageSubtitle").textContent = titles[page][1];
+      });
+    });
+  </script>
+</body>
+</html>

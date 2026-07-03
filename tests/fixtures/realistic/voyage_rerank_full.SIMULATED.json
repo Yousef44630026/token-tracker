@@ -1,0 +1,14 @@
+{
+  "_SIMULATED": true,
+  "_warning": "Hand-built to the FULL Voyage rerank shape. Token-reporting rerank: usage.total_tokens is the operation cost -> a single rerank_input quantity.",
+  "response": {
+    "object": "list",
+    "data": [
+      {"index": 2, "relevance_score": 0.93},
+      {"index": 0, "relevance_score": 0.71},
+      {"index": 1, "relevance_score": 0.42}
+    ],
+    "model": "rerank-2",
+    "usage": {"total_tokens": 1500}
+  }
+}

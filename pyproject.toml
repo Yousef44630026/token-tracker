@@ -1,0 +1,54 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ai-token-tracker"
+version = "0.1.0"
+description = "AI token tracking layer for GenAI, RAG and agentic systems — storage = source of truth, derived totals computed, NO pricing logic."
+requires-python = ">=3.11"
+readme = "README.md"
+# Runtime depends only on the standard library + openpyxl (Excel export).
+# Provider SDKs are used ONLY to capture real test fixtures, never at runtime.
+dependencies = ["openpyxl>=3.1"]
+
+[project.scripts]
+ai-token-tracker-collector = "api.main:main"
+ai-token-tracker-proxy = "tracker.proxy.cli:main"
+
+[project.optional-dependencies]
+# Dev toolchain. NOTE (this environment): pytest/ruff/black are NOT installed and
+# installs are disabled. Tests are written as plain runnable scripts under tests/
+# (no pytest dependency); ruff/black are honored as conventions and run only if present.
+dev = ["pytest>=8", "ruff>=0.5", "black>=24"]
+proxy = ["tiktoken>=0.7"]
+
+[tool.setuptools.packages.find]
+include = ["tracker*", "api*"]
+
+# --- Tool configs (applied when the tools are available) ---
+[tool.black]
+line-length = 140
+target-version = ["py311"]
+
+[tool.ruff]
+line-length = 140
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+# UP042: converting `class X(str, Enum)` to `StrEnum` silently changes str(X.MEMBER) output
+# (StrEnum returns the value; the str+Enum mixin returns "X.MEMBER") — real behavior change
+# across a codebase that serializes enum flags widely. Deliberately not auto-applied.
+ignore = ["UP042"]
+
+[tool.ruff.lint.per-file-ignores]
+# One DAX measure formula embedded in a triple-quoted template string exceeds line-length;
+# wrapping it would insert a literal newline into the generated Power BI formula text.
+"tracker/export/powerbi_exporter.py" = ["E501"]
+
+[tool.pytest.ini_options]
+# Kept for when pytest is available. In this environment tests run as scripts:
+#   python tests/test_<name>.py
+testpaths = ["tests"]
+python_files = ["test_*.py"]

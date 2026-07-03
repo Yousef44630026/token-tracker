@@ -1,0 +1,14 @@
+{
+  "_SIMULATED": true,
+  "_warning": "Hand-built to the FULL Cohere v2 chat shape. usage carries both billed_units and raw tokens; the adapter prefers the raw `tokens`. No single total field -> provider_total None.",
+  "response": {
+    "id": "c0sample-0000-0000-0000-000000000000",
+    "message": {"role": "assistant", "content": [{"type": "text", "text": "Here is the grounded answer."}]},
+    "finish_reason": "COMPLETE",
+    "model": "command-r-plus-08-2024",
+    "usage": {
+      "billed_units": {"input_tokens": 300, "output_tokens": 90},
+      "tokens": {"input_tokens": 310, "output_tokens": 90}
+    }
+  }
+}

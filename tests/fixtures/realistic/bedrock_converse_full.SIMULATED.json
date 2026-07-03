@@ -1,0 +1,32 @@
+{
+  "_SIMULATED": true,
+  "_warning": "Hand-built to the FULL documented Bedrock Converse (boto3) response shape (not captured). Real Converse responses do NOT echo modelId in the body, so model stays None. cacheWriteInputTokens = 0 (falsy) must NOT create a quantity.",
+  "response": {
+    "ResponseMetadata": {
+      "RequestId": "8f2c0sample-0000-0000-0000-000000000000",
+      "HTTPStatusCode": 200,
+      "HTTPHeaders": {
+        "date": "Tue, 01 Jul 2025 10:00:00 GMT",
+        "content-type": "application/json",
+        "content-length": "512",
+        "x-amzn-requestid": "8f2c0sample-0000-0000-0000-000000000000"
+      },
+      "RetryAttempts": 0
+    },
+    "output": {
+      "message": {
+        "role": "assistant",
+        "content": [{"text": "I found three matching orders for that customer."}]
+      }
+    },
+    "stopReason": "end_turn",
+    "usage": {
+      "inputTokens": 1100,
+      "outputTokens": 380,
+      "totalTokens": 1480,
+      "cacheReadInputTokens": 900,
+      "cacheWriteInputTokens": 0
+    },
+    "metrics": {"latencyMs": 1234}
+  }
+}

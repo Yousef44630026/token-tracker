@@ -1,0 +1,13 @@
+{
+  "_SIMULATED": true,
+  "_warning": "Hand-built to the FULL Mistral chat completions shape (OpenAI-compatible usage).",
+  "response": {
+    "id": "cmpl-mistralsample0000000000",
+    "object": "chat.completion",
+    "model": "mistral-large-latest",
+    "choices": [
+      {"index": 0, "message": {"role": "assistant", "content": "Voici la réponse."}, "finish_reason": "stop"}
+    ],
+    "usage": {"prompt_tokens": 480, "completion_tokens": 120, "total_tokens": 600}
+  }
+}

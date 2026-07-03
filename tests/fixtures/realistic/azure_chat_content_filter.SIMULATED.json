@@ -1,0 +1,42 @@
+{
+  "_SIMULATED": true,
+  "_warning": "Hand-built to the FULL Azure OpenAI chat completions shape, which adds prompt_filter_results and per-choice content_filter_results AROUND the usage object. The adapter must ignore those Azure-specific fields and still extract usage correctly.",
+  "response": {
+    "id": "chatcmpl-AzureSample0000000000000",
+    "object": "chat.completion",
+    "created": 1730600000,
+    "model": "gpt-4o-2024-08-06",
+    "prompt_filter_results": [
+      {
+        "prompt_index": 0,
+        "content_filter_results": {
+          "hate": {"filtered": false, "severity": "safe"},
+          "self_harm": {"filtered": false, "severity": "safe"},
+          "sexual": {"filtered": false, "severity": "safe"},
+          "violence": {"filtered": false, "severity": "safe"}
+        }
+      }
+    ],
+    "choices": [
+      {
+        "index": 0,
+        "finish_reason": "stop",
+        "message": {"role": "assistant", "content": "Refunds are processed within 30 days."},
+        "content_filter_results": {
+          "hate": {"filtered": false, "severity": "safe"},
+          "self_harm": {"filtered": false, "severity": "safe"},
+          "sexual": {"filtered": false, "severity": "safe"},
+          "violence": {"filtered": false, "severity": "safe"}
+        }
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 1200,
+      "completion_tokens": 350,
+      "total_tokens": 1550,
+      "prompt_tokens_details": {"cached_tokens": 0, "audio_tokens": 0},
+      "completion_tokens_details": {"reasoning_tokens": 0, "audio_tokens": 0}
+    },
+    "system_fingerprint": "fp_azure_50a3f6c7c2"
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "_SIMULATED": true,
+  "_warning": "Hand-built to the FULL documented Bedrock InvokeModel (boto3) response shape (not captured). The model-specific body is a StreamingBody (omitted here); token counts come from the Bedrock response headers, which are model-agnostic.",
+  "response": {
+    "ResponseMetadata": {
+      "RequestId": "1a2b3sample-0000-0000-0000-000000000000",
+      "HTTPStatusCode": 200,
+      "HTTPHeaders": {
+        "date": "Tue, 01 Jul 2025 10:05:00 GMT",
+        "content-type": "application/json",
+        "content-length": "1024",
+        "x-amzn-requestid": "1a2b3sample-0000-0000-0000-000000000000",
+        "x-amzn-bedrock-invocation-latency": "742",
+        "x-amzn-bedrock-input-token-count": "950",
+        "x-amzn-bedrock-output-token-count": "275"
+      },
+      "RetryAttempts": 0
+    },
+    "contentType": "application/json"
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "_SIMULATED": true,
+  "_warning": "NOT a real captured payload. Hand-built to the DOCUMENTED OpenAI Chat Completions `usage` shape so the adapter/additivity logic can be tested without API credit. Replace with a real recorded response (capture from the SDK) before treating any of this as ground truth.",
+  "_provider": "openai",
+  "_api_surface": "chat_completions",
+  "response": {
+    "id": "chatcmpl_SIMULATED_0001",
+    "object": "chat.completion",
+    "model": "o4-mini-2025-04-16",
+    "usage": {
+      "prompt_tokens": 1000,
+      "completion_tokens": 300,
+      "total_tokens": 1300,
+      "prompt_tokens_details": {
+        "cached_tokens": 800,
+        "audio_tokens": 0
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 250,
+        "audio_tokens": 0,
+        "accepted_prediction_tokens": 0,
+        "rejected_prediction_tokens": 0
+      }
+    }
+  }
+}

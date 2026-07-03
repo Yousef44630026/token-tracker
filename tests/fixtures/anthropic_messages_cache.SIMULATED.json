@@ -1,0 +1,19 @@
+{
+  "_SIMULATED": true,
+  "_warning": "Built to the documented Anthropic Messages usage shape. Anthropic reports no total field; input_tokens, cache_creation_input_tokens, and cache_read_input_tokens are separate contributing input buckets. This rule was also verified against a real Claude Code capture.",
+  "_provider": "anthropic",
+  "_api_surface": "messages",
+  "response": {
+    "id": "msg_SIMULATED_0001",
+    "type": "message",
+    "role": "assistant",
+    "model": "claude-3-5-sonnet-20241022",
+    "stop_reason": "end_turn",
+    "usage": {
+      "input_tokens": 1000,
+      "output_tokens": 300,
+      "cache_creation_input_tokens": 120,
+      "cache_read_input_tokens": 800
+    }
+  }
+}

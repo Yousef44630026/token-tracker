@@ -1,0 +1,16 @@
+{
+  "_SIMULATED": true,
+  "_warning": "NOT a real captured payload. Built to the documented Bedrock Converse `usage` shape. The cache fields are intentionally treated as additivity=unverified (contribute 0, flag raised) precisely BECAUSE this is not a verified real payload — replace with a real recorded Converse response to verify the cache semantics.",
+  "_provider": "bedrock",
+  "_api_surface": "converse",
+  "response": {
+    "modelId": "anthropic.claude-3-5-sonnet-20240620-v1:0",
+    "usage": {
+      "inputTokens": 1000,
+      "outputTokens": 300,
+      "totalTokens": 1300,
+      "cacheReadInputTokens": 800,
+      "cacheWriteInputTokens": 120
+    }
+  }
+}

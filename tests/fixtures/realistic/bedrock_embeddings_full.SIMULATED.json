@@ -1,0 +1,17 @@
+{
+  "_SIMULATED": true,
+  "_warning": "Hand-built to the boto3 InvokeModel response shape for a Bedrock embedding model (e.g. Titan Embeddings / Cohere Embed). The token count is in the Bedrock input-token-count header; an embedding has no output.",
+  "response": {
+    "ResponseMetadata": {
+      "RequestId": "emb0sample-0000-0000-0000-000000000000",
+      "HTTPStatusCode": 200,
+      "HTTPHeaders": {
+        "content-type": "application/json",
+        "x-amzn-requestid": "emb0sample-0000-0000-0000-000000000000",
+        "x-amzn-bedrock-input-token-count": "640"
+      },
+      "RetryAttempts": 0
+    },
+    "contentType": "application/json"
+  }
+}

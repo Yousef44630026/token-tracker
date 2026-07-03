@@ -1,0 +1,21 @@
+{
+  "_SIMULATED": true,
+  "_warning": "Hand-built to the full documented Anthropic Messages response shape. Both cache fields are separate contributing input buckets; Anthropic reports no combined total.",
+  "response": {
+    "id": "msg_01Sample0000000000000000",
+    "type": "message",
+    "role": "assistant",
+    "model": "claude-3-5-sonnet-20241022",
+    "content": [
+      {"type": "text", "text": "Based on the order history, here is what I found."}
+    ],
+    "stop_reason": "end_turn",
+    "stop_sequence": null,
+    "usage": {
+      "input_tokens": 1500,
+      "cache_creation_input_tokens": 200,
+      "cache_read_input_tokens": 1024,
+      "output_tokens": 420
+    }
+  }
+}

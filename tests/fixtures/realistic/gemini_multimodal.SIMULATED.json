@@ -1,0 +1,23 @@
+{
+  "_SIMULATED": true,
+  "_warning": "Hand-built to the FULL Gemini generateContent shape for a MULTIMODAL prompt (text + image + audio). promptTokensDetails breaks the prompt down by modality; each non-text modality is a subtotal of the input. promptTokenCount = 800 + 1000 + 200 = 2000.",
+  "response": {
+    "candidates": [
+      {"content": {"parts": [{"text": "The image shows a refund form."}], "role": "model"}, "finishReason": "STOP", "index": 0}
+    ],
+    "usageMetadata": {
+      "promptTokenCount": 2000,
+      "candidatesTokenCount": 400,
+      "totalTokenCount": 2400,
+      "promptTokensDetails": [
+        {"modality": "TEXT", "tokenCount": 800},
+        {"modality": "IMAGE", "tokenCount": 1000},
+        {"modality": "AUDIO", "tokenCount": 200}
+      ],
+      "candidatesTokensDetails": [
+        {"modality": "TEXT", "tokenCount": 400}
+      ]
+    },
+    "modelVersion": "gemini-2.5-flash"
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "_SIMULATED": true,
+  "_warning": "Hand-built to the FULL documented OpenAI Responses API shape (not captured). Reasoning model: output_tokens_details.reasoning_tokens > 0; input_tokens_details.cached_tokens > 0.",
+  "response": {
+    "id": "resp_68f0a1sample000000000000",
+    "object": "response",
+    "created_at": 1730500100,
+    "status": "completed",
+    "model": "o4-mini-2025-04-16",
+    "output": [
+      {"id": "rs_1", "type": "reasoning", "summary": []},
+      {
+        "id": "msg_1",
+        "type": "message",
+        "role": "assistant",
+        "status": "completed",
+        "content": [{"type": "output_text", "text": "Here is the analysis you asked for.", "annotations": []}]
+      }
+    ],
+    "usage": {
+      "input_tokens": 2048,
+      "input_tokens_details": {"cached_tokens": 1536},
+      "output_tokens": 900,
+      "output_tokens_details": {"reasoning_tokens": 640},
+      "total_tokens": 2948
+    }
+  }
+}

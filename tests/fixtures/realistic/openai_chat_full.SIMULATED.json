@@ -1,0 +1,38 @@
+{
+  "_SIMULATED": true,
+  "_warning": "Hand-built to the FULL documented OpenAI Chat Completions response shape (not a captured call). Realistic surrounding fields are included so the adapter is tested digging usage out of a complete payload. Non-reasoning model: reasoning_tokens = 0.",
+  "response": {
+    "id": "chatcmpl-Bx9k2Qm3sample00000000",
+    "object": "chat.completion",
+    "created": 1730500000,
+    "model": "gpt-4o-2024-08-06",
+    "system_fingerprint": "fp_50a3f6c7c2",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "Refunds are available within 30 days of purchase.",
+          "refusal": null
+        },
+        "logprobs": null,
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 1200,
+      "completion_tokens": 350,
+      "total_tokens": 1550,
+      "prompt_tokens_details": {
+        "cached_tokens": 1024,
+        "audio_tokens": 0
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 0,
+        "audio_tokens": 0,
+        "accepted_prediction_tokens": 0,
+        "rejected_prediction_tokens": 0
+      }
+    }
+  }
+}

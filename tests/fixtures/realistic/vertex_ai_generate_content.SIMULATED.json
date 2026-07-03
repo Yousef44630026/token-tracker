@@ -1,0 +1,27 @@
+{
+  "_SIMULATED": true,
+  "_warning": "Hand-built Vertex AI generateContent payload. Vertex serves Gemini models and uses the Gemini usageMetadata shape; provider label differs so reports can distinguish Vertex from Gemini Developer API.",
+  "response": {
+    "candidates": [
+      {
+        "content": {
+          "parts": [{"text": "Here is the summarized policy."}],
+          "role": "model"
+        },
+        "finishReason": "STOP",
+        "index": 0,
+        "safetyRatings": [
+          {"category": "HARM_CATEGORY_HATE_SPEECH", "probability": "NEGLIGIBLE"}
+        ]
+      }
+    ],
+    "usageMetadata": {
+      "promptTokenCount": 1800,
+      "candidatesTokenCount": 500,
+      "cachedContentTokenCount": 1200,
+      "thoughtsTokenCount": 300,
+      "totalTokenCount": 2600
+    },
+    "modelVersion": "gemini-2.5-pro"
+  }
+}

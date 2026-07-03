@@ -1,0 +1,17 @@
+{
+  "_SIMULATED": true,
+  "_warning": "Hand-built to the FULL documented OpenAI Embeddings (/v1/embeddings) response shape (not captured). A batch of 3 inputs — typical for RAG chunk embedding. Usage has prompt_tokens + total_tokens only (no completion); the embedded tokens map to TokenType.EMBEDDING.",
+  "response": {
+    "object": "list",
+    "data": [
+      {"object": "embedding", "index": 0, "embedding": [0.0023064255, -0.009327292, 0.015797347]},
+      {"object": "embedding", "index": 1, "embedding": [-0.004123456, 0.018273645, -0.002938475]},
+      {"object": "embedding", "index": 2, "embedding": [0.011223344, -0.005566778, 0.009988776]}
+    ],
+    "model": "text-embedding-3-small",
+    "usage": {
+      "prompt_tokens": 192,
+      "total_tokens": 192
+    }
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "_SIMULATED": false,
+  "_captured_at": "2026-06-25T18:55:47",
+  "_model": "gemini-2.5-flash",
+  "response": {
+    "candidates": [
+      {
+        "content": {
+          "parts": [
+            {
+              "text": "Bonjour."
+            }
+          ],
+          "role": "model"
+        },
+        "finishReason": "STOP",
+        "index": 0
+      }
+    ],
+    "usageMetadata": {
+      "promptTokenCount": 9,
+      "candidatesTokenCount": 2,
+      "totalTokenCount": 40,
+      "promptTokensDetails": [
+        {
+          "modality": "TEXT",
+          "tokenCount": 9
+        }
+      ],
+      "thoughtsTokenCount": 29,
+      "serviceTier": "standard"
+    },
+    "modelVersion": "gemini-2.5-flash",
+    "responseId": "oms9aoX9KIfBxN8Pru_O0Aw"
+  }
+}

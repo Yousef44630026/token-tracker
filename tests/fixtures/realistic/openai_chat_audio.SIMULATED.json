@@ -1,0 +1,32 @@
+{
+  "_SIMULATED": true,
+  "_warning": "Hand-built to the FULL OpenAI Chat Completions shape for an AUDIO model (gpt-4o-audio-preview). audio_tokens appear in prompt_tokens_details (input) and completion_tokens_details (output) as SUBTOTALS — input+output still equals total_tokens.",
+  "response": {
+    "id": "chatcmpl-AudioSample00000000000000",
+    "object": "chat.completion",
+    "created": 1730500200,
+    "model": "gpt-4o-audio-preview-2024-12-17",
+    "choices": [
+      {
+        "index": 0,
+        "message": {"role": "assistant", "content": "Sure, here is the spoken answer.", "audio": {"id": "audio_abc"}},
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 500,
+      "completion_tokens": 200,
+      "total_tokens": 700,
+      "prompt_tokens_details": {
+        "cached_tokens": 0,
+        "audio_tokens": 300
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 0,
+        "audio_tokens": 150,
+        "accepted_prediction_tokens": 0,
+        "rejected_prediction_tokens": 0
+      }
+    }
+  }
+}

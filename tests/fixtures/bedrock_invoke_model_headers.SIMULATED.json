@@ -1,0 +1,15 @@
+{
+  "_SIMULATED": true,
+  "_warning": "NOT a real captured payload. Built to the boto3 invoke_model response shape. The reliable, MODEL-AGNOSTIC token source for InvokeModel is the Bedrock HTTP headers x-amzn-bedrock-input-token-count / x-amzn-bedrock-output-token-count. Model-specific body parsing (Titan/Llama/Cohere/Anthropic-on-Bedrock) is deferred until real per-model payloads are captured.",
+  "_provider": "bedrock",
+  "_api_surface": "invoke_model",
+  "response": {
+    "contentType": "application/json",
+    "ResponseMetadata": {
+      "HTTPHeaders": {
+        "x-amzn-bedrock-input-token-count": "1000",
+        "x-amzn-bedrock-output-token-count": "300"
+      }
+    }
+  }
+}

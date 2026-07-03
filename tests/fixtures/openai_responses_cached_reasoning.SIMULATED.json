@@ -1,0 +1,22 @@
+{
+  "_SIMULATED": true,
+  "_warning": "NOT a real captured payload. Hand-built to the DOCUMENTED OpenAI Responses `usage` shape so the adapter/additivity logic can be tested without API credit. Replace with a real recorded response (capture from the SDK) before treating any of this as ground truth.",
+  "_provider": "openai",
+  "_api_surface": "responses",
+  "response": {
+    "id": "resp_SIMULATED_0001",
+    "object": "response",
+    "model": "o4-mini-2025-04-16",
+    "usage": {
+      "input_tokens": 1000,
+      "input_tokens_details": {
+        "cached_tokens": 800
+      },
+      "output_tokens": 300,
+      "output_tokens_details": {
+        "reasoning_tokens": 250
+      },
+      "total_tokens": 1300
+    }
+  }
+}

@@ -1,0 +1,39 @@
+{
+  "_SIMULATED": false,
+  "_captured_at": "2026-07-01T17:01:35",
+  "_model_id": "arn:aws:bedrock:eu-west-3:368306127716:inference-profile/eu.amazon.nova-micro-v1:0",
+  "_region": "eu-west-3",
+  "response": {
+    "ResponseMetadata": {
+      "RequestId": "4d5418af-ec44-4b88-a2ee-2c80d5da603a",
+      "HTTPStatusCode": 200,
+      "HTTPHeaders": {
+        "date": "Wed, 01 Jul 2026 16:01:36 GMT",
+        "content-type": "application/json",
+        "content-length": "207",
+        "connection": "keep-alive",
+        "x-amzn-requestid": "4d5418af-ec44-4b88-a2ee-2c80d5da603a"
+      },
+      "RetryAttempts": 0
+    },
+    "output": {
+      "message": {
+        "role": "assistant",
+        "content": [
+          {
+            "text": "Salut!"
+          }
+        ]
+      }
+    },
+    "stopReason": "end_turn",
+    "usage": {
+      "inputTokens": 10,
+      "outputTokens": 4,
+      "totalTokens": 14
+    },
+    "metrics": {
+      "latencyMs": 344
+    }
+  }
+}

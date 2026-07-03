@@ -1,0 +1,27 @@
+{
+  "_SIMULATED": true,
+  "_warning": "Hand-built to the FULL documented Gemini generateContent shape (not captured). thoughtsTokenCount (thinking) is total_contributing; totalTokenCount = prompt + candidates + thoughts.",
+  "response": {
+    "candidates": [
+      {
+        "content": {
+          "parts": [{"text": "Here is the summarized policy."}],
+          "role": "model"
+        },
+        "finishReason": "STOP",
+        "index": 0,
+        "safetyRatings": [
+          {"category": "HARM_CATEGORY_HATE_SPEECH", "probability": "NEGLIGIBLE"}
+        ]
+      }
+    ],
+    "usageMetadata": {
+      "promptTokenCount": 1800,
+      "candidatesTokenCount": 500,
+      "cachedContentTokenCount": 1200,
+      "thoughtsTokenCount": 300,
+      "totalTokenCount": 2600
+    },
+    "modelVersion": "gemini-2.5-pro"
+  }
+}

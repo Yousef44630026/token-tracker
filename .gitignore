@@ -1,0 +1,34 @@
+__pycache__/
+*.pyc
+.tmp_arch_review/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+build/
+dist/
+*.egg-info/
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Donnees d'usage reelles (jamais versionnees)
+token_tracker.csv
+*.jsonl
+*.backup_*.csv
+*.backup_*.py
+_test_tmp*.csv
+_smoke*.csv
+
+# Fichiers de travail / exports
+demo.csv
+demo.xlsx
+demo_output/
+runs/
+codex-local-test-dir/
+_*.html
+
+# Journal de derive de prix (s'accumule a chaque --check)
+price_drift.log

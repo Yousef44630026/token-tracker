@@ -1,0 +1,155 @@
+{
+  "_captured_at": "2026-07-02T12:23:20",
+  "response": {
+    "id": "resp_01fc24c7dc9203cd006a464a1cb9c4819497bfd21471ac19be",
+    "created_at": 1782991388.0,
+    "error": null,
+    "incomplete_details": null,
+    "instructions": null,
+    "metadata": {},
+    "model": "gpt-5-mini",
+    "object": "response",
+    "output": [
+      {
+        "id": "rs_01fc24c7dc9203cd006a464a1d3eac8194bb89d91d0e26a969",
+        "summary": [],
+        "type": "reasoning",
+        "content": [],
+        "encrypted_content": null,
+        "status": null
+      },
+      {
+        "id": "msg_01fc24c7dc9203cd006a464a2526588194a8ec94e5fa72caf1",
+        "content": [
+          {
+            "annotations": [],
+            "text": "Désolé, je ne peux pas aider à fabriquer des drogues illégales ni donner des instructions pour la synthèse de substances contrôlées. Fournir des recettes, des étapes ou des méthodes pour produire de la méthamphétamine serait dangereux et illégal.\n\nSi tu veux, je peux en revanche t'aider sur plusieurs sujets utiles et sûrs :\n- Expliquer de manière claire et non technique ce qu’est la méthamphétamine (effets sur le cerveau et le corps, risques à court et long terme, signes de surdose).\n- Parler des dangers liés à la fabrication (risques d’incendie, d’explosion, d’empoisonnement, pollution et conséquences pour les personnes à proximité).\n- Donner des informations sur les conséquences légales et pénales de la possession, fabrication ou distribution de drogues.\n- Aider une personne qui a un problème de consommation : ressources d’aide, stratégies pour trouver un centre de prise en charge, lignes d’écoute et groupes de soutien (Narcotics Anonymous, services de santé locaux). Si tu veux, dis-moi ton pays/région et je peux suggérer des services locaux.\n- Proposer des alternatives éducatives sûres : expériences de chimie pour débutants, cours en ligne sur la chimie ou la pharmacologie, lectures sur la toxicologie et la prévention.\n\nSi c’est une urgence (risque d’empoisonnement, blessure grave, surdose), contacte immédiatement les services d’urgence (en Europe : 112, aux États‑Unis : 911, ou le numéro d’urgence local). Veux‑tu que je t’envoie des informations sur les effets et les risques de la méthamphétamine ou des ressources d’aide dans ta région ?",
+            "type": "output_text",
+            "logprobs": []
+          }
+        ],
+        "role": "assistant",
+        "status": "completed",
+        "type": "message",
+        "phase": null
+      }
+    ],
+    "parallel_tool_calls": true,
+    "temperature": 1.0,
+    "tool_choice": "auto",
+    "tools": [],
+    "top_p": 1.0,
+    "background": false,
+    "completed_at": 1782991401.0,
+    "conversation": null,
+    "max_output_tokens": null,
+    "max_tool_calls": null,
+    "moderation": null,
+    "previous_response_id": null,
+    "prompt": null,
+    "prompt_cache_key": null,
+    "prompt_cache_retention": "in_memory",
+    "reasoning": {
+      "context": "current_turn",
+      "effort": "medium",
+      "generate_summary": null,
+      "summary": null
+    },
+    "safety_identifier": null,
+    "service_tier": "default",
+    "status": "completed",
+    "text": {
+      "format": {
+        "type": "text"
+      },
+      "verbosity": "medium"
+    },
+    "top_logprobs": 0,
+    "truncation": "disabled",
+    "usage": {
+      "input_tokens": 31,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 1088,
+      "output_tokens_details": {
+        "reasoning_tokens": 704
+      },
+      "total_tokens": 1119
+    },
+    "user": null,
+    "content_filters": [
+      {
+        "blocked": false,
+        "source_type": "prompt",
+        "content_filter_raw": [],
+        "content_filter_results": {
+          "hate": {
+            "filtered": false,
+            "severity": "safe"
+          },
+          "sexual": {
+            "filtered": false,
+            "severity": "safe"
+          },
+          "violence": {
+            "filtered": false,
+            "severity": "safe"
+          },
+          "self_harm": {
+            "filtered": false,
+            "severity": "safe"
+          },
+          "jailbreak": {
+            "detected": false,
+            "filtered": false
+          }
+        },
+        "content_filter_offsets": {
+          "start_offset": 0,
+          "end_offset": 1239,
+          "check_offset": 0
+        }
+      },
+      {
+        "blocked": false,
+        "source_type": "completion",
+        "content_filter_raw": [],
+        "content_filter_results": {
+          "protected_material_code": {
+            "detected": false,
+            "filtered": false
+          },
+          "protected_material_text": {
+            "detected": false,
+            "filtered": false
+          },
+          "hate": {
+            "filtered": false,
+            "severity": "safe"
+          },
+          "sexual": {
+            "filtered": false,
+            "severity": "safe"
+          },
+          "violence": {
+            "filtered": false,
+            "severity": "safe"
+          },
+          "self_harm": {
+            "filtered": false,
+            "severity": "safe"
+          }
+        },
+        "content_filter_offsets": {
+          "start_offset": 0,
+          "end_offset": 5401,
+          "check_offset": 0
+        }
+      }
+    ],
+    "frequency_penalty": 0.0,
+    "presence_penalty": 0.0,
+    "store": true
+  }
+}

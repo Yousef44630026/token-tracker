@@ -1,0 +1,18 @@
+{
+  "_SIMULATED": true,
+  "_warning": "Hand-built Azure OpenAI Embeddings payload. Azure OpenAI embeddings use the same response usage shape as OpenAI embeddings; the deployment name is request metadata, not the response model.",
+  "_deployment": "embed-prod",
+  "response": {
+    "object": "list",
+    "data": [
+      {"object": "embedding", "index": 0, "embedding": [0.0023064255, -0.009327292, 0.015797347]},
+      {"object": "embedding", "index": 1, "embedding": [-0.004123456, 0.018273645, -0.002938475]},
+      {"object": "embedding", "index": 2, "embedding": [0.011223344, -0.005566778, 0.009988776]}
+    ],
+    "model": "text-embedding-3-small",
+    "usage": {
+      "prompt_tokens": 192,
+      "total_tokens": 192
+    }
+  }
+}

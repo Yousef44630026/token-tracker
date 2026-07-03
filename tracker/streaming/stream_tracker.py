@@ -1,0 +1,211 @@
+"""Streaming tracker (INV-3 / INV-5 / INV-6). (Phase 7)
+
+Tracks one streamed call and emits a TokenEvent for its terminal state. The output token
+stays ``token_type="output"`` throughout — only precision/source/flags change (INV-3):
+
+  - complete(...)                -> output EXACT from the provider's final usage;
+  - interrupt()                  -> output ESTIMATE from the local tokenizer over the text
+                                    seen so far, flags partial_stream_estimate +
+                                    stream_interrupted;
+  - resolve_with_final_usage(...)-> the real usage that arrives after an interrupt; the
+                                    previously emitted partial is superseded by
+                                    request_correlation_id (INV-5), so it contributes 0;
+  - timeout()                    -> output quantity None / UNKNOWN with reason stream_timeout
+                                    (INV-6: a lost count is surfaced, never a confident zero).
+
+The tracker is one of the two layers (with the reconciler) allowed to set supersession.
+Additivity is taken from the central table (INV-4); input/output are total_contributing.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+
+from tracker.context.propagation import TraceContext
+from tracker.estimation.local_tokenizer import estimate_tokens
+from tracker.models.enums import PrecisionLevel, TokenType, UnknownReason, UsageSource
+from tracker.models.token_event import TokenEvent
+from tracker.models.token_quantity import TokenQuantity
+from tracker.normalization.additivity import assign_additivity
+from tracker.normalization.event_builder import build_event
+from tracker.normalization.supersession import reconcile_supersession
+
+PARTIAL_STREAM_ESTIMATE_FLAG = "partial_stream_estimate"
+STREAM_INTERRUPTED_FLAG = "stream_interrupted"
+
+
+class StreamTracker:
+    """Accumulates a streamed response and emits the terminal TokenEvent."""
+
+    @classmethod
+    def from_context(
+        cls,
+        context: TraceContext,
+        *,
+        provider: str | None = None,
+        api_surface: str | None = None,
+        model: str | None = None,
+        estimator: Callable[[str], int] = estimate_tokens,
+    ) -> StreamTracker:
+        """Create a tracker without manually copying propagated identity fields."""
+        return cls(
+            request_correlation_id=context.request_correlation_id,
+            trace_id=context.trace_id,
+            span_id=context.span_id,
+            parent_span_id=context.parent_span_id,
+            provider=provider,
+            api_surface=api_surface,
+            model=model,
+            business_id=context.business_id,
+            workflow=context.workflow,
+            environment=context.environment,
+            estimator=estimator,
+        )
+
+    def __init__(
+        self,
+        *,
+        request_correlation_id: str,
+        trace_id: str,
+        span_id: str,
+        parent_span_id: str | None = None,
+        provider: str | None = None,
+        api_surface: str | None = None,
+        model: str | None = None,
+        business_id: str | None = None,
+        workflow: str | None = None,
+        environment: str | None = None,
+        estimator: Callable[[str], int] = estimate_tokens,
+    ) -> None:
+        self.request_correlation_id = request_correlation_id
+        self.trace_id = trace_id
+        self.span_id = span_id
+        self.parent_span_id = parent_span_id
+        self.provider = provider
+        self.api_surface = api_surface
+        self.model = model
+        self.business_id = business_id
+        self.workflow = workflow
+        self.environment = environment
+        self._estimator = estimator
+        self._chunks: list[str] = []
+        self._partial: TokenEvent | None = None
+
+    # --- ingest -----------------------------------------------------------------------
+    def feed(self, text_delta: str) -> None:
+        """Accumulate one streamed text delta."""
+        if text_delta:
+            self._chunks.append(text_delta)
+
+    @property
+    def accumulated_text(self) -> str:
+        return "".join(self._chunks)
+
+    # --- helpers ----------------------------------------------------------------------
+    def _new_event(self, quantities, provider_total, flags, *, model=None) -> TokenEvent:
+        context = TraceContext(
+            trace_id=self.trace_id,
+            span_id=self.span_id,
+            request_correlation_id=self.request_correlation_id,
+            parent_span_id=self.parent_span_id,
+            business_id=self.business_id,
+            workflow=self.workflow,
+            environment=self.environment,
+        )
+        return build_event(
+            context=context,
+            provider=self.provider,
+            api_surface=self.api_surface,
+            model=model if model is not None else self.model,
+            quantities=quantities,
+            provider_total_tokens=provider_total,
+            leading_flags=flags,
+        )
+
+    def _quantity(self, token_type, quantity, precision, source, unknown_reason=None):
+        additivity, subtotal_of = assign_additivity(self.provider or "", self.api_surface or "", token_type)
+        return TokenQuantity(
+            token_type=token_type,
+            quantity=quantity,
+            precision_level=precision,
+            usage_source=source,
+            additivity=additivity,
+            subtotal_of=subtotal_of,
+            unknown_reason=unknown_reason,
+        )
+
+    def _usage_quantities(self, output_tokens, input_tokens, source, precision):
+        quantities = [self._quantity(TokenType.OUTPUT, output_tokens, precision, source)]
+        if input_tokens is not None:
+            quantities.insert(
+                0,
+                self._quantity(TokenType.INPUT, input_tokens, PrecisionLevel.EXACT, source),
+            )
+        return quantities
+
+    # --- terminal states --------------------------------------------------------------
+    def complete(
+        self,
+        *,
+        output_tokens: int,
+        input_tokens: int | None = None,
+        provider_total_tokens: int | None = None,
+    ) -> TokenEvent:
+        """Clean completion: emit EXACT usage from the provider's final stream event."""
+        quantities = self._usage_quantities(output_tokens, input_tokens, UsageSource.PROVIDER_STREAM_FINAL, PrecisionLevel.EXACT)
+        return self._new_event(quantities, provider_total_tokens, [])
+
+    def complete_with_quantities(
+        self,
+        *,
+        quantities: list[TokenQuantity],
+        provider_total_tokens: int | None = None,
+        model: str | None = None,
+    ) -> TokenEvent:
+        """Clean completion preserving adapter-provided final stream quantities."""
+        return self._new_event(
+            quantities,
+            provider_total_tokens,
+            [],
+            model=model,
+        )
+
+    def interrupt(self) -> TokenEvent:
+        """Stream cut off without usage: emit an ESTIMATE from the text seen so far."""
+        estimated = self._estimator(self.accumulated_text)
+        q = self._quantity(
+            TokenType.OUTPUT,
+            estimated,
+            PrecisionLevel.ESTIMATE,
+            UsageSource.PARTIAL_STREAM_TOKENIZER,
+        )
+        self._partial = self._new_event([q], None, [PARTIAL_STREAM_ESTIMATE_FLAG, STREAM_INTERRUPTED_FLAG])
+        return self._partial
+
+    def resolve_with_final_usage(
+        self,
+        *,
+        output_tokens: int,
+        input_tokens: int | None = None,
+        provider_total_tokens: int | None = None,
+    ) -> TokenEvent:
+        """Real usage arriving after an interrupt: emit it and supersede the partial (INV-5)."""
+        final = self.complete(
+            output_tokens=output_tokens,
+            input_tokens=input_tokens,
+            provider_total_tokens=provider_total_tokens,
+        )
+        if self._partial is not None:
+            reconcile_supersession([self._partial, final])
+        return final
+
+    def timeout(self) -> TokenEvent:
+        """No usage arrived in time: emit output None / UNKNOWN, surfaced not zeroed (INV-6)."""
+        q = self._quantity(
+            TokenType.OUTPUT,
+            None,
+            PrecisionLevel.UNKNOWN,
+            UsageSource.NONE,
+            unknown_reason=UnknownReason.STREAM_TIMEOUT,
+        )
+        return self._new_event([q], None, [STREAM_INTERRUPTED_FLAG])
