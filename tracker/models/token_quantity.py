@@ -53,6 +53,16 @@ class TokenQuantity:
             raise ValueError("unknown_reason is only valid for a missing quantity")
         if self.additivity == Additivity.SUBTOTAL_OF and not self.subtotal_of:
             raise ValueError("subtotal_of additivity requires a parent token type")
+        # Fail closed: MAX/LAST are reserved but the derivation only implements SUM
+        # (quantity_in_total always sums). Refuse a mode the engine would silently ignore
+        # rather than let the field promise behavior it does not honor. Lift this guard when
+        # the derivation actually implements the other modes.
+        if self.aggregation_mode != AggregationMode.SUM:
+            raise ValueError(
+                f"aggregation_mode {self.aggregation_mode.value!r} is reserved and not yet "
+                "honored by the derivation (only SUM is implemented); refusing to store a mode "
+                "the engine would silently ignore"
+            )
 
     # --- derived: computed only (INV-2), never stored/serialized ---
     @property
