@@ -14,6 +14,15 @@ authoritative (the latest by ``timestamp`` when available, else the first in inp
 which keeps this deterministic for a given input rather than accidental); every other
 final-usage event in the group is treated the same as a partial and superseded by it.
 
+That collapse is only *safe* while the upstream invariant holds. If it is ever violated — an id
+collision, or a caller reusing a correlation id for a genuinely DIFFERENT call — superseding one
+final silently drops a real call's tokens (an undercount) with no signal. So this layer does not
+merely trust the invariant, it defends it: when two superseded-as-duplicate finals carry
+DIFFERENT content hashes (request_hash / response_hash), they cannot be the same call delivered
+twice, so we still supersede (to never overcount) but ALSO raise ``correlation_id_collision`` so
+the dropped tokens are auditable rather than invisible. When the hashes match (a true redelivery)
+or are absent (cannot prove a collision), no such flag is raised — no false alarms.
+
 Supersession is set HERE (the reconciler / stream tracker), never by an adapter.
 """
 
@@ -23,6 +32,21 @@ from tracker.models.enums import UsageSource
 from tracker.models.token_event import TokenEvent
 
 SUPERSEDED_FLAG = "superseded"
+COLLISION_FLAG = "correlation_id_collision"
+
+
+def _looks_like_distinct_call(a: TokenEvent, b: TokenEvent) -> bool:
+    """True if two finals sharing a correlation id appear to be genuinely DIFFERENT calls.
+
+    Judged only by content hashes that are present on BOTH events: if either the request_hash
+    or the response_hash is known on both and differs, they cannot be the same call delivered
+    twice. Absent hashes make it unprovable, so this returns False (stay quiet — never a false
+    alarm)."""
+    for attr in ("response_hash", "request_hash"):
+        av, bv = getattr(a, attr), getattr(b, attr)
+        if av is not None and bv is not None and av != bv:
+            return True
+    return False
 
 
 def _is_partial_estimate(event: TokenEvent) -> bool:
@@ -83,5 +107,12 @@ def reconcile_supersession(events: list[TokenEvent]) -> list[TokenEvent]:
                 event.superseded_by = final.event_id
                 if SUPERSEDED_FLAG not in event.data_quality_flags:
                     event.data_quality_flags.append(SUPERSEDED_FLAG)
+                # A duplicate FINAL whose content differs from the kept final is not a
+                # redelivery of the same call — it is a correlation-id collision. Keep the
+                # conservative supersede (never overcount) but make the dropped tokens visible.
+                # (Partials legitimately differ from their final, so they are never flagged.)
+                if is_duplicate_final and _looks_like_distinct_call(event, final):
+                    if COLLISION_FLAG not in event.data_quality_flags:
+                        event.data_quality_flags.append(COLLISION_FLAG)
 
     return events
