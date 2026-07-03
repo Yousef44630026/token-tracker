@@ -16,8 +16,10 @@ from typing import Any
 from tracker.models.enums import (
     Additivity,
     AggregationMode,
+    Overlap,
     PrecisionLevel,
     TokenType,
+    Trust,
     UnknownReason,
     UsageSource,
 )
@@ -64,10 +66,24 @@ class TokenQuantity:
                 "the engine would silently ignore"
             )
 
+    # --- derived: the two orthogonal axes the flat `additivity` encodes (INV-4) ---
+    @property
+    def overlap(self) -> Overlap:
+        """STRUCTURAL axis: is this count a breakdown already inside another? (see Overlap)."""
+        return Overlap.SUBTOTAL_OF if self.additivity == Additivity.SUBTOTAL_OF else Overlap.INDEPENDENT
+
+    @property
+    def trust(self) -> Trust:
+        """VERIFICATION axis: is this count's additivity trusted enough to sum? (see Trust)."""
+        return Trust.UNVERIFIED if self.additivity == Additivity.UNVERIFIED else Trust.VERIFIED
+
     # --- derived: computed only (INV-2), never stored/serialized ---
     @property
     def included_in_total(self) -> bool:
-        return self.additivity == Additivity.TOTAL_CONTRIBUTING and self.quantity is not None
+        # Summed only when it stands on its own AND its additivity is trusted AND it is known.
+        # (Equivalent to additivity == TOTAL_CONTRIBUTING, but stated on the two real axes so the
+        # two distinct reasons for exclusion — overlap vs trust — are explicit, not conflated.)
+        return self.overlap == Overlap.INDEPENDENT and self.trust == Trust.VERIFIED and self.quantity is not None
 
     @property
     def quantity_in_total(self) -> int:

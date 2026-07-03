@@ -64,10 +64,51 @@ class UnknownReason(str, Enum):
 
 
 class Additivity(str, Enum):
-    """Adapter-assigned, never inferred from the type string (INV-4)."""
+    """Adapter-assigned, never inferred from the type string (INV-4).
+
+    This is a compact encoding of two orthogonal questions that a token count raises — see
+    ``Overlap`` and ``Trust``. It stays the single stored field (INV-1) for a stable wire
+    format, while ``TokenQuantity.overlap`` / ``TokenQuantity.trust`` expose the two axes
+    explicitly so code can reason about them without re-deriving the distinction each time:
+
+        TOTAL_CONTRIBUTING == (Overlap.INDEPENDENT, Trust.VERIFIED)
+        SUBTOTAL_OF        == (Overlap.SUBTOTAL_OF, Trust.VERIFIED)
+        UNVERIFIED         == (Overlap.INDEPENDENT, Trust.UNVERIFIED)
+
+    Only an (independent, verified) quantity is summed; the two axes make explicit that a count
+    is excluded either because it is a breakdown of another (overlap) or because its additivity
+    is not yet trusted (trust) — two different reasons the flat enum used to conflate.
+    """
 
     TOTAL_CONTRIBUTING = "total_contributing"
     SUBTOTAL_OF = "subtotal_of"
+    UNVERIFIED = "unverified"
+
+
+class Overlap(str, Enum):
+    """STRUCTURAL axis: is this count already contained within another count?
+
+    INDEPENDENT  — stands on its own; eligible to be summed into the total.
+    SUBTOTAL_OF  — a breakdown already inside a parent count (e.g. cached_input inside input);
+                   never summed, or it would double-count the parent.
+    Derived from ``Additivity``; see that enum for the encoding.
+    """
+
+    INDEPENDENT = "independent"
+    SUBTOTAL_OF = "subtotal_of"
+
+
+class Trust(str, Enum):
+    """VERIFICATION axis: do we trust this count's additivity enough to sum it?
+
+    VERIFIED    — the adapter has confirmed how this count relates to the total.
+    UNVERIFIED  — additivity not yet confirmed against a real payload (fail closed: contribute
+                  0 and flag), or an unfamiliar field that fell through to the safe default.
+    Orthogonal to ``Overlap`` and to ``PrecisionLevel`` (which is about measurement quality,
+    not additivity trust). Derived from ``Additivity``; see that enum for the encoding.
+    """
+
+    VERIFIED = "verified"
     UNVERIFIED = "unverified"
 
 
