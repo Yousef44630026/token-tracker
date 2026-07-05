@@ -1,19 +1,19 @@
 """Excel export via openpyxl — materializes the derived columns. (Phase 9)
 
-One workbook, four sheets, all derived from the Trace (nothing stored):
+One workbook, all sheets derived from the Trace (nothing stored):
   - TokenQuantities : the quantity-grain rows (quantity_in_total / export_warning);
   - TokenEvents     : the event-grain rows (event_contributing_tokens, 0 if superseded);
   - TokenSpans      : source-of-truth span identity and RAG/agent/tool metadata;
-  - CoverageExactness : metric/value rows whose observed total equals the model trace total.
-
-Reuses the CSV row builders so both exports carry identical columns and values.
+  - CoverageExactness + the other metric sheets (latency, reliability, cache, RAG, agent,
+    service attribution), one per entry of ``build_metric_exports`` — the same shared table
+    the CSV export writes, so both exports carry identical columns and values.
+    CoverageExactness's observed total equals the model trace total by construction.
 """
 
 from __future__ import annotations
 
 from openpyxl import Workbook
 
-from tracker.analytics.coverage import build_coverage_exactness
 from tracker.export.csv_exporter import (
     EVENT_HEADERS,
     METRIC_HEADERS,
@@ -22,7 +22,6 @@ from tracker.export.csv_exporter import (
     SPAN_HEADERS,
     build_metric_exports,
     event_rows,
-    metric_rows,
     quantity_rows,
     span_rows,
 )
@@ -52,9 +51,8 @@ def export_excel(
     ws_s = wb.create_sheet("TokenSpans")
     _write_sheet(ws_s, SPAN_HEADERS, span_rows(trace))
 
-    ws_c = wb.create_sheet("CoverageExactness")
-    _write_sheet(ws_c, METRIC_HEADERS, metric_rows(build_coverage_exactness(trace)))
-
+    # CoverageExactness arrives FIRST from build_metric_exports (same sheet name/position as
+    # before), so CSV and Excel are built from the one shared metric-export table.
     for sheet_name, rows in build_metric_exports(trace).items():
         ws = wb.create_sheet(sheet_name)
         headers = SERVICE_ATTRIBUTION_HEADERS if sheet_name == "ServiceAttribution" else METRIC_HEADERS

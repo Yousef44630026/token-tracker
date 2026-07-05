@@ -1,6 +1,6 @@
 """CSV export — materializes the derived columns. (Phase 9)
 
-Writes three row sets from a Trace, materializing derived values where appropriate:
+Writes three row sets from a Trace, materializing the derived values so each file can
 be summed correctly WITHOUT re-deriving anything:
 
   - token_quantities: one row per quantity, with ``quantity_in_total`` (the ONLY summable
@@ -23,6 +23,7 @@ from typing import Any
 
 from tracker.analytics.agent import build_agent_summary
 from tracker.analytics.cache import build_cache_summary
+from tracker.analytics.coverage import build_coverage_exactness
 from tracker.analytics.latency import build_latency_summary
 from tracker.analytics.observation_contract import build_observation_contract_summary
 from tracker.analytics.rag import build_rag_summary
@@ -202,8 +203,15 @@ def metric_rows(summary: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def build_metric_exports(trace: Trace) -> dict[str, list[dict[str, Any]]]:
-    """Build all derived metric row sets for CSV/Excel export."""
+    """Build all derived metric row sets for CSV/Excel export.
+
+    CoverageExactness is deliberately FIRST: it is the headline sheet (observed total +
+    whether that total is a lower bound), and both exports must carry it — a CSV consumer
+    must never get every secondary metric file but not the one that states what the total
+    is and how much to trust it.
+    """
     return {
+        "CoverageExactness": metric_rows(build_coverage_exactness(trace)),
         "LatencySummary": metric_rows(build_latency_summary(trace)),
         "ReliabilitySummary": metric_rows(build_reliability_summary(trace)),
         "ObservationContract": metric_rows(build_observation_contract_summary(trace)),
