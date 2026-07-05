@@ -30,6 +30,26 @@ def _is_failed_span(span: Span) -> bool:
     return status in _FAILURE_STATUSES or span.metadata.get("error") is not None
 
 
+def _with_descendants(root_ids: set[str], all_spans: list[Span]) -> set[str]:
+    """Expand span ids to include every descendant span (children, grandchildren, ...).
+
+    Real agent traces nest: the LLM call lives in a CHILD span of the agent step and the
+    TokenEvent attaches there. Counting only events sitting directly on agent/tool spans
+    understated agent cost exactly where nesting is deepest — attribution follows the tree."""
+    children: dict[str, list[str]] = defaultdict(list)
+    for span in all_spans:
+        if span.parent_span_id:
+            children[span.parent_span_id].append(span.span_id)
+    result = set(root_ids)
+    frontier = list(root_ids)
+    while frontier:
+        for child_id in children.get(frontier.pop(), ()):
+            if child_id not in result:
+                result.add(child_id)
+                frontier.append(child_id)
+    return result
+
+
 def build_agent_summary(trace: Trace) -> dict[str, Any]:
     """Return derived metrics for agent steps, tool calls, retries, and loops."""
     agent_spans = [span for span in trace.spans if span.span_type == "agent_step"]
@@ -60,7 +80,7 @@ def build_agent_summary(trace: Trace) -> dict[str, Any]:
     sub_agents = {value for span in agent_spans if isinstance((value := span.metadata.get("sub_agent_id")), str) and value}
 
     events = authoritative_events(trace)
-    agent_span_ids = {span.span_id for span in agent_spans + tool_spans}
+    agent_span_ids = _with_descendants({span.span_id for span in agent_spans + tool_spans}, trace.spans)
     agent_tokens = sum(event.event_contributing_tokens for event in events if event.span_id in agent_span_ids)
 
     # Per-run token totals, for the "per successful run" average below. Built from agent_step
@@ -71,7 +91,7 @@ def build_agent_summary(trace: Trace) -> dict[str, Any]:
     tokens_by_run: dict[str, int] = {}
     successful_run_ids: set[str] = set()
     for run_id, spans in spans_by_run.items():
-        run_span_ids = {span.span_id for span in spans}
+        run_span_ids = _with_descendants({span.span_id for span in spans}, trace.spans)
         tokens_by_run[run_id] = sum(event.event_contributing_tokens for event in events if event.span_id in run_span_ids)
         if not any(_is_failed_span(span) or span.metadata.get("max_steps_reached") is True for span in spans):
             successful_run_ids.add(run_id)
