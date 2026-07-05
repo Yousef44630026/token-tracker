@@ -74,7 +74,9 @@ def consume_stream(
                 provider_total = usage.provider_total_tokens
 
         if not saw_output:
-            return tracker.interrupt()
+            # keep whatever real usage was already received (e.g. Anthropic's exact input
+            # from message_start) — an interrupt must never throw away known tokens
+            return tracker.interrupt(input_tokens=input_tokens, output_tokens_seen=output_tokens)
         if final_quantities:
             return tracker.complete_with_quantities(
                 quantities=list(final_quantities.values()),
@@ -88,5 +90,9 @@ def consume_stream(
         )
     except Exception:  # noqa: BLE001 — a broken stream (or malformed terminal usage) is an
         # interruption, never a crash — see the module docstring for why this wraps the
-        # terminal-event construction too, not just ingestion.
-        return tracker.interrupt()
+        # terminal-event construction too, not just ingestion. Known usage received before
+        # the failure (exact input, provider's cumulative output count) is preserved.
+        try:
+            return tracker.interrupt(input_tokens=input_tokens, output_tokens_seen=output_tokens)
+        except Exception:  # noqa: BLE001 — even malformed captured values must not escape
+            return tracker.interrupt()

@@ -170,16 +170,44 @@ class StreamTracker:
             model=model,
         )
 
-    def interrupt(self) -> TokenEvent:
-        """Stream cut off without usage: emit an ESTIMATE from the text seen so far."""
+    def interrupt(
+        self,
+        *,
+        input_tokens: int | None = None,
+        output_tokens_seen: int | None = None,
+    ) -> TokenEvent:
+        """Stream cut off without final usage: emit the best partial measurement available.
+
+        Usage already RECEIVED before the cut is kept, never thrown away:
+          - ``input_tokens``: an exact input count the provider already sent (e.g. Anthropic
+            message_start) — recorded EXACT/provider-sourced alongside the estimate;
+          - ``output_tokens_seen``: the provider's cumulative output count from a mid-stream
+            event — used as the output ESTIMATE when it beats the text-based one (the
+            provider's own partial count can only be a floor of the final).
+        The event stays a partial (flags partial_stream_estimate + stream_interrupted) and is
+        superseded as usual if the real final usage later arrives (INV-5)."""
         estimated = self._estimator(self.accumulated_text)
-        q = self._quantity(
-            TokenType.OUTPUT,
-            estimated,
-            PrecisionLevel.ESTIMATE,
-            UsageSource.PARTIAL_STREAM_TOKENIZER,
-        )
-        self._partial = self._new_event([q], None, [PARTIAL_STREAM_ESTIMATE_FLAG, STREAM_INTERRUPTED_FLAG])
+        if output_tokens_seen is not None and output_tokens_seen > estimated:
+            output_q = self._quantity(
+                TokenType.OUTPUT,
+                output_tokens_seen,
+                PrecisionLevel.ESTIMATE,
+                UsageSource.PROVIDER_RESPONSE,
+            )
+        else:
+            output_q = self._quantity(
+                TokenType.OUTPUT,
+                estimated,
+                PrecisionLevel.ESTIMATE,
+                UsageSource.PARTIAL_STREAM_TOKENIZER,
+            )
+        quantities = [output_q]
+        if input_tokens is not None:
+            quantities.insert(
+                0,
+                self._quantity(TokenType.INPUT, input_tokens, PrecisionLevel.EXACT, UsageSource.PROVIDER_RESPONSE),
+            )
+        self._partial = self._new_event(quantities, None, [PARTIAL_STREAM_ESTIMATE_FLAG, STREAM_INTERRUPTED_FLAG])
         return self._partial
 
     def resolve_with_final_usage(

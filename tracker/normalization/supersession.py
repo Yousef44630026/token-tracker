@@ -49,8 +49,20 @@ def _looks_like_distinct_call(a: TokenEvent, b: TokenEvent) -> bool:
     return False
 
 
+PARTIAL_STREAM_ESTIMATE_FLAG = "partial_stream_estimate"
+
+
 def _is_partial_estimate(event: TokenEvent) -> bool:
-    """True if the event is a partial-stream estimate (vs a real/final usage event)."""
+    """True if the event is a partial-stream estimate (vs a real/final usage event).
+
+    Primary signal is the ``partial_stream_estimate`` flag — its single producer is the
+    stream tracker, set exactly on interrupt events. The all-quantities-partial-source shape
+    is kept as a fallback for events built outside the tracker. The flag matters because an
+    enriched partial may legitimately carry an EXACT provider-sourced input (received before
+    the stream died) alongside its estimated output — that provider-sourced quantity must not
+    make the event look like final usage."""
+    if PARTIAL_STREAM_ESTIMATE_FLAG in event.data_quality_flags:
+        return True
     quantities = event.quantities
     if not quantities:
         return False
@@ -58,7 +70,13 @@ def _is_partial_estimate(event: TokenEvent) -> bool:
 
 
 def _is_final_usage(event: TokenEvent) -> bool:
-    """True if the event carries real provider usage (a supersession target)."""
+    """True if the event carries real provider usage (a supersession target).
+
+    A partial estimate is never a final, even when it carries provider-sourced quantities
+    (see ``_is_partial_estimate``) — otherwise an enriched partial could be picked as the
+    authoritative final and supersede the REAL usage."""
+    if _is_partial_estimate(event):
+        return False
     if event.provider_total_tokens is not None:
         return True
     return any(q.usage_source in (UsageSource.PROVIDER_RESPONSE, UsageSource.PROVIDER_STREAM_FINAL) for q in event.quantities)
