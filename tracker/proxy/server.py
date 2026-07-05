@@ -29,6 +29,8 @@ from tracker.models.enums import (
     UsageSource,
 )
 from tracker.models.token_event import TokenEvent
+from tracker.models.token_quantity import TokenQuantity
+from tracker.normalization.additivity import assign_additivity
 from tracker.normalization.event_builder import build_event
 from tracker.normalization.normalizer import normalize
 from tracker.proxy.estimator import (
@@ -193,12 +195,17 @@ class _UsageAccumulator:
 class _SSEParser:
     """Incrementally decode SSE data records and pass JSON payloads to an accumulator."""
 
+    # terminal markers: seeing one means the provider finished the stream on purpose.
+    # Their absence at EOF means the stream was truncated (upstream died / connection cut).
+    _TERMINAL_EVENT_TYPES = {"message_stop", "response.completed", "response.incomplete", "response.failed"}
+
     def __init__(self, accumulator: _UsageAccumulator) -> None:
         self.accumulator = accumulator
         self.decoder = codecs.getincrementaldecoder("utf-8")("replace")
         self.buffer = ""
         self.data_lines: list[str] = []
         self.saw_output_delta = False
+        self.saw_terminal = False
 
     def feed(self, data: bytes) -> None:
         self.buffer += self.decoder.decode(data)
@@ -224,12 +231,15 @@ class _SSEParser:
         data = "\n".join(self.data_lines)
         self.data_lines.clear()
         if data == "[DONE]":
+            self.saw_terminal = True
             return
         try:
             payload = json.loads(data)
         except (json.JSONDecodeError, UnicodeError):
             return
         event_type = payload.get("type") if isinstance(payload, dict) else None
+        if event_type in self._TERMINAL_EVENT_TYPES:
+            self.saw_terminal = True
         delta = payload.get("delta") if isinstance(payload, dict) else None
         if event_type in {
             "content_block_delta",
@@ -806,11 +816,35 @@ def _make_handler(
             if measurement is not None and accumulator is not None:
                 response_hash = response_hasher.hexdigest()
                 duration_ms = (monotonic() - measurement.started_at) * 1000
+                # Truncated stream: EOF without the provider's terminal marker (message_stop /
+                # [DONE] / response.completed). Whatever usage DID arrive is real and kept, but
+                # the event must not pass for a complete one.
+                truncated = parser is not None and not parser.saw_terminal
+                if truncated and accumulator.quantities:
+                    if parser.saw_output_delta and not any(tt == TokenType.OUTPUT for tt, _role in accumulator.quantities):
+                        # output was visibly streaming but its count never arrived: surface the
+                        # loss as an UNKNOWN output (INV-6), never silently omit it.
+                        additivity, subtotal_of = assign_additivity(measurement.adapter.provider, measurement.adapter.api_surface, TokenType.OUTPUT)
+                        accumulator.quantities[(TokenType.OUTPUT, None)] = TokenQuantity(
+                            token_type=TokenType.OUTPUT,
+                            quantity=None,
+                            precision_level=PrecisionLevel.UNKNOWN,
+                            usage_source=UsageSource.NONE,
+                            additivity=additivity,
+                            subtotal_of=subtotal_of,
+                            unknown_reason=UnknownReason.STREAM_INTERRUPTED,
+                        )
+                    if "stream_interrupted" not in accumulator.flags:
+                        accumulator.flags.append("stream_interrupted")
                 has_usage = bool(accumulator.quantities)
                 successful = upstream.status < 400 and has_usage
                 observation = _observation(
                     measurement,
-                    status=("complete" if successful else ("failed" if upstream.status >= 400 else "incomplete")),
+                    status=(
+                        ("incomplete" if truncated else "complete")
+                        if successful
+                        else ("failed" if upstream.status >= 400 else "incomplete")
+                    ),
                     authoritative=successful,
                     streaming=True,
                     http_status=upstream.status,
