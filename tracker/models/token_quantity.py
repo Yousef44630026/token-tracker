@@ -1,7 +1,8 @@
 """TokenQuantity — source of truth (INV-1) + derived view (INV-2). (Phase 2)
 
 STORED (the only things serialized): token_type, token_role, quantity, precision_level,
-usage_source, additivity, subtotal_of, aggregation_mode, unknown_reason, metadata.
+usage_source, additivity, overlap, trust, subtotal_of, aggregation_mode, unknown_reason,
+metadata.
 
 DERIVED (@property, never stored, never serialized): included_in_total,
 quantity_in_total, export_warning. These are recomputed on read so storage can never
@@ -40,8 +41,26 @@ class TokenQuantity:
     subtotal_of: str | None = None
     unknown_reason: UnknownReason | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+    overlap: Overlap | None = None
+    trust: Trust | None = None
 
     def __post_init__(self) -> None:
+        self.additivity = Additivity(self.additivity)
+        self.aggregation_mode = AggregationMode(self.aggregation_mode)
+        self.precision_level = PrecisionLevel(self.precision_level)
+        self.usage_source = UsageSource(self.usage_source)
+        self.token_type = TokenType(self.token_type)
+        if self.unknown_reason is not None:
+            self.unknown_reason = UnknownReason(self.unknown_reason)
+        if self.overlap is None:
+            self.overlap = self._default_overlap()
+        else:
+            self.overlap = Overlap(self.overlap)
+        if self.trust is None:
+            self.trust = self._default_trust()
+        else:
+            self.trust = Trust(self.trust)
+
         if self.quantity is not None:
             if isinstance(self.quantity, bool) or not isinstance(self.quantity, int):
                 raise TypeError("quantity must be an integer or None")
@@ -53,8 +72,14 @@ class TokenQuantity:
             raise ValueError("unknown precision requires a missing quantity")
         if self.unknown_reason is not None and self.quantity is not None:
             raise ValueError("unknown_reason is only valid for a missing quantity")
-        if self.additivity == Additivity.SUBTOTAL_OF and not self.subtotal_of:
-            raise ValueError("subtotal_of additivity requires a parent token type")
+        if self.overlap == Overlap.SUBTOTAL_OF and not self.subtotal_of:
+            raise ValueError("subtotal overlap requires subtotal_of to name a parent token type")
+        if self.additivity == Additivity.TOTAL_CONTRIBUTING and (self.overlap != Overlap.INDEPENDENT or self.trust != Trust.VERIFIED):
+            raise ValueError("total_contributing must be independent and verified")
+        if self.additivity == Additivity.SUBTOTAL_OF and (self.overlap != Overlap.SUBTOTAL_OF or self.trust != Trust.VERIFIED):
+            raise ValueError("subtotal_of additivity must be subtotal overlap and verified trust")
+        if self.additivity == Additivity.UNVERIFIED and self.trust != Trust.UNVERIFIED:
+            raise ValueError("unverified additivity must have unverified trust")
         # Fail closed: MAX/LAST are reserved but the derivation only implements SUM
         # (quantity_in_total always sums). Refuse a mode the engine would silently ignore
         # rather than let the field promise behavior it does not honor. Lift this guard when
@@ -66,15 +91,12 @@ class TokenQuantity:
                 "the engine would silently ignore"
             )
 
-    # --- derived: the two orthogonal axes the flat `additivity` encodes (INV-4) ---
-    @property
-    def overlap(self) -> Overlap:
-        """STRUCTURAL axis: is this count a breakdown already inside another? (see Overlap)."""
-        return Overlap.SUBTOTAL_OF if self.additivity == Additivity.SUBTOTAL_OF else Overlap.INDEPENDENT
+    def _default_overlap(self) -> Overlap:
+        if self.additivity == Additivity.SUBTOTAL_OF or self.subtotal_of is not None:
+            return Overlap.SUBTOTAL_OF
+        return Overlap.INDEPENDENT
 
-    @property
-    def trust(self) -> Trust:
-        """VERIFICATION axis: is this count's additivity trusted enough to sum? (see Trust)."""
+    def _default_trust(self) -> Trust:
         return Trust.UNVERIFIED if self.additivity == Additivity.UNVERIFIED else Trust.VERIFIED
 
     # --- derived: computed only (INV-2), never stored/serialized ---
@@ -91,10 +113,10 @@ class TokenQuantity:
 
     @property
     def export_warning(self) -> str | None:
-        if self.additivity == Additivity.SUBTOTAL_OF:
-            return "subtotal_excluded_from_total"
-        if self.additivity == Additivity.UNVERIFIED:
+        if self.trust == Trust.UNVERIFIED:
             return "unverified_additivity_excluded_from_total"
+        if self.overlap == Overlap.SUBTOTAL_OF:
+            return "subtotal_excluded_from_total"
         if self.quantity is None and self.precision_level == PrecisionLevel.UNKNOWN:
             return "unknown_quantity_excluded_from_total"
         return None
@@ -107,6 +129,8 @@ class TokenQuantity:
             "precision_level": self.precision_level.value,
             "usage_source": self.usage_source.value,
             "additivity": self.additivity.value,
+            "overlap": self.overlap.value,
+            "trust": self.trust.value,
             "aggregation_mode": self.aggregation_mode.value,
             "token_role": self.token_role,
             "subtotal_of": self.subtotal_of,
@@ -123,6 +147,8 @@ class TokenQuantity:
             precision_level=PrecisionLevel(d["precision_level"]),
             usage_source=UsageSource(d["usage_source"]),
             additivity=Additivity(d["additivity"]),
+            overlap=Overlap(d["overlap"]) if d.get("overlap") else None,
+            trust=Trust(d["trust"]) if d.get("trust") else None,
             aggregation_mode=AggregationMode(d.get("aggregation_mode", "sum")),
             token_role=d.get("token_role"),
             subtotal_of=d.get("subtotal_of"),

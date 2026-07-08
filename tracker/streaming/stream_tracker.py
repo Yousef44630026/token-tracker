@@ -23,15 +23,15 @@ from collections.abc import Callable
 
 from tracker.context.propagation import TraceContext
 from tracker.estimation.local_tokenizer import estimate_tokens
-from tracker.models.enums import PrecisionLevel, TokenType, UnknownReason, UsageSource
+from tracker.models.enums import DataQualityFlag, PrecisionLevel, TokenType, UnknownReason, UsageSource
 from tracker.models.token_event import TokenEvent
 from tracker.models.token_quantity import TokenQuantity
 from tracker.normalization.additivity import assign_additivity
 from tracker.normalization.event_builder import build_event
 from tracker.normalization.supersession import reconcile_supersession
 
-PARTIAL_STREAM_ESTIMATE_FLAG = "partial_stream_estimate"
-STREAM_INTERRUPTED_FLAG = "stream_interrupted"
+PARTIAL_STREAM_ESTIMATE_FLAG = DataQualityFlag.PARTIAL_STREAM_ESTIMATE.value
+STREAM_INTERRUPTED_FLAG = DataQualityFlag.STREAM_INTERRUPTED.value
 
 
 class StreamTracker:
@@ -90,12 +90,28 @@ class StreamTracker:
         self._estimator = estimator
         self._chunks: list[str] = []
         self._partial: TokenEvent | None = None
+        # Latest CUMULATIVE usage the provider reported mid-stream (a floor if interrupted).
+        self._observed_input: int | None = None
+        self._observed_output: int | None = None
 
     # --- ingest -----------------------------------------------------------------------
     def feed(self, text_delta: str) -> None:
         """Accumulate one streamed text delta."""
         if text_delta:
             self._chunks.append(text_delta)
+
+    def observe_usage(self, *, input_tokens: int | None = None, output_tokens: int | None = None) -> None:
+        """Record cumulative provider usage seen in a MID-stream event.
+
+        Providers that stream running totals (e.g. Anthropic ``message_delta.usage``) let an
+        interrupted stream fall back on the provider's OWN last count — a near-exact floor —
+        instead of a tokenizer guess. Counts are cumulative, so we keep the maximum seen: a
+        stale or duplicated event can never lower the floor.
+        """
+        if input_tokens is not None and (self._observed_input is None or input_tokens > self._observed_input):
+            self._observed_input = input_tokens
+        if output_tokens is not None and (self._observed_output is None or output_tokens > self._observed_output):
+            self._observed_output = output_tokens
 
     @property
     def accumulated_text(self) -> str:
@@ -178,21 +194,28 @@ class StreamTracker:
     ) -> TokenEvent:
         """Stream cut off without final usage: emit the best partial measurement available.
 
-        Usage already RECEIVED before the cut is kept, never thrown away:
+        Usage already RECEIVED before the cut is kept, never thrown away. Explicit arguments
+        win; otherwise the tracker falls back on the cumulative usage it observed mid-stream
+        (``observe_usage``):
           - ``input_tokens``: an exact input count the provider already sent (e.g. Anthropic
             message_start) — recorded EXACT/provider-sourced alongside the estimate;
           - ``output_tokens_seen``: the provider's cumulative output count from a mid-stream
             event — used as the output ESTIMATE when it beats the text-based one (the
-            provider's own partial count can only be a floor of the final).
+            provider's own partial count can only be a floor of the final), and labeled
+            PROVIDER_STREAM_PARTIAL so it is never mistaken for a complete response.
         The event stays a partial (flags partial_stream_estimate + stream_interrupted) and is
         superseded as usual if the real final usage later arrives (INV-5)."""
+        if input_tokens is None:
+            input_tokens = self._observed_input
+        if output_tokens_seen is None:
+            output_tokens_seen = self._observed_output
         estimated = self._estimator(self.accumulated_text)
         if output_tokens_seen is not None and output_tokens_seen > estimated:
             output_q = self._quantity(
                 TokenType.OUTPUT,
                 output_tokens_seen,
                 PrecisionLevel.ESTIMATE,
-                UsageSource.PROVIDER_RESPONSE,
+                UsageSource.PROVIDER_STREAM_PARTIAL,
             )
         else:
             output_q = self._quantity(

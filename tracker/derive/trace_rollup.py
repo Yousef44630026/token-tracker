@@ -11,13 +11,72 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from tracker.derive.derived_fields import event_contributing_tokens
-from tracker.models.enums import Additivity, PrecisionLevel
+from tracker.models.enums import Overlap, PrecisionLevel, Trust
+from tracker.models.token_event import TokenEvent
 from tracker.models.trace import Trace
+
+
+def live_authoritative_events(trace: Trace) -> list[TokenEvent]:
+    """Events allowed to affect accounting quality metrics."""
+    return [event for event in trace.events if not event.superseded and event.is_authoritative]
 
 
 def observed_total_contributing_tokens(trace: Trace) -> int:
     """Sum of contributing tokens across the trace's events (superseded events count 0)."""
     return sum(event_contributing_tokens(e) for e in trace.events)
+
+
+def estimated_contributing_tokens(trace: Trace) -> int:
+    """Magnitude of estimated quantities currently included in the headline total."""
+    return sum(
+        q.quantity_in_total
+        for event in live_authoritative_events(trace)
+        for q in event.quantities
+        if q.precision_level == PrecisionLevel.ESTIMATE
+    )
+
+
+def unattributed_tokens(trace: Trace) -> int:
+    """Provider-counted tokens not attributable to normalized quantities."""
+    return sum(event.under_attributed_tokens for event in live_authoritative_events(trace))
+
+
+def over_attributed_tokens(trace: Trace) -> int:
+    """Tokens attributed above provider totals; high-severity overcount risk."""
+    return sum(event.over_attributed_tokens for event in live_authoritative_events(trace))
+
+
+def unverified_independent_tokens(trace: Trace) -> int:
+    """Known independent quantities excluded only because additivity trust is missing."""
+    return sum(
+        q.quantity or 0
+        for event in live_authoritative_events(trace)
+        for q in event.quantities
+        if q.trust == Trust.UNVERIFIED and q.overlap == Overlap.INDEPENDENT and q.quantity is not None
+    )
+
+
+def headline_band(trace: Trace) -> tuple[int, int, int]:
+    """Return ``(floor, estimate, ceiling)`` for the trace headline.
+
+    ``estimate`` is the best current total: observed contributing tokens plus provider-known
+    unattributed tokens. ``floor`` removes estimated contributing quantities. ``ceiling`` adds
+    known independent unverified quantities. Unknown quantities have no magnitude, so they are
+    surfaced through counts/reasons rather than invented as a number.
+    """
+    observed = observed_total_contributing_tokens(trace)
+    estimated = estimated_contributing_tokens(trace)
+    unattributed = unattributed_tokens(trace)
+    best = observed + unattributed
+    floor = max(best - estimated, 0)
+    ceiling = best + unverified_independent_tokens(trace)
+    return floor, best, ceiling
+
+
+def capture_completeness_ratio(trace: Trace) -> float:
+    """Observed attributed total divided by the finite headline ceiling."""
+    _, _, ceiling = headline_band(trace)
+    return round(observed_total_contributing_tokens(trace) / ceiling, 4) if ceiling else 0.0
 
 
 def total_is_lower_bound(trace: Trace) -> bool:
@@ -33,11 +92,9 @@ def total_is_lower_bound(trace: Trace) -> bool:
     duplicate or a retired attempt), not because real tokens were lost, so their
     imperfections must not taint the live total's status.
     """
-    for e in trace.events:
-        if e.superseded or not e.is_authoritative:
-            continue
+    for e in live_authoritative_events(trace):
         for q in e.quantities:
-            if q.additivity == Additivity.UNVERIFIED:
+            if q.trust == Trust.UNVERIFIED:
                 return True
             if q.quantity is None or q.precision_level == PrecisionLevel.UNKNOWN:
                 return True
@@ -55,6 +112,12 @@ class TraceRollup:
 
     trace_id: str
     observed_total_contributing_tokens: int
+    headline_floor_tokens: int
+    headline_estimate_tokens: int
+    headline_ceiling_tokens: int
+    capture_completeness_ratio: float
+    unattributed_tokens: int
+    over_attributed_tokens: int
     event_count: int
     superseded_event_count: int
     flagged_event_count: int
@@ -63,9 +126,16 @@ class TraceRollup:
 
 def roll_up(trace: Trace) -> TraceRollup:
     """Compute the derived totals + counts for a trace (all recomputed, nothing stored)."""
+    floor, estimate, ceiling = headline_band(trace)
     return TraceRollup(
         trace_id=trace.trace_id,
         observed_total_contributing_tokens=observed_total_contributing_tokens(trace),
+        headline_floor_tokens=floor,
+        headline_estimate_tokens=estimate,
+        headline_ceiling_tokens=ceiling,
+        capture_completeness_ratio=capture_completeness_ratio(trace),
+        unattributed_tokens=unattributed_tokens(trace),
+        over_attributed_tokens=over_attributed_tokens(trace),
         event_count=len(trace.events),
         superseded_event_count=sum(1 for e in trace.events if e.superseded),
         flagged_event_count=sum(1 for e in trace.events if e.data_quality_flags),

@@ -13,14 +13,14 @@ from io import StringIO
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from tracker.export.powerbi_exporter import export_powerbi  # noqa: E402
+from tracker.export.powerbi_exporter import export_powerbi, export_powerbi_events  # noqa: E402
 from tracker.models.enums import Additivity, PrecisionLevel, TokenType, UsageSource  # noqa: E402
 from tracker.models.span import Span  # noqa: E402
 from tracker.models.token_event import TokenEvent  # noqa: E402
 from tracker.models.token_quantity import TokenQuantity  # noqa: E402
 from tracker.models.trace import Trace  # noqa: E402
 from tracker.proxy.cli import main as proxy_main  # noqa: E402
-from tracker.storage.file_repository import FileRepository  # noqa: E402
+from tracker.storage.file_repository import FileRepository, PartitionedFileRepository  # noqa: E402
 
 _failures = 0
 
@@ -80,6 +80,7 @@ trace.add_event(
         provider_total_tokens=1300,
         timestamp="2026-07-02T10:15:00Z",
         observation={
+            "authoritative": True,
             "status": "complete",
             "duration_ms": 1000,
             "time_to_first_token_ms": 120,
@@ -107,6 +108,7 @@ trace.add_event(
         provider_total_tokens=150,
         timestamp="2026-07-02T11:30:00Z",
         observation={
+            "authoritative": True,
             "status": "complete",
             "duration_ms": 500,
             "service_name": "support-api",
@@ -231,6 +233,40 @@ with redirect_stdout(buffer):
 check(exit_code == 0, "powerbi-export CLI exits successfully")
 check(os.path.exists(os.path.join(cli_out_dir, "manifest.json")), "powerbi-export CLI writes manifest")
 check("Power BI export:" in buffer.getvalue(), "powerbi-export CLI prints artifact location")
+
+partitioned_store = os.path.join(out_dir, "partitioned-store")
+PartitionedFileRepository(partitioned_store).append_many(trace.events)
+partitioned_cli_out_dir = os.path.join(out_dir, "partitioned-cli")
+buffer = StringIO()
+with redirect_stdout(buffer):
+    exit_code = proxy_main(
+        [
+            "powerbi-export",
+            "--store",
+            partitioned_store,
+            "--partitioned-store",
+            "--output",
+            partitioned_cli_out_dir,
+            "--dataset-name",
+            "partitioned_tracker",
+        ]
+    )
+check(exit_code == 0, "partitioned powerbi-export CLI exits successfully")
+check(os.path.exists(os.path.join(partitioned_cli_out_dir, "manifest.json")), "partitioned powerbi-export writes manifest")
+
+iterator_out_dir = os.path.join(out_dir, "iterator")
+iterator_paths = export_powerbi_events(
+    (event for event in trace.events),
+    iterator_out_dir,
+    dataset_name="iterator_tracker",
+    generated_at="2026-07-02T12:00:00+00:00",
+)
+iterator_event_rows = read_csv(iterator_paths["fact_token_events"])
+iterator_quantity_rows = read_csv(iterator_paths["fact_token_quantities"])
+iterator_daily_rows = read_csv(iterator_paths["fact_service_daily"])
+check(len(iterator_event_rows) == 3, "Power BI export consumes an event iterator once and keeps event rows")
+check(sum(int(row["quantity_in_total"] or 0) for row in iterator_quantity_rows) == 1450, "iterator export keeps quantity rows")
+check(any(row["provider"] == "azure_openai" for row in iterator_daily_rows), "iterator export keeps downstream derived tables")
 
 shutil.rmtree(out_dir, ignore_errors=True)
 

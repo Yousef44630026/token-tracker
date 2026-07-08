@@ -54,8 +54,8 @@ _TABLE: dict[tuple[str, TokenType], tuple[Additivity, str | None]] = {
     # --- Bedrock cache fields: still unverified until a real payload proves them ---
     ("bedrock", TokenType.INPUT): (Additivity.TOTAL_CONTRIBUTING, None),
     ("bedrock", TokenType.OUTPUT): (Additivity.TOTAL_CONTRIBUTING, None),
-    ("bedrock", TokenType.CACHED_INPUT): (Additivity.UNVERIFIED, None),
-    ("bedrock", TokenType.CACHE_CREATION_INPUT): (Additivity.UNVERIFIED, None),
+    ("bedrock", TokenType.CACHED_INPUT): (Additivity.UNVERIFIED, "input"),
+    ("bedrock", TokenType.CACHE_CREATION_INPUT): (Additivity.UNVERIFIED, "input"),
     ("bedrock", TokenType.EMBEDDING): (Additivity.TOTAL_CONTRIBUTING, None),
     # Anthropic documents input/cache-read/cache-creation as separate input buckets.
     ("anthropic", TokenType.INPUT): (Additivity.TOTAL_CONTRIBUTING, None),

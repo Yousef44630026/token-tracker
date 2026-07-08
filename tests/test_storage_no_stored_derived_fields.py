@@ -10,8 +10,9 @@ Round-trip a TokenEvent through real JSONL on disk and assert:
 
 import json
 import os
+import shutil
 import sys
-import tempfile
+import uuid
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -112,8 +113,10 @@ def main() -> int:
     check(ev.event_contributing_tokens == 150, "event sums only quantity_in_total (cached excluded)")
     check(ev.event_total_mismatch == 0, "event_total_mismatch == 0 when provider total matches")
 
-    tmpdir = tempfile.mkdtemp(prefix="tracker_store_")
-    path = os.path.join(tmpdir, "events.jsonl")
+    tmpdir = os.path.join(os.getcwd(), ".test_tracker_store")
+    shutil.rmtree(tmpdir, ignore_errors=True)
+    os.makedirs(tmpdir, exist_ok=True)
+    path = os.path.join(tmpdir, f"events-{uuid.uuid4().hex}.jsonl")
     repo = FileRepository(path)
     repo.append(ev)
 
@@ -149,6 +152,7 @@ def main() -> int:
         print(f"RESULT: {_failures} check(s) failed")
         return 1
     print("RESULT: all checks passed")
+    shutil.rmtree(tmpdir, ignore_errors=True)
     return 0
 
 

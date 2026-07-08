@@ -15,6 +15,8 @@ from tracker.context.propagation import TraceContext
 from tracker.models.token_event import TokenEvent
 from tracker.models.token_quantity import TokenQuantity
 from tracker.normalization.data_quality import normalizer_flags
+from tracker.normalization.quality_flags import normalize_quality_flags
+from tracker.observability.observation import Observation
 
 
 def deduplicate_flags(flags: Iterable[str]) -> list[str]:
@@ -26,6 +28,11 @@ def deduplicate_flags(flags: Iterable[str]) -> list[str]:
             seen.add(flag)
             output.append(flag)
     return output
+
+
+def data_quality_flags(flags: Iterable[str]) -> list[str]:
+    """Normalize registered quality flags and cap unknown labels to ``custom``."""
+    return normalize_quality_flags(flags)
 
 
 def build_event(
@@ -42,7 +49,7 @@ def build_event(
     request_hash: str | None = None,
     response_hash: str | None = None,
     timestamp: str | None = None,
-    observation: dict[str, Any] | None = None,
+    observation: dict[str, Any] | Observation | None = None,
 ) -> TokenEvent:
     """Build one event and apply the common quality policy exactly once."""
     observed_at = timestamp or datetime.now(UTC).isoformat().replace("+00:00", "Z")
@@ -67,9 +74,9 @@ def build_event(
         api_surface=api_surface,
         quantities=quantities,
         provider_total_tokens=provider_total_tokens,
-        data_quality_flags=flags,
+        data_quality_flags=data_quality_flags(flags),
         request_hash=request_hash,
         response_hash=response_hash,
         timestamp=observed_at,
-        observation=dict(observation or {}),
+        observation=Observation() if observation is None else observation,
     )

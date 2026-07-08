@@ -10,7 +10,9 @@ from __future__ import annotations
 import json
 import logging
 import os
-from collections.abc import Iterable
+import re
+from collections import defaultdict
+from collections.abc import Iterable, Iterator
 
 from tracker.models.token_event import TokenEvent
 from tracker.storage._locking import lock_for
@@ -75,8 +77,31 @@ class FileRepository:
             return [event.event_id for event in unique]
 
     def read_all(self) -> list[TokenEvent]:
+        return list(self.iter_events())
+
+    def iter_events(self) -> Iterator[TokenEvent]:
+        """Stream events from JSONL without materializing the whole file."""
         with self._lock:
-            return self._read_all_unlocked()
+            yield from self._iter_events_unlocked()
+
+    def write_compacted(self, destination_path: str, *, drop_superseded: bool = True) -> int:
+        """Write a compacted JSONL copy and return the number of events retained."""
+        destination = os.path.abspath(destination_path)
+        if destination == self.path:
+            raise ValueError("destination_path must differ from the source path")
+        os.makedirs(os.path.dirname(destination), exist_ok=True)
+        kept = 0
+        with self._lock:
+            with open(destination, "w", encoding="utf-8", newline="\n") as out:
+                for event in self._iter_events_unlocked():
+                    if drop_superseded and event.superseded:
+                        continue
+                    out.write(json.dumps(event.to_dict(), ensure_ascii=False) + "\n")
+                    kept += 1
+                out.flush()
+                if self.durable:
+                    os.fsync(out.fileno())
+        return kept
 
     def event_ids(self) -> set[str]:
         """Return a snapshot of persisted event ids."""
@@ -152,19 +177,20 @@ class FileRepository:
         return stat.st_size, stat.st_mtime_ns
 
     def _read_all_unlocked(self) -> list[TokenEvent]:
+        return list(self._iter_events_unlocked())
+
+    def _iter_events_unlocked(self) -> Iterator[TokenEvent]:
         if not os.path.exists(self.path):
-            return []
-        out: list[TokenEvent] = []
+            return
         with open(self.path, encoding="utf-8") as fh:
-            lines = fh.readlines()
-            for index, raw_line in enumerate(lines):
+            for index, raw_line in enumerate(fh):
                 line = raw_line.strip()
                 if not line:
                     continue
                 try:
-                    out.append(TokenEvent.from_dict(json.loads(line)))
+                    yield TokenEvent.from_dict(json.loads(line))
                 except json.JSONDecodeError:
-                    is_truncated_tail = index == len(lines) - 1 and not raw_line.endswith("\n")
+                    is_truncated_tail = not raw_line.endswith("\n")
                     if self.recover_truncated_tail and is_truncated_tail:
                         # Same ambiguity as _repair_tail_unlocked: this looks like a
                         # crash-truncated line (last line, no trailing newline) but could in
@@ -179,4 +205,99 @@ class FileRepository:
                         )
                         break
                     raise
-        return out
+
+
+_SAFE_SEGMENT = re.compile(r"[^A-Za-z0-9_.=-]+")
+
+
+def _safe_segment(value: str | None, fallback: str) -> str:
+    if not value:
+        return fallback
+    segment = _SAFE_SEGMENT.sub("_", value.strip())
+    return segment[:120] or fallback
+
+
+def _event_date(event: TokenEvent) -> str:
+    if event.timestamp and len(event.timestamp) >= 10:
+        date = event.timestamp[:10]
+        if re.fullmatch(r"\d{4}-\d{2}-\d{2}", date):
+            return date
+    return "unknown-date"
+
+
+class PartitionedFileRepository:
+    """Date/trace partitioned JSONL repository for higher-volume observability."""
+
+    def __init__(
+        self,
+        root_dir: str,
+        *,
+        durable: bool = False,
+        recover_truncated_tail: bool = True,
+    ) -> None:
+        self.root_dir = os.path.abspath(root_dir)
+        self.durable = durable
+        self.recover_truncated_tail = recover_truncated_tail
+        os.makedirs(self.root_dir, exist_ok=True)
+
+    def _path_for_event(self, event: TokenEvent) -> str:
+        date = _safe_segment(_event_date(event), "unknown-date")
+        trace_id = _safe_segment(event.trace_id, "unknown-trace")
+        return os.path.join(self.root_dir, f"date={date}", f"trace_id={trace_id}", "events.jsonl")
+
+    def _repo_for_path(self, path: str) -> FileRepository:
+        return FileRepository(path, durable=self.durable, recover_truncated_tail=self.recover_truncated_tail)
+
+    def append(self, event: TokenEvent) -> None:
+        self.append_many([event])
+
+    def append_many(self, events: Iterable[TokenEvent]) -> None:
+        grouped: dict[str, list[TokenEvent]] = defaultdict(list)
+        for event in events:
+            if not isinstance(event, TokenEvent):
+                raise TypeError("events must contain TokenEvent objects")
+            grouped[self._path_for_event(event)].append(event)
+        for path, group in grouped.items():
+            self._repo_for_path(path).append_many(group)
+
+    def append_unique(self, events: Iterable[TokenEvent]) -> list[str]:
+        appended: list[str] = []
+        grouped: dict[str, list[TokenEvent]] = defaultdict(list)
+        for event in events:
+            if not isinstance(event, TokenEvent):
+                raise TypeError("events must contain TokenEvent objects")
+            grouped[self._path_for_event(event)].append(event)
+        for path, group in grouped.items():
+            appended.extend(self._repo_for_path(path).append_unique(group))
+        return appended
+
+    def iter_events(self) -> Iterator[TokenEvent]:
+        for root, dirs, files in os.walk(self.root_dir):
+            dirs.sort()
+            for name in sorted(files):
+                if name != "events.jsonl":
+                    continue
+                yield from self._repo_for_path(os.path.join(root, name)).iter_events()
+
+    def read_all(self) -> list[TokenEvent]:
+        return list(self.iter_events())
+
+    def event_ids(self) -> set[str]:
+        return {event.event_id for event in self.iter_events()}
+
+    def write_compacted(self, destination_root: str, *, drop_superseded: bool = True) -> int:
+        """Write a partition-preserving compacted copy and return retained event count."""
+        destination = os.path.abspath(destination_root)
+        if destination == self.root_dir:
+            raise ValueError("destination_root must differ from the source root")
+        kept = 0
+        for event in self.iter_events():
+            if drop_superseded and event.superseded:
+                continue
+            self.__class__(
+                destination,
+                durable=self.durable,
+                recover_truncated_tail=self.recover_truncated_tail,
+            ).append(event)
+            kept += 1
+        return kept

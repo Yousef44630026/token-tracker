@@ -7,6 +7,8 @@ from collections.abc import Iterable
 from tracker.models.token_event import TokenEvent
 from tracker.normalization.data_quality import (
     PROVIDER_TOTAL_MISMATCH,
+    PROVIDER_TOTAL_OVER_ATTRIBUTION,
+    PROVIDER_TOTAL_UNDER_ATTRIBUTION,
     UNKNOWN_QUANTITY_PRESENT,
     UNVERIFIED_ADDITIVITY,
     normalizer_flags,
@@ -18,6 +20,8 @@ _NORMALIZER_OWNED_FLAGS = {
     UNVERIFIED_ADDITIVITY,
     UNKNOWN_QUANTITY_PRESENT,
     PROVIDER_TOTAL_MISMATCH,
+    PROVIDER_TOTAL_UNDER_ATTRIBUTION,
+    PROVIDER_TOTAL_OVER_ATTRIBUTION,
 }
 
 

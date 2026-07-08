@@ -3,17 +3,22 @@
 import csv
 import os
 import sys
+import uuid
+from contextlib import redirect_stdout
+from io import StringIO
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from tracker.models.enums import Additivity, PrecisionLevel, TokenType, UsageSource  # noqa: E402
 from tracker.models.token_event import TokenEvent  # noqa: E402
 from tracker.models.token_quantity import TokenQuantity  # noqa: E402
+from tracker.proxy.cli import main as proxy_main  # noqa: E402
 from tracker.proxy.report import (  # noqa: E402
     render_summary,
     summarize_events,
     write_prompt_groups_csv,
 )
+from tracker.storage.file_repository import PartitionedFileRepository  # noqa: E402
 
 _failures = 0
 
@@ -120,8 +125,14 @@ failed_with_exact_usage = event(
 )
 
 summary = summarize_events([complete, failed_with_exact_usage])
+iterator_summary = summarize_events(event for event in [complete, failed_with_exact_usage])
 
 check(summary["events"] == 2, "all events remain visible")
+check(
+    iterator_summary["contributing_tokens"] == summary["contributing_tokens"]
+    and iterator_summary["prompt_groups"] == summary["prompt_groups"],
+    "summary consumes an event iterator without losing prompt groups",
+)
 check(summary["statuses"] == {"complete": 1, "failed": 1}, "statuses include failed events")
 check(
     summary["exact_usage_events"] == 1,
@@ -174,6 +185,15 @@ check(
     "failed prompt group stays visible but contributes zero",
 )
 check("per-prompt:" in render_summary(summary), "summary renders per-prompt section")
+
+partitioned_root = os.path.abspath(f".test_proxy_report_partitioned_{uuid.uuid4().hex}")
+PartitionedFileRepository(partitioned_root).append_many([complete, failed_with_exact_usage])
+buffer = StringIO()
+with redirect_stdout(buffer):
+    exit_code = proxy_main(["report", "--store", partitioned_root, "--partitioned-store"])
+report_output = buffer.getvalue()
+check(exit_code == 0, "partitioned report CLI exits successfully")
+check("events: 2" in report_output and "contributing tokens:" in report_output, "partitioned report CLI reads all partitions")
 
 csv_path = os.path.join(os.getcwd(), ".test_prompt_groups.csv")
 try:

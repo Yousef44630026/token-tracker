@@ -22,7 +22,7 @@ from tracker.adapters.gemini_generate_content_adapter import GeminiGenerateConte
 from tracker.adapters.openai_chat_completions_adapter import OpenAIChatCompletionsAdapter  # noqa: E402
 from tracker.adapters.openai_responses_adapter import OpenAIResponsesAdapter  # noqa: E402
 from tracker.context.propagation import new_trace  # noqa: E402
-from tracker.models.enums import Additivity, TokenType  # noqa: E402
+from tracker.models.enums import Additivity, Overlap, TokenType, Trust  # noqa: E402
 from tracker.normalization.normalizer import normalize  # noqa: E402
 
 _failures = 0
@@ -85,6 +85,12 @@ check(ev.event_contributing_tokens == 2600 and ev.event_total_mismatch == 0, "Ge
 ev = normalize(load("bedrock_converse_full.SIMULATED.json"), BedrockConverseAdapter(), context=new_trace())
 check(ev.model is None, "Bedrock Converse: no modelId in the response body -> model None")
 check(q(ev, TokenType.CACHED_INPUT).additivity == Additivity.UNVERIFIED, "Bedrock Converse: cacheRead -> unverified")
+check(
+    q(ev, TokenType.CACHED_INPUT).overlap == Overlap.SUBTOTAL_OF
+    and q(ev, TokenType.CACHED_INPUT).trust == Trust.UNVERIFIED
+    and q(ev, TokenType.CACHED_INPUT).subtotal_of == "input",
+    "Bedrock Converse: cacheRead keeps subtotal overlap and unverified trust",
+)
 check(q(ev, TokenType.CACHE_CREATION_INPUT) is None, "Bedrock Converse: cacheWrite=0 creates no quantity")
 check(ev.event_contributing_tokens == 1480 and ev.event_total_mismatch == 0, "Bedrock Converse: 1480, reconciles")
 check("unverified_additivity" in ev.data_quality_flags, "Bedrock Converse: unverified flag")

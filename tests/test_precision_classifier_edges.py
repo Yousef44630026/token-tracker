@@ -19,6 +19,7 @@ _failures = 0
 EXPECTED = {
     UsageSource.PROVIDER_RESPONSE: PrecisionLevel.EXACT,
     UsageSource.PROVIDER_STREAM_FINAL: PrecisionLevel.EXACT,
+    UsageSource.PROVIDER_STREAM_PARTIAL: PrecisionLevel.ESTIMATE,
     UsageSource.PARTIAL_STREAM_TOKENIZER: PrecisionLevel.ESTIMATE,
     UsageSource.LOCAL_TOKENIZER: PrecisionLevel.ESTIMATE,
     UsageSource.HISTORICAL_FORECAST: PrecisionLevel.ESTIMATE,

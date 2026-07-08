@@ -9,24 +9,13 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from tracker.models.token_event import TokenEvent
-from tracker.models.trace import Trace
+from tracker.observability.status import STATUS_VALUES
 
-STATUS_VALUES = {
-    "complete",
-    "success",
-    "failed",
-    "error",
-    "timeout",
-    "timed_out",
-    "rate_limited",
-    "throttled",
-    "fallback",
-    "legacy",
-    "unknown",
-}
+if TYPE_CHECKING:
+    from tracker.models.token_event import TokenEvent
+    from tracker.models.trace import Trace
 
 STRING_FIELDS = {
     "provider_request_id",

@@ -18,7 +18,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from tracker.adapters.base import BaseAPISurfaceAdapter, NormalizedUsage
-from tracker.adapters.registry import create_adapter
+from tracker.adapters.registry import create_adapter_with_fallback
 from tracker.context.headers import extract as extract_context
 from tracker.context.model import TraceContext, new_trace
 from tracker.models.enums import (
@@ -79,8 +79,14 @@ class ProxyConfig:
 
     def __post_init__(self) -> None:
         provider = self.provider.strip().lower()
-        if provider not in _DEFAULT_UPSTREAMS:
-            raise ValueError("provider must be 'anthropic' or 'openai'")
+        if not provider:
+            raise ValueError("provider must be a non-empty string")
+        # A provider without a dedicated adapter is proxyable (captured open / counted
+        # closed via the generic fallback adapter), but there is no default upstream to
+        # guess for it — the operator must name the upstream explicitly. This also keeps
+        # a typo'd known provider ('opnai') loud instead of silently un-defaulted.
+        if provider not in _DEFAULT_UPSTREAMS and not self.upstream_base_url:
+            raise ValueError(f"unknown provider {provider!r} has no default upstream; pass upstream_base_url explicitly")
         object.__setattr__(self, "provider", provider)
         if not _is_loopback(self.host):
             raise ValueError("the real-call proxy may bind only to a loopback address")
@@ -268,6 +274,18 @@ def _surface(provider: str, path: str) -> str | None:
         return "responses"
     if provider == "openai" and clean_path.endswith("/chat/completions"):
         return "chat_completions"
+    # Generic path shapes for any other provider (groq, together, OpenAI-compatible
+    # gateways...): the surface is just the measurement label; the adapter is resolved with
+    # fallback, so an unfamiliar provider is captured open / counted closed instead of
+    # passing through UNMEASURED. Non-usage paths (/models, /files...) still return None.
+    if clean_path.endswith("/chat/completions"):
+        return "chat_completions"
+    if clean_path.endswith("/responses"):
+        return "responses"
+    if clean_path.endswith("/messages"):
+        return "messages"
+    if clean_path.endswith("/embeddings"):
+        return "embeddings"
     return None
 
 
@@ -496,7 +514,7 @@ def _make_handler(
                 return None
             if not isinstance(decoded, dict):
                 return None
-            adapter = create_adapter(config.provider, api_surface)
+            adapter = create_adapter_with_fallback(config.provider, api_surface)
             latest_user_text = extract_latest_user_text(
                 decoded,
                 config.provider,
@@ -824,7 +842,11 @@ def _make_handler(
                     if parser.saw_output_delta and not any(tt == TokenType.OUTPUT for tt, _role in accumulator.quantities):
                         # output was visibly streaming but its count never arrived: surface the
                         # loss as an UNKNOWN output (INV-6), never silently omit it.
-                        additivity, subtotal_of = assign_additivity(measurement.adapter.provider, measurement.adapter.api_surface, TokenType.OUTPUT)
+                        additivity, subtotal_of = assign_additivity(
+                            measurement.adapter.provider,
+                            measurement.adapter.api_surface,
+                            TokenType.OUTPUT,
+                        )
                         accumulator.quantities[(TokenType.OUTPUT, None)] = TokenQuantity(
                             token_type=TokenType.OUTPUT,
                             quantity=None,

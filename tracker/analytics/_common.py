@@ -10,7 +10,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Any
 
-from tracker.models.enums import Additivity, PrecisionLevel, TokenType
+from tracker.models.enums import Additivity, PrecisionLevel, TokenType, Trust
 from tracker.models.span import Span
 from tracker.models.token_event import TokenEvent
 from tracker.models.token_quantity import TokenQuantity
@@ -47,7 +47,7 @@ def known_quantity(quantity: TokenQuantity) -> bool:
 
 
 def verified_quantity(quantity: TokenQuantity) -> bool:
-    return known_quantity(quantity) and quantity.additivity != Additivity.UNVERIFIED
+    return known_quantity(quantity) and quantity.trust != Trust.UNVERIFIED
 
 
 def quantity_sum(
@@ -63,7 +63,7 @@ def quantity_sum(
         for quantity in event.quantities:
             if quantity.token_type != token_type or not known_quantity(quantity):
                 continue
-            if not include_unverified and quantity.additivity == Additivity.UNVERIFIED:
+            if not include_unverified and quantity.trust == Trust.UNVERIFIED:
                 continue
             if not include_subtotals and quantity.additivity == Additivity.SUBTOTAL_OF:
                 continue

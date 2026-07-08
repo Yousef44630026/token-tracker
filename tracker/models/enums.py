@@ -47,6 +47,9 @@ class UsageSource(str, Enum):
 
     PROVIDER_RESPONSE = "provider_response"
     PROVIDER_STREAM_FINAL = "provider_stream_final"
+    # The provider's own cumulative usage from a MID-stream event: an exact count of what was
+    # produced so far, but a floor of the final output when the stream is then interrupted.
+    PROVIDER_STREAM_PARTIAL = "provider_stream_partial"
     PARTIAL_STREAM_TOKENIZER = "partial_stream_tokenizer"
     LOCAL_TOKENIZER = "local_tokenizer"
     HISTORICAL_FORECAST = "historical_forecast"
@@ -66,14 +69,13 @@ class UnknownReason(str, Enum):
 class Additivity(str, Enum):
     """Adapter-assigned, never inferred from the type string (INV-4).
 
-    This is a compact encoding of two orthogonal questions that a token count raises — see
-    ``Overlap`` and ``Trust``. It stays the single stored field (INV-1) for a stable wire
-    format, while ``TokenQuantity.overlap`` / ``TokenQuantity.trust`` expose the two axes
-    explicitly so code can reason about them without re-deriving the distinction each time:
+    This legacy-compatible field is kept for the three original categories, while
+    ``TokenQuantity.overlap`` / ``TokenQuantity.trust`` store the two orthogonal axes that a
+    token count raises:
 
         TOTAL_CONTRIBUTING == (Overlap.INDEPENDENT, Trust.VERIFIED)
         SUBTOTAL_OF        == (Overlap.SUBTOTAL_OF, Trust.VERIFIED)
-        UNVERIFIED         == (Overlap.INDEPENDENT, Trust.UNVERIFIED)
+        UNVERIFIED         == Trust.UNVERIFIED with either overlap value
 
     Only an (independent, verified) quantity is summed; the two axes make explicit that a count
     is excluded either because it is a breakdown of another (overlap) or because its additivity
@@ -91,7 +93,6 @@ class Overlap(str, Enum):
     INDEPENDENT  — stands on its own; eligible to be summed into the total.
     SUBTOTAL_OF  — a breakdown already inside a parent count (e.g. cached_input inside input);
                    never summed, or it would double-count the parent.
-    Derived from ``Additivity``; see that enum for the encoding.
     """
 
     INDEPENDENT = "independent"
@@ -105,7 +106,7 @@ class Trust(str, Enum):
     UNVERIFIED  — additivity not yet confirmed against a real payload (fail closed: contribute
                   0 and flag), or an unfamiliar field that fell through to the safe default.
     Orthogonal to ``Overlap`` and to ``PrecisionLevel`` (which is about measurement quality,
-    not additivity trust). Derived from ``Additivity``; see that enum for the encoding.
+    not additivity trust).
     """
 
     VERIFIED = "verified"
@@ -121,3 +122,41 @@ class AggregationMode(str, Enum):
     SUM = "sum"
     MAX = "max"  # reserved, unused in MVP
     LAST = "last"  # reserved, unused in MVP
+
+
+class DataQualityFlag(str, Enum):
+    """Registered data-quality labels.
+
+    Events store flags as strings for JSONL stability. New flags should be registered here
+    first; unknown caller-supplied labels are capped to ``custom`` before storage so analytics
+    cardinality stays bounded.
+    """
+
+    PROVIDER_TOTAL_MISMATCH = "provider_total_mismatch"
+    PROVIDER_TOTAL_UNDER_ATTRIBUTION = "provider_total_under_attribution"
+    PROVIDER_TOTAL_OVER_ATTRIBUTION = "provider_total_over_attribution"
+    UNVERIFIED_ADDITIVITY = "unverified_additivity"
+    UNKNOWN_QUANTITY_PRESENT = "unknown_quantity_present"
+    PARTIAL_STREAM_ESTIMATE = "partial_stream_estimate"
+    STREAM_INTERRUPTED = "stream_interrupted"
+    SUPERSEDED = "superseded"
+    CORRELATION_ID_COLLISION = "correlation_id_collision"
+    PROPAGATION_LOST = "propagation_lost"
+    RAW_USAGE_MISSING = "raw_usage_missing"
+    NORMALIZATION_ERROR = "normalization_error"
+    INPUT_ESTIMATE_ONLY = "input_estimate_only"
+    PROVIDER_USAGE_MISSING = "provider_usage_missing"
+    PROVIDER_STREAM_USAGE_MISSING = "provider_stream_usage_missing"
+    PROVIDER_RESPONSE_UNPARSEABLE = "provider_response_unparseable"
+    PROVIDER_HTTP_ERROR = "provider_http_error"
+    PROXY_UPSTREAM_ERROR = "proxy_upstream_error"
+    AUTH_FAILURE = "auth_failure"
+    DEPLOYMENT_OR_ENDPOINT_NOT_FOUND = "deployment_or_endpoint_not_found"
+    TIMEOUT = "timeout"
+    RATE_LIMITED_OR_QUOTA = "rate_limited_or_quota"
+    CONTENT_FILTER = "content_filter"
+    DNS_FAILURE = "dns_failure"
+    NETWORK_OR_CLIENT_FAILURE = "network_or_client_failure"
+    CLAUDE_CODE_LOCAL_USAGE = "claude_code_local_usage"
+    CODEX_LOCAL_TOKEN_COUNT = "codex_local_token_count"
+    CUSTOM = "custom"

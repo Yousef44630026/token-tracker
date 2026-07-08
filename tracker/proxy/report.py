@@ -187,6 +187,10 @@ def _prompt_group_summaries(events: Iterable[TokenEvent]) -> list[dict]:
             continue
         groups.setdefault(identity, []).append(event)
 
+    return _prompt_group_summaries_from_groups(groups)
+
+
+def _prompt_group_summaries_from_groups(groups: dict[tuple[int, str, str, str | None], list[TokenEvent]]) -> list[dict]:
     summaries: list[dict] = []
     for (sequence, label, fingerprint, source), group_events in sorted(
         groups.items(),
@@ -230,31 +234,21 @@ def _prompt_group_summaries(events: Iterable[TokenEvent]) -> list[dict]:
 
 def summarize_events(events: Iterable[TokenEvent]) -> dict:
     """Return aggregate facts without changing or reclassifying stored events."""
-    materialized = list(events)
-    authoritative_events = [event for event in materialized if not _is_incomplete(event)]
-    models = Counter(event.model or "unknown" for event in materialized)
-    statuses = Counter(event.observation.get("status", "legacy") for event in materialized)
-    sessions = {event.observation.get("proxy_session_id") for event in materialized if event.observation.get("proxy_session_id")}
-    prompt_fingerprints = {
-        event.observation.get("prompt_fingerprint") for event in materialized if event.observation.get("prompt_fingerprint")
-    }
-    max_prompt_cycle = max(
-        (event.observation.get("prompt_cycle", 0) for event in materialized if isinstance(event.observation.get("prompt_cycle"), int)),
-        default=0,
-    )
-    timestamps = sorted(event.timestamp for event in materialized if event.timestamp)
-    durations = [
-        event.observation["duration_ms"] for event in materialized if isinstance(event.observation.get("duration_ms"), (int, float))
-    ]
-    ttfts = [
-        event.observation["time_to_first_token_ms"]
-        for event in materialized
-        if isinstance(
-            event.observation.get("time_to_first_token_ms"),
-            (int, float),
-        )
-    ]
-
+    event_count = 0
+    models: Counter[str] = Counter()
+    statuses: Counter[str] = Counter()
+    sessions: set[object] = set()
+    prompt_fingerprints: set[object] = set()
+    prompt_groups: dict[tuple[int, str, str, str | None], list[TokenEvent]] = {}
+    max_prompt_cycle = 0
+    first_timestamp: str | None = None
+    last_timestamp: str | None = None
+    duration_total = 0.0
+    duration_count = 0
+    ttft_total = 0.0
+    ttft_count = 0
+    provider_request_id_count = 0
+    provider_response_id_count = 0
     exact_usage_events = 0
     incomplete_events = 0
     legacy_rule_events = 0
@@ -262,13 +256,74 @@ def summarize_events(events: Iterable[TokenEvent]) -> dict:
     estimate_tokens = 0
     provider_prompt_tokens = 0
     absolute_error = 0
+    fresh_input_tokens = 0
+    cache_read_input_tokens = 0
+    cache_creation_input_tokens = 0
+    cache_creation_5m_input_tokens = 0
+    cache_creation_1h_input_tokens = 0
+    cache_creation_quantity_count = 0
+    cache_creation_lifetime_detail_count = 0
+    output_tokens = 0
+    stored_contributing_tokens = 0
+    incomplete_estimated_tokens = 0
+    contributing_tokens = 0
 
-    for event in materialized:
-        if any(quantity.precision_level == PrecisionLevel.EXACT for quantity in event.quantities) and not _is_incomplete(event):
-            exact_usage_events += 1
+    for event in events:
+        event_count += 1
+        models[event.model or "unknown"] += 1
+        statuses[event.observation.get("status", "legacy")] += 1
+        if event.observation.get("proxy_session_id"):
+            sessions.add(event.observation.get("proxy_session_id"))
+        if event.observation.get("prompt_fingerprint"):
+            prompt_fingerprints.add(event.observation.get("prompt_fingerprint"))
+        prompt_cycle = event.observation.get("prompt_cycle", 0)
+        if isinstance(prompt_cycle, int) and not isinstance(prompt_cycle, bool):
+            max_prompt_cycle = max(max_prompt_cycle, prompt_cycle)
+        if event.timestamp:
+            first_timestamp = event.timestamp if first_timestamp is None else min(first_timestamp, event.timestamp)
+            last_timestamp = event.timestamp if last_timestamp is None else max(last_timestamp, event.timestamp)
+        duration = event.observation.get("duration_ms")
+        if isinstance(duration, (int, float)) and not isinstance(duration, bool):
+            duration_total += duration
+            duration_count += 1
+        ttft = event.observation.get("time_to_first_token_ms")
+        if isinstance(ttft, (int, float)) and not isinstance(ttft, bool):
+            ttft_total += ttft
+            ttft_count += 1
+        if event.observation.get("provider_request_id"):
+            provider_request_id_count += 1
+        if event.observation.get("provider_response_id"):
+            provider_response_id_count += 1
+        identity = _prompt_group_identity(event)
+        if identity is not None:
+            prompt_groups.setdefault(identity, []).append(event)
+
         incomplete = _is_incomplete(event)
+        if any(quantity.precision_level == PrecisionLevel.EXACT for quantity in event.quantities) and not incomplete:
+            exact_usage_events += 1
         if incomplete:
             incomplete_events += 1
+            incomplete_estimated_tokens += event.event_contributing_tokens
+        else:
+            fresh_input_tokens += _quantity(event, TokenType.INPUT)
+            cache_read_input_tokens += _quantity(event, TokenType.CACHED_INPUT)
+            cache_creation_input_tokens += _quantity(event, TokenType.CACHE_CREATION_INPUT)
+            cache_creation_5m_input_tokens += _quantity_metadata_total(
+                [event],
+                TokenType.CACHE_CREATION_INPUT,
+                "ephemeral_5m_input_tokens",
+            )
+            cache_creation_1h_input_tokens += _quantity_metadata_total(
+                [event],
+                TokenType.CACHE_CREATION_INPUT,
+                "ephemeral_1h_input_tokens",
+            )
+            event_cache_creation_count, event_cache_lifetime_count = _cache_creation_lifetime_detail_counts([event])
+            cache_creation_quantity_count += event_cache_creation_count
+            cache_creation_lifetime_detail_count += event_cache_lifetime_count
+            output_tokens += _quantity(event, TokenType.OUTPUT)
+            stored_contributing_tokens += event.event_contributing_tokens
+            contributing_tokens += _current_rule_total(event)
         if _uses_legacy_rules(event):
             legacy_rule_events += 1
 
@@ -286,10 +341,9 @@ def summarize_events(events: Iterable[TokenEvent]) -> dict:
 
     weighted_absolute_percentage_error = round(absolute_error / provider_prompt_tokens * 100, 4) if provider_prompt_tokens else None
     estimate_coverage_ratio = round(estimate_tokens / provider_prompt_tokens, 6) if provider_prompt_tokens else None
-    cache_creation_quantity_count, cache_creation_lifetime_detail_count = _cache_creation_lifetime_detail_counts(authoritative_events)
 
     return {
-        "events": len(materialized),
+        "events": event_count,
         "exact_usage_events": exact_usage_events,
         "incomplete_events": incomplete_events,
         "legacy_rule_events": legacy_rule_events,
@@ -299,37 +353,29 @@ def summarize_events(events: Iterable[TokenEvent]) -> dict:
         "proxy_sessions": len(sessions),
         "distinct_prompt_fingerprints": len(prompt_fingerprints),
         "max_prompt_cycle": max_prompt_cycle,
-        "events_with_provider_request_id": sum(1 for event in materialized if event.observation.get("provider_request_id")),
-        "events_with_provider_response_id": sum(1 for event in materialized if event.observation.get("provider_response_id")),
-        "average_duration_ms": (round(sum(durations) / len(durations), 3) if durations else None),
-        "average_time_to_first_token_ms": (round(sum(ttfts) / len(ttfts), 3) if ttfts else None),
-        "first_timestamp": timestamps[0] if timestamps else None,
-        "last_timestamp": timestamps[-1] if timestamps else None,
-        "fresh_input_tokens": sum(_quantity(e, TokenType.INPUT) for e in authoritative_events),
-        "cache_read_input_tokens": sum(_quantity(e, TokenType.CACHED_INPUT) for e in authoritative_events),
-        "cache_creation_input_tokens": sum(_quantity(e, TokenType.CACHE_CREATION_INPUT) for e in authoritative_events),
-        "cache_creation_5m_input_tokens": _quantity_metadata_total(
-            authoritative_events,
-            TokenType.CACHE_CREATION_INPUT,
-            "ephemeral_5m_input_tokens",
-        ),
-        "cache_creation_1h_input_tokens": _quantity_metadata_total(
-            authoritative_events,
-            TokenType.CACHE_CREATION_INPUT,
-            "ephemeral_1h_input_tokens",
-        ),
+        "events_with_provider_request_id": provider_request_id_count,
+        "events_with_provider_response_id": provider_response_id_count,
+        "average_duration_ms": (round(duration_total / duration_count, 3) if duration_count else None),
+        "average_time_to_first_token_ms": (round(ttft_total / ttft_count, 3) if ttft_count else None),
+        "first_timestamp": first_timestamp,
+        "last_timestamp": last_timestamp,
+        "fresh_input_tokens": fresh_input_tokens,
+        "cache_read_input_tokens": cache_read_input_tokens,
+        "cache_creation_input_tokens": cache_creation_input_tokens,
+        "cache_creation_5m_input_tokens": cache_creation_5m_input_tokens,
+        "cache_creation_1h_input_tokens": cache_creation_1h_input_tokens,
         "cache_creation_quantity_count": cache_creation_quantity_count,
         "cache_creation_lifetime_detail_count": cache_creation_lifetime_detail_count,
-        "output_tokens": sum(_quantity(e, TokenType.OUTPUT) for e in authoritative_events),
-        "stored_contributing_tokens": sum(event.event_contributing_tokens for event in materialized if not _is_incomplete(event)),
-        "incomplete_estimated_tokens": sum(event.event_contributing_tokens for event in materialized if _is_incomplete(event)),
-        "contributing_tokens": sum(_current_rule_total(event) for event in authoritative_events),
+        "output_tokens": output_tokens,
+        "stored_contributing_tokens": stored_contributing_tokens,
+        "incomplete_estimated_tokens": incomplete_estimated_tokens,
+        "contributing_tokens": contributing_tokens,
         "estimated_prompt_tokens": estimate_tokens,
         "provider_prompt_tokens": provider_prompt_tokens,
         "absolute_estimation_error": absolute_error,
         "weighted_absolute_percentage_error": weighted_absolute_percentage_error,
         "estimate_coverage_ratio": estimate_coverage_ratio,
-        "prompt_groups": _prompt_group_summaries(materialized),
+        "prompt_groups": _prompt_group_summaries_from_groups(prompt_groups),
     }
 
 

@@ -19,6 +19,7 @@ import pkgutil
 
 import tracker.adapters as _adapters_pkg
 from tracker.adapters.base import BaseAPISurfaceAdapter
+from tracker.adapters.generic_fallback_adapter import GenericFallbackAdapter
 
 _PROVIDER_ALIASES = {
     "azureopenai": "azure_openai",
@@ -77,9 +78,27 @@ def create_adapter(provider: str, api_surface: str) -> BaseAPISurfaceAdapter:
     return adapter_type()
 
 
+def create_adapter_with_fallback(provider: str, api_surface: str) -> BaseAPISurfaceAdapter:
+    """Resolve the dedicated adapter, or a ``GenericFallbackAdapter`` when none exists.
+
+    The explicit opt-in for capture paths that must never drop an observed call: an unknown
+    provider is captured open (its real usage, stamped with its real provider/surface) and
+    counted closed (everything ``unverified`` via the central table's fail-closed default,
+    contributing 0 until a dedicated adapter encodes the provider's additivity truth).
+    ``create_adapter`` itself stays strict so misconfigurations still fail loudly.
+    """
+    normalized_provider = _normalize(provider)
+    normalized_provider = _PROVIDER_ALIASES.get(normalized_provider, normalized_provider)
+    normalized_surface = _normalize(api_surface)
+    adapter_type = _ADAPTERS.get((normalized_provider, normalized_surface))
+    if adapter_type is not None:
+        return adapter_type()
+    return GenericFallbackAdapter(normalized_provider, normalized_surface)
+
+
 def available_adapters() -> tuple[tuple[str, str], ...]:
     """Return stable provider/surface pairs for discovery and validation."""
     return tuple(sorted(_ADAPTERS))
 
 
-__all__ = ["available_adapters", "create_adapter"]
+__all__ = ["available_adapters", "create_adapter", "create_adapter_with_fallback"]

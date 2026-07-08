@@ -3,10 +3,9 @@
 The flat `additivity` enum conflated two independent questions:
   - overlap: is this count already contained within another (a subtotal)? -> structural
   - trust:   is its additivity confirmed enough to sum?                     -> verification
-TokenQuantity now exposes both as first-class derived axes, and included_in_total is stated in
-terms of them (independent AND verified AND known). `additivity` remains the single stored field
-(unchanged wire format), so this is additive and non-breaking. This pins the encoding and proves
-the derivation is behavior-identical to the old flat rule.
+TokenQuantity now stores both axes, and included_in_total is stated in terms of them
+(independent AND verified AND known). `additivity` remains as a legacy/compact field for
+compatibility, but the axes are the canonical reason a quantity is included or excluded.
 
 Run: python tests/test_overlap_trust_axes.py
 """
@@ -37,15 +36,36 @@ def q(additivity, *, qty=100, prec=PrecisionLevel.EXACT, parent=None):
 tc = q(Additivity.TOTAL_CONTRIBUTING)
 check(tc.overlap == Overlap.INDEPENDENT and tc.trust == Trust.VERIFIED, "total_contributing == (independent, verified)")
 
-sub = TokenQuantity(TokenType.CACHED_INPUT, 80, PrecisionLevel.EXACT, UsageSource.PROVIDER_RESPONSE, Additivity.SUBTOTAL_OF, subtotal_of="input")
+sub = TokenQuantity(
+    TokenType.CACHED_INPUT,
+    80,
+    PrecisionLevel.EXACT,
+    UsageSource.PROVIDER_RESPONSE,
+    Additivity.SUBTOTAL_OF,
+    subtotal_of="input",
+)
 check(sub.overlap == Overlap.SUBTOTAL_OF and sub.trust == Trust.VERIFIED, "subtotal_of == (subtotal_of, verified)")
 
 unv = q(Additivity.UNVERIFIED)
 check(unv.overlap == Overlap.INDEPENDENT and unv.trust == Trust.UNVERIFIED, "unverified == (independent, unverified)")
 
+unv_sub = TokenQuantity(
+    TokenType.CACHED_INPUT,
+    80,
+    PrecisionLevel.EXACT,
+    UsageSource.PROVIDER_RESPONSE,
+    Additivity.UNVERIFIED,
+    subtotal_of="input",
+)
+check(
+    unv_sub.overlap == Overlap.SUBTOTAL_OF and unv_sub.trust == Trust.UNVERIFIED,
+    "unverified subtotal == (subtotal_of, unverified), the fourth cell is representable",
+)
+
 # --- the two axes explain the TWO distinct reasons a count is excluded from the total ---
 check(sub.quantity_in_total == 0 and sub.trust == Trust.VERIFIED, "subtotal excluded for OVERLAP, though it is trusted")
 check(unv.quantity_in_total == 0 and unv.overlap == Overlap.INDEPENDENT, "unverified excluded for TRUST, though it is independent")
+check(unv_sub.quantity_in_total == 0, "unverified subtotal is excluded while preserving both reasons")
 check(tc.quantity_in_total == 100, "only an (independent, verified, known) count is summed")
 
 # --- behaviour preserved: included_in_total still matches the old flat rule exactly ---
@@ -63,11 +83,16 @@ check(
     "a lost independent+verified count still contributes 0 (unknown quantity, INV-6)",
 )
 
-# --- additivity remains the single stored field; the axes are NOT serialized (INV-1/INV-2) ---
+# --- additivity remains stored for compatibility; the axes are stored too for the full 2x2 space ---
 d = tc.to_dict()
-check(d.get("additivity") == "total_contributing", "additivity is still the stored wire field (non-breaking)")
-check("overlap" not in d and "trust" not in d, "the derived axes are NOT serialized (INV-2)")
-check(TokenQuantity.from_dict(d).overlap == Overlap.INDEPENDENT, "round-trip through storage re-derives the axes")
+check(d.get("additivity") == "total_contributing", "additivity is still stored for compatibility")
+check(d.get("overlap") == "independent" and d.get("trust") == "verified", "overlap/trust are serialized as source-of-truth")
+check(TokenQuantity.from_dict(d).overlap == Overlap.INDEPENDENT, "round-trip through storage preserves the axes")
+round_trip_unv_sub = TokenQuantity.from_dict(unv_sub.to_dict())
+check(
+    round_trip_unv_sub.overlap == Overlap.SUBTOTAL_OF and round_trip_unv_sub.trust == Trust.UNVERIFIED,
+    "round-trip preserves unverified subtotal without flattening it",
+)
 
 print("\nRESULT:", "all checks passed" if _failures == 0 else f"{_failures} FAILURE(S)")
 sys.exit(1 if _failures else 0)

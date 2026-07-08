@@ -28,6 +28,10 @@ demo.xlsx
 demo_output/
 runs/
 codex-local-test-dir/
+.test_*/
+.test_*.csv
+tracker-doctor-*
+.tracker_doctor_*
 _*.html
 
 # Journal de derive de prix (s'accumule a chaque --check)

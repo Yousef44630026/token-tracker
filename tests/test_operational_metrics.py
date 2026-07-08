@@ -119,6 +119,7 @@ trace.add_event(
         ],
         provider_total_tokens=1300,
         observation={
+            "authoritative": True,
             "status": "complete",
             "duration_ms": 1000,
             "time_to_first_token_ms": 120,
@@ -142,7 +143,7 @@ trace.add_event(
         api_surface="responses",
         quantities=[q(TokenType.INPUT, 100), q(TokenType.OUTPUT, 50)],
         provider_total_tokens=150,
-        observation={"status": "complete", "duration_ms": 500},
+        observation={"status": "complete", "authoritative": True, "duration_ms": 500},
     )
 )
 trace.add_event(

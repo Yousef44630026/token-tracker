@@ -32,7 +32,7 @@ from tracker.proxy.report import (
     write_prompt_groups_csv,
 )
 from tracker.proxy.server import ProxyConfig, create_proxy_server
-from tracker.storage.file_repository import FileRepository
+from tracker.storage.file_repository import FileRepository, PartitionedFileRepository
 from tracker.validation.fixture_manifest import realistic_fixture_records
 
 
@@ -91,7 +91,12 @@ def _parser() -> argparse.ArgumentParser:
         command_parser.add_argument(
             "--provider",
             required=True,
-            choices=("anthropic", "openai"),
+            help=(
+                "provider to proxy; 'anthropic' and 'openai' have dedicated adapters and "
+                "default upstreams. Any other provider (groq, together, an OpenAI-compatible "
+                "gateway...) is accepted WITH an explicit --upstream: captured via the generic "
+                "fallback adapter (real counts kept, unverified, contributing 0 until verified)"
+            ),
         )
         command_parser.add_argument("--store", default="real_call_events.jsonl")
         command_parser.add_argument("--host", default="127.0.0.1")
@@ -270,6 +275,11 @@ def _parser() -> argparse.ArgumentParser:
         help="summarize one recorded real-call JSONL file",
     )
     report_parser.add_argument("--store", default="real_call_events.jsonl")
+    report_parser.add_argument(
+        "--partitioned-store",
+        action="store_true",
+        help="treat --store as a date/trace partitioned repository root",
+    )
     report_parser.add_argument("--json", action="store_true")
     report_parser.add_argument("--per-prompt-csv")
 
@@ -293,6 +303,11 @@ def _parser() -> argparse.ArgumentParser:
         help="export a Power BI import folder from one recorded event JSONL store",
     )
     powerbi_parser.add_argument("--store", default="real_call_events.jsonl")
+    powerbi_parser.add_argument(
+        "--partitioned-store",
+        action="store_true",
+        help="treat --store as a date/trace partitioned repository root",
+    )
     powerbi_parser.add_argument("--output", required=True)
     powerbi_parser.add_argument("--dataset-name", default="ai_token_tracker")
 
@@ -473,6 +488,10 @@ def _config(args: argparse.Namespace, **overrides: object) -> ProxyConfig:
     return ProxyConfig(**values)
 
 
+def _read_repository(args: argparse.Namespace):
+    return PartitionedFileRepository(args.store) if getattr(args, "partitioned_store", False) else FileRepository(args.store)
+
+
 def _run_proxied_command(
     *,
     args: argparse.Namespace,
@@ -525,7 +544,7 @@ def _run_proxied_command(
 
 
 def _completed_prompt_keys(repository: FileRepository) -> set[tuple[int, str]]:
-    summary = summarize_events(repository.read_all())
+    summary = summarize_events(repository.iter_events())
     completed: set[tuple[int, str]] = set()
     for group in summary.get("prompt_groups", []):
         sequence = group.get("sequence")
@@ -544,7 +563,7 @@ def _live_usage_tracker(args: argparse.Namespace, repository: FileRepository):
     budget = args.live_budget_tokens
     if budget is None:
         return None
-    initial_used = summarize_events(repository.read_all())["contributing_tokens"]
+    initial_used = summarize_events(repository.iter_events())["contributing_tokens"]
     return LiveUsageTracker(
         budget_tokens=budget,
         used_tokens=initial_used,
@@ -666,7 +685,7 @@ def _run_codex(args: argparse.Namespace) -> int:
     print(f"imported Codex token_count events: {total}", flush=True)
 
     if not args.no_report:
-        print(render_summary(summarize_events(repository.read_all())))
+        print(render_summary(summarize_events(repository.iter_events())))
     return returncode
 
 
@@ -764,7 +783,7 @@ def _run_codex_suite(args: argparse.Namespace) -> int:
             print(f"skipped complete prompts: {skipped}", flush=True)
         return 0
     if not args.no_report:
-        print(render_summary(summarize_events(repository.read_all())))
+        print(render_summary(summarize_events(repository.iter_events())))
     if skipped:
         print(f"skipped complete prompts: {skipped}", flush=True)
     return 1 if failures else 0
@@ -860,7 +879,7 @@ def _run_prompt_suite(args: argparse.Namespace) -> int:
             print(f"skipped complete prompts: {skipped}", flush=True)
         return 0
     if not args.no_report:
-        print(render_summary(summarize_events(repository.read_all())))
+        print(render_summary(summarize_events(repository.iter_events())))
     if skipped:
         print(f"skipped complete prompts: {skipped}", flush=True)
     quality_failures = 0
@@ -875,8 +894,8 @@ def _run_prompt_suite(args: argparse.Namespace) -> int:
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     if args.mode == "report":
-        repository = FileRepository(args.store)
-        summary = summarize_events(repository.read_all())
+        repository = _read_repository(args)
+        summary = summarize_events(repository.iter_events())
         if args.per_prompt_csv:
             write_prompt_groups_csv(summary, args.per_prompt_csv)
             print(f"per-prompt CSV: {os.path.abspath(args.per_prompt_csv)}")
@@ -914,9 +933,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         has_gaps = any(row["gaps"] for row in matrix)
         return 1 if args.fail_on_gaps and has_gaps else 0
     if args.mode == "powerbi-export":
-        repository = FileRepository(args.store)
+        repository = _read_repository(args)
         paths = export_powerbi_events(
-            repository.read_all(),
+            repository.iter_events(),
             args.output,
             dataset_name=args.dataset_name,
         )

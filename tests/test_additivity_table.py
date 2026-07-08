@@ -39,9 +39,9 @@ cases = [
     ("gemini", "generate_content", TokenType.INPUT, TC, None),
     ("gemini", "generate_content", TokenType.THINKING, TC, None),
     ("gemini", "generate_content", TokenType.CACHED_INPUT, SUB, "input"),
-    # Bedrock cache fields are unverified; Anthropic cache buckets are additive inputs.
-    ("bedrock", "converse", TokenType.CACHED_INPUT, UNV, None),
-    ("bedrock", "converse", TokenType.CACHE_CREATION_INPUT, UNV, None),
+    # Bedrock cache fields are unverified subtotals of input; Anthropic cache buckets are additive inputs.
+    ("bedrock", "converse", TokenType.CACHED_INPUT, UNV, "input"),
+    ("bedrock", "converse", TokenType.CACHE_CREATION_INPUT, UNV, "input"),
     ("anthropic", "messages", TokenType.CACHED_INPUT, TC, None),
     ("anthropic", "messages", TokenType.CACHE_CREATION_INPUT, TC, None),
     # embeddings: the embedded tokens are total_contributing (registered explicitly)

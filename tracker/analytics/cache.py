@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from tracker.analytics._common import authoritative_events, quantity_sum, ratio
-from tracker.models.enums import Additivity, TokenType
+from tracker.models.enums import TokenType, Trust
 from tracker.models.trace import Trace
 
 
@@ -40,15 +40,13 @@ def build_cache_summary(trace: Trace) -> dict[str, Any]:
         quantity.quantity or 0
         for event in events
         for quantity in event.quantities
-        if quantity.token_type == TokenType.CACHED_INPUT and quantity.additivity == Additivity.UNVERIFIED and quantity.quantity is not None
+        if quantity.token_type == TokenType.CACHED_INPUT and quantity.trust == Trust.UNVERIFIED and quantity.quantity is not None
     )
     unverified_cache_creation_tokens = sum(
         quantity.quantity or 0
         for event in events
         for quantity in event.quantities
-        if quantity.token_type == TokenType.CACHE_CREATION_INPUT
-        and quantity.additivity == Additivity.UNVERIFIED
-        and quantity.quantity is not None
+        if quantity.token_type == TokenType.CACHE_CREATION_INPUT and quantity.trust == Trust.UNVERIFIED and quantity.quantity is not None
     )
     prompt_input_tokens = sum(
         quantity.quantity_in_total

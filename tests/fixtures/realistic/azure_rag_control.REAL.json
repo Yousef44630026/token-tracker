@@ -1,0 +1,182 @@
+{
+  "_SIMULATED": false,
+  "_captured_at": "2026-07-07T15:13:42.744144",
+  "fact_token": "812",
+  "fabricated_fact": "The Vanthys Retention Directive requires archived traces to be kept for exactly 812 days before deletion.",
+  "query": "According to the Vanthys Retention Directive, exactly how many days must archived traces be kept? Answer with the number.",
+  "with_context": {
+    "choices": [
+      {
+        "content_filter_results": {
+          "hate": {
+            "filtered": false,
+            "severity": "safe"
+          },
+          "protected_material_code": {
+            "detected": false,
+            "filtered": false
+          },
+          "protected_material_text": {
+            "detected": false,
+            "filtered": false
+          },
+          "self_harm": {
+            "filtered": false,
+            "severity": "safe"
+          },
+          "sexual": {
+            "filtered": false,
+            "severity": "safe"
+          },
+          "violence": {
+            "filtered": false,
+            "severity": "safe"
+          }
+        },
+        "finish_reason": "stop",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "annotations": [],
+          "content": "812",
+          "refusal": null,
+          "role": "assistant"
+        }
+      }
+    ],
+    "created": 1783433615,
+    "id": "chatcmpl-Dz0qFuXOMy3FdLlLkvGLueU42Zr9Z",
+    "model": "gpt-5-mini-2025-08-07",
+    "object": "chat.completion",
+    "prompt_filter_results": [
+      {
+        "prompt_index": 0,
+        "content_filter_results": {
+          "hate": {
+            "filtered": false,
+            "severity": "safe"
+          },
+          "jailbreak": {
+            "detected": false,
+            "filtered": false
+          },
+          "self_harm": {
+            "filtered": false,
+            "severity": "safe"
+          },
+          "sexual": {
+            "filtered": false,
+            "severity": "safe"
+          },
+          "violence": {
+            "filtered": false,
+            "severity": "safe"
+          }
+        }
+      }
+    ],
+    "service_tier": "default",
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 75,
+      "completion_tokens_details": {
+        "accepted_prediction_tokens": 0,
+        "audio_tokens": 0,
+        "reasoning_tokens": 64,
+        "rejected_prediction_tokens": 0
+      },
+      "latency_checkpoint": {
+        "engine_tbt_ms": 12,
+        "engine_ttft_ms": 41,
+        "engine_ttlt_ms": 1193,
+        "pre_inference_ms": 160,
+        "service_tbt_ms": 12,
+        "service_ttft_ms": 314,
+        "service_ttlt_ms": 1454,
+        "total_duration_ms": 1302,
+        "user_visible_ttft_ms": 154
+      },
+      "prompt_tokens": 61,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cached_tokens": 0
+      },
+      "total_tokens": 136
+    }
+  },
+  "without_context": {
+    "choices": [
+      {
+        "content_filter_results": {},
+        "finish_reason": "length",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "annotations": [],
+          "content": "",
+          "refusal": null,
+          "role": "assistant"
+        }
+      }
+    ],
+    "created": 1783433618,
+    "id": "chatcmpl-Dz0qIYkPy8tnJtnSYQ9WV6sbSN3oV",
+    "model": "gpt-5-mini-2025-08-07",
+    "object": "chat.completion",
+    "prompt_filter_results": [
+      {
+        "prompt_index": 0,
+        "content_filter_results": {
+          "hate": {
+            "filtered": false,
+            "severity": "safe"
+          },
+          "jailbreak": {
+            "detected": false,
+            "filtered": false
+          },
+          "self_harm": {
+            "filtered": false,
+            "severity": "safe"
+          },
+          "sexual": {
+            "filtered": false,
+            "severity": "safe"
+          },
+          "violence": {
+            "filtered": false,
+            "severity": "safe"
+          }
+        }
+      }
+    ],
+    "service_tier": "default",
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 512,
+      "completion_tokens_details": {
+        "accepted_prediction_tokens": 0,
+        "audio_tokens": 0,
+        "reasoning_tokens": 512,
+        "rejected_prediction_tokens": 0
+      },
+      "latency_checkpoint": {
+        "engine_tbt_ms": 13,
+        "engine_ttft_ms": 39,
+        "engine_ttlt_ms": 6783,
+        "pre_inference_ms": 135,
+        "service_tbt_ms": 13,
+        "service_ttft_ms": 291,
+        "service_ttlt_ms": 7030,
+        "total_duration_ms": 6903,
+        "user_visible_ttft_ms": 156
+      },
+      "prompt_tokens": 31,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cached_tokens": 0
+      },
+      "total_tokens": 543
+    }
+  }
+}

@@ -8,9 +8,10 @@ derived key leaked onto disk — at scale.
 
 import json
 import os
+import shutil
 import sys
-import tempfile
 import time
+import uuid
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -49,7 +50,10 @@ events = [
     for i in range(N)
 ]
 
-path = os.path.join(tempfile.mkdtemp(prefix="tt_loadstore_"), "events.jsonl")
+work = os.path.join(os.getcwd(), ".test_load_storage")
+shutil.rmtree(work, ignore_errors=True)
+os.makedirs(work, exist_ok=True)
+path = os.path.join(work, f"events-{uuid.uuid4().hex}.jsonl")
 repo = FileRepository(path)
 
 t0 = time.perf_counter()
@@ -72,4 +76,5 @@ check(all(DERIVED.isdisjoint(q.keys()) for q in first["quantities"]), "no derive
 
 print(f"  timings: write {N} in {write_s:.2f}s, read in {read_s:.2f}s")
 print("\nRESULT:", "all checks passed" if _failures == 0 else f"{_failures} FAILURE(S)")
+shutil.rmtree(work, ignore_errors=True)
 sys.exit(1 if _failures else 0)

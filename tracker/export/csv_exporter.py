@@ -29,6 +29,7 @@ from tracker.analytics.observation_contract import build_observation_contract_su
 from tracker.analytics.rag import build_rag_summary
 from tracker.analytics.reliability import build_reliability_summary
 from tracker.analytics.service_attribution import build_service_attribution
+from tracker.analytics.trust_report import build_trust_report
 from tracker.models.trace import Trace
 
 QUANTITY_HEADERS = [
@@ -40,6 +41,8 @@ QUANTITY_HEADERS = [
     "precision_level",
     "usage_source",
     "additivity",
+    "overlap",
+    "trust",
     "subtotal_of",
     "quantity_in_total",
     "export_warning",
@@ -58,6 +61,8 @@ EVENT_HEADERS = [
     "superseded_by",
     "event_contributing_tokens",
     "event_total_mismatch",
+    "under_attributed_tokens",
+    "over_attributed_tokens",
     "data_quality_flags",
     "authoritative",
     "observation_status",
@@ -121,6 +126,8 @@ def quantity_rows(trace: Trace) -> list[dict[str, Any]]:
                     "precision_level": q.precision_level.value,
                     "usage_source": q.usage_source.value,
                     "additivity": q.additivity.value,
+                    "overlap": q.overlap.value,
+                    "trust": q.trust.value,
                     "subtotal_of": q.subtotal_of,
                     "quantity_in_total": (0 if e.superseded or not e.is_authoritative else q.quantity_in_total),
                     "export_warning": q.export_warning,
@@ -146,6 +153,8 @@ def event_rows(trace: Trace) -> list[dict[str, Any]]:
             "superseded_by": e.superseded_by,
             "event_contributing_tokens": e.event_contributing_tokens,
             "event_total_mismatch": e.event_total_mismatch,
+            "under_attributed_tokens": e.under_attributed_tokens,
+            "over_attributed_tokens": e.over_attributed_tokens,
             "data_quality_flags": ";".join(e.data_quality_flags),
             "authoritative": e.is_authoritative,
             "observation_status": e.observation.get("status"),
@@ -211,6 +220,7 @@ def build_metric_exports(trace: Trace) -> dict[str, list[dict[str, Any]]]:
     is and how much to trust it.
     """
     return {
+        "TrustReport": metric_rows(build_trust_report(trace).to_dict()),
         "CoverageExactness": metric_rows(build_coverage_exactness(trace)),
         "LatencySummary": metric_rows(build_latency_summary(trace)),
         "ReliabilitySummary": metric_rows(build_reliability_summary(trace)),

@@ -348,6 +348,60 @@ check(
 # PART 3 — pathological / extreme values
 # =====================================================================================
 
+# --- 2.7: raw provider_total_tokens alone is NOT enough to supersede a partial ---
+p_total_only = partial("p-total-only", "rc-total-only", qty=12)
+raw_total_only = TokenEvent(
+    event_id="raw-total-only",
+    request_correlation_id="rc-total-only",
+    trace_id="t",
+    span_id="s",
+    quantities=[],
+    provider_total_tokens=12,
+)
+reconcile_supersession([p_total_only, raw_total_only])
+check(
+    p_total_only.superseded is False,
+    "2.7: provider_total_tokens without provider quantity does not invent a final usage event",
+)
+
+# --- 2.8: non-authoritative failed observations cannot supersede a partial ---
+p_failed = partial("p-failed", "rc-failed", qty=10)
+failed_final = TokenEvent(
+    event_id="failed-final",
+    request_correlation_id="rc-failed",
+    trace_id="t",
+    span_id="s",
+    quantities=[out_q(100, UsageSource.PROVIDER_RESPONSE)],
+    provider_total_tokens=100,
+    observation={"authoritative": False, "status": "failed"},
+)
+reconcile_supersession([p_failed, failed_final])
+check(p_failed.superseded is False, "2.8: non-authoritative provider usage cannot supersede a partial")
+
+# --- 2.9: input-only final usage does not supersede a partial output estimate ---
+p_input_only = partial("p-input-only", "rc-input-only", qty=10)
+input_only_final = TokenEvent(
+    event_id="input-only-final",
+    request_correlation_id="rc-input-only",
+    trace_id="t",
+    span_id="s",
+    quantities=[TokenQuantity(TokenType.INPUT, 100, PrecisionLevel.EXACT, UsageSource.PROVIDER_RESPONSE, Additivity.TOTAL_CONTRIBUTING)],
+    provider_total_tokens=100,
+)
+reconcile_supersession([p_input_only, input_only_final])
+check(p_input_only.superseded is False, "2.9: input-only provider usage does not supersede an output partial")
+
+# --- 2.10: reconciler clears stale state before recomputing ---
+p_stale = partial("p-stale", "rc-stale", qty=10)
+f_stale = final("f-stale", "rc-stale", qty=100)
+reconcile_supersession([p_stale, f_stale])
+check(p_stale.superseded is True, "2.10 setup: partial was superseded while final was present")
+reconcile_supersession([p_stale])
+check(
+    p_stale.superseded is False and p_stale.superseded_by is None and "superseded" not in p_stale.data_quality_flags,
+    "2.10: stale supersession state is cleared before recomputing",
+)
+
 # --- 3.1: large-N (50) quantities, mixed additivity, exact sum ---
 many_quantities = []
 expected_many = 0

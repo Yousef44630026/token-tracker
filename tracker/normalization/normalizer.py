@@ -29,6 +29,7 @@ from typing import TYPE_CHECKING, Any
 from tracker.context.propagation import TraceContext, current, new_trace
 from tracker.models.token_event import TokenEvent
 from tracker.normalization.event_builder import build_event
+from tracker.observability.observation import Observation
 
 if TYPE_CHECKING:
     from tracker.adapters.base import BaseAPISurfaceAdapter
@@ -51,6 +52,7 @@ def normalize(
     extra = list(extra_flags or [])
 
     def _error_event(exc: Exception) -> TokenEvent:
+        error_flag = adapter.classify_error(exc)
         return build_event(
             event_id=event_id,
             context=ctx,
@@ -59,12 +61,20 @@ def normalize(
             model=None,
             quantities=[],
             provider_total_tokens=None,
-            leading_flags=[adapter.classify_error(exc)],
+            leading_flags=[error_flag],
             trailing_flags=extra,
             request_hash=request_hash,
             response_hash=response_hash,
             timestamp=timestamp,
-            observation=observation,
+            observation=(
+                observation
+                if observation is not None
+                else Observation(
+                    authoritative=False,
+                    status="failed",
+                    provider_error_code=error_flag,
+                )
+            ),
         )
 
     # The WHOLE assembly is defensive, not just the adapter call: an adapter is allowed to

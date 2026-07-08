@@ -60,20 +60,43 @@ e3 = TokenEvent(
     span_id="s",
     quantities=[q(TokenType.OUTPUT, None, PrecisionLevel.UNKNOWN, UsageSource.NONE)],
 )
+# e4/e5 are preserved in the trace for audit but excluded from coverage denominators.
+e4 = TokenEvent(
+    event_id="e4",
+    request_correlation_id="r4",
+    trace_id="t",
+    span_id="s",
+    quantities=[q(TokenType.OUTPUT, 999, PrecisionLevel.EXACT, UsageSource.PROVIDER_RESPONSE)],
+    provider_total_tokens=999,
+    superseded=True,
+    superseded_by="e1",
+)
+e5 = TokenEvent(
+    event_id="e5",
+    request_correlation_id="r5",
+    trace_id="t",
+    span_id="s",
+    quantities=[q(TokenType.OUTPUT, 888, PrecisionLevel.EXACT, UsageSource.PROVIDER_RESPONSE)],
+    provider_total_tokens=888,
+    observation={"status": "failed", "authoritative": False},
+)
 
 trace = Trace(trace_id="t")
-for e in (e1, e2, e3):
+for e in (e1, e2, e3, e4, e5):
     trace.add_event(e)
 
 c = build_coverage_exactness(trace)
 
 check(c["observed_total_contributing_tokens"] == 1340, "observed total == 1300 + 40 + 0")
-check(c["event_count"] == 3, "event_count == 3")
-check(c["superseded_event_count"] == 0, "superseded_event_count == 0")
+check(c["total_is_lower_bound"] is True, "unknown live output makes observed total a lower bound")
+check(c["event_count"] == 3, "event_count excludes superseded/non-authoritative events")
+check(c["excluded_event_count"] == 2, "excluded_event_count == superseded + non-authoritative")
+check(c["superseded_event_count"] == 1, "superseded_event_count == 1")
 check(c["quantity_count"] == 5, "quantity_count == 5")
 check(c["exact_quantity_count"] == 3, "exact_quantity_count == 3")
 check(c["estimate_quantity_count"] == 1, "estimate_quantity_count == 1")
 check(c["unknown_quantity_count"] == 1, "unknown_quantity_count == 1")
+check(c["unverified_quantity_count"] == 0, "unverified_quantity_count == 0")
 check(c["provider_total_mismatch_count"] == 0, "no mismatch (e1 reconciles, others have no total)")
 check(c["events_with_provider_total"] == 1, "events_with_provider_total == 1")
 check(c["coverage_ratio"] == round(1 / 3, 4), "coverage_ratio == 1/3")

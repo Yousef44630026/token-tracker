@@ -73,7 +73,7 @@ trace2.add_event(
         trace_id=trace2.trace_id,
         span_id="s",
         quantities=[q(10)],
-        observation={"status": "failed"},
+        observation={"status": "failed", "authoritative": False},
     )
 )
 for i in range(4):

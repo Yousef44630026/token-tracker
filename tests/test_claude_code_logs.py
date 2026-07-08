@@ -12,7 +12,7 @@ lines, and supports incremental (snapshot-based) import.
 import json
 import os
 import sys
-import tempfile
+import uuid
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -57,7 +57,7 @@ def usage_line(
     )
 
 
-home = tempfile.mkdtemp(prefix="tt_claude_home_")
+home = os.path.abspath(f".test_claude_home_{uuid.uuid4().hex}")
 proj_dir = os.path.join(home, "projects", "c--fake-project")
 os.makedirs(proj_dir, exist_ok=True)
 session_path = os.path.join(proj_dir, "session-1.jsonl")

@@ -4,9 +4,13 @@ Precision says HOW WELL a quantity was measured — orthogonal to token_type. It
 per quantity (not per event), from the usage source it came from:
 
     provider_response / provider_stream_final         -> exact
-    partial_stream_tokenizer / local_tokenizer /
-        historical_forecast                           -> estimate
+    provider_stream_partial / partial_stream_tokenizer /
+        local_tokenizer / historical_forecast         -> estimate
     none / anything else                              -> unknown
+
+``provider_stream_partial`` is the provider's own cumulative count from a mid-stream event:
+exact for what was produced so far, but a FLOOR of the final output (the stream was cut), so
+as a measurement of the final quantity it is an ESTIMATE, not exact.
 
 A None quantity is ALWAYS ``unknown`` regardless of source — a lost count is never a
 confident zero (INV-6).
@@ -18,6 +22,7 @@ from tracker.models.enums import PrecisionLevel, UsageSource
 
 _EXACT_SOURCES = {UsageSource.PROVIDER_RESPONSE, UsageSource.PROVIDER_STREAM_FINAL}
 _ESTIMATE_SOURCES = {
+    UsageSource.PROVIDER_STREAM_PARTIAL,
     UsageSource.PARTIAL_STREAM_TOKENIZER,
     UsageSource.LOCAL_TOKENIZER,
     UsageSource.HISTORICAL_FORECAST,

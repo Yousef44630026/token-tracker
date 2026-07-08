@@ -29,7 +29,6 @@ import csv
 import os
 import random
 import sys
-import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -437,7 +436,8 @@ for i in range(N_EXPORT_FUZZ):
         for e in events:
             tr.add_event(e)
     model_total = observed_total_contributing_tokens(tr)
-    out_dir = tempfile.mkdtemp(prefix=f"tt_exportfuzz_{i}_")
+    out_dir = os.path.join(os.getcwd(), ".test_random_integration_fuzz", f"export_{i}")
+    os.makedirs(out_dir, exist_ok=True)
     paths = export_csv(tr, out_dir)
     with open(paths["token_events"], newline="", encoding="utf-8") as f:
         rows = list(csv.DictReader(f))

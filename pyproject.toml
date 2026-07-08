@@ -15,6 +15,8 @@ dependencies = ["openpyxl>=3.1"]
 [project.scripts]
 ai-token-tracker-collector = "api.main:main"
 ai-token-tracker-proxy = "tracker.proxy.cli:main"
+ai-token-tracker-doctor = "tracker.ops.doctor:main"
+ai-token-tracker-azure-smoke = "tracker.ops.azure_smoke:main"
 
 [project.optional-dependencies]
 # Dev toolchain. NOTE (this environment): pytest/ruff/black are NOT installed and

@@ -12,8 +12,9 @@ Run: python tests/test_csv_coverage_parity.py
 
 import csv
 import os
+import shutil
 import sys
-import tempfile
+import uuid
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -61,49 +62,57 @@ trace.add_event(
     )
 )
 
-with tempfile.TemporaryDirectory() as out_dir:
-    paths = export_csv(trace, out_dir)
+out_root = os.path.join(os.getcwd(), f".test_csv_coverage_parity_{uuid.uuid4().hex}")
+shutil.rmtree(out_root, ignore_errors=True)
+os.makedirs(out_root, exist_ok=True)
 
-    check("coverage_exactness" in paths, "export_csv returns a coverage_exactness path")
-    cov_path = paths.get("coverage_exactness", os.path.join(out_dir, "coverage_exactness.csv"))
-    check(os.path.exists(cov_path), "coverage_exactness.csv exists on disk")
+out_dir = os.path.join(out_root, "csv")
+os.makedirs(out_dir, exist_ok=True)
+paths = export_csv(trace, out_dir)
 
-    got: dict[str, str] = {}
-    if os.path.exists(cov_path):
-        with open(cov_path, newline="", encoding="utf-8") as f:
-            for row in csv.DictReader(f):
-                got[row["metric"]] = row["value"]
+check("coverage_exactness" in paths, "export_csv returns a coverage_exactness path")
+cov_path = paths.get("coverage_exactness", os.path.join(out_dir, "coverage_exactness.csv"))
+check(os.path.exists(cov_path), "coverage_exactness.csv exists on disk")
 
-    expected = build_coverage_exactness(trace)
-    check(
-        got.get("observed_total_contributing_tokens") == str(expected["observed_total_contributing_tokens"]),
-        f"CSV observed total == model ({got.get('observed_total_contributing_tokens')} == {expected['observed_total_contributing_tokens']})",
-    )
-    check(expected["observed_total_contributing_tokens"] == 1500, "model total is 1500 (unverified 900 excluded)")
-    check(got.get("total_is_lower_bound") == "True", "CSV carries total_is_lower_bound=True (the floor status travels)")
-    check(got.get("unverified_quantity_count") == "1", "CSV carries unverified_quantity_count=1")
-    check("exactness_ratio" in got, "CSV carries exactness_ratio")
+got: dict[str, str] = {}
+if os.path.exists(cov_path):
+    with open(cov_path, newline="", encoding="utf-8") as f:
+        for row in csv.DictReader(f):
+            got[row["metric"]] = row["value"]
 
-    # every metric key present, none silently dropped
-    missing = [k for k in expected if str(k) not in got]
-    check(not missing, f"every CoverageExactness metric is in the CSV (missing: {missing})")
+expected = build_coverage_exactness(trace)
+check(
+    got.get("observed_total_contributing_tokens") == str(expected["observed_total_contributing_tokens"]),
+    f"CSV observed total == model ({got.get('observed_total_contributing_tokens')} == {expected['observed_total_contributing_tokens']})",
+)
+check(expected["observed_total_contributing_tokens"] == 1500, "model total is 1500 (unverified 900 excluded)")
+check(got.get("total_is_lower_bound") == "True", "CSV carries total_is_lower_bound=True (the floor status travels)")
+check(got.get("unverified_quantity_count") == "1", "CSV carries unverified_quantity_count=1")
+check("exactness_ratio" in got, "CSV carries exactness_ratio")
+
+# every metric key present, none silently dropped
+missing = [k for k in expected if str(k) not in got]
+check(not missing, f"every CoverageExactness metric is in the CSV (missing: {missing})")
 
 # Excel must still carry the same sheet with the same values (parity, not migration)
 import openpyxl  # noqa: E402
 
 from tracker.export.excel_exporter import export_excel  # noqa: E402
 
-with tempfile.TemporaryDirectory() as out_dir:
-    xlsx = export_excel(trace, os.path.join(out_dir, "t.xlsx"))
-    wb = openpyxl.load_workbook(xlsx)
-    check("CoverageExactness" in wb.sheetnames, "Excel still has the CoverageExactness sheet")
-    ws = wb["CoverageExactness"]
-    sheet = {row[0].value: row[1].value for row in ws.iter_rows(min_row=2)}
-    check(
-        sheet.get("observed_total_contributing_tokens") == 1500,
-        "Excel CoverageExactness observed total still == model (1500)",
-    )
-    check(sheet.get("total_is_lower_bound") is True, "Excel CoverageExactness carries total_is_lower_bound")
+out_dir = os.path.join(out_root, "excel")
+os.makedirs(out_dir, exist_ok=True)
+xlsx = export_excel(trace, os.path.join(out_dir, "t.xlsx"))
+wb = openpyxl.load_workbook(xlsx)
+check("CoverageExactness" in wb.sheetnames, "Excel still has the CoverageExactness sheet")
+ws = wb["CoverageExactness"]
+sheet = {row[0].value: row[1].value for row in ws.iter_rows(min_row=2)}
+check(
+    sheet.get("observed_total_contributing_tokens") == 1500,
+    "Excel CoverageExactness observed total still == model (1500)",
+)
+check(sheet.get("total_is_lower_bound") is True, "Excel CoverageExactness carries total_is_lower_bound")
+wb.close()
+shutil.rmtree(out_root, ignore_errors=True)
 
 print("\nRESULT:", "all checks passed" if _failures == 0 else f"{_failures} FAILURE(S)")
 sys.exit(1 if _failures else 0)

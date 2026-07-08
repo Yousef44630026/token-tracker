@@ -10,8 +10,9 @@ unsupported schema version.
 import glob
 import json
 import os
+import shutil
 import sys
-import tempfile
+import uuid
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -52,7 +53,8 @@ def build_trace(tid="trace-1"):
     return tr
 
 
-work = tempfile.mkdtemp(prefix="tt_tracerepo_")
+work = os.path.join(os.getcwd(), f".test_trace_repository_{uuid.uuid4().hex}")
+os.makedirs(work, exist_ok=True)
 path = os.path.join(work, "trace.json")
 repo = TraceFileRepository(path)
 
@@ -106,4 +108,5 @@ except ValueError:
 check(raised, "unsupported schema_version -> ValueError")
 
 print("\nRESULT:", "all checks passed" if _failures == 0 else f"{_failures} FAILURE(S)")
+shutil.rmtree(work, ignore_errors=True)
 sys.exit(1 if _failures else 0)

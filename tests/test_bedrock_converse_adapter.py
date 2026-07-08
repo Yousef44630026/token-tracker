@@ -14,7 +14,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from tracker.adapters.bedrock_converse_adapter import BedrockConverseAdapter  # noqa: E402
-from tracker.models.enums import Additivity, TokenType  # noqa: E402
+from tracker.models.enums import Additivity, Overlap, TokenType, Trust  # noqa: E402
 from tracker.models.token_event import TokenEvent  # noqa: E402
 from tracker.normalization.data_quality import normalizer_flags  # noqa: E402
 
@@ -50,6 +50,12 @@ check(inp.quantity == 1000 and inp.additivity == Additivity.TOTAL_CONTRIBUTING, 
 check(out.quantity == 300 and out.additivity == Additivity.TOTAL_CONTRIBUTING, "output extracted, total_contributing")
 check(cread is not None and cread.additivity == Additivity.UNVERIFIED, "cacheRead -> cached_input UNVERIFIED")
 check(cwrite is not None and cwrite.additivity == Additivity.UNVERIFIED, "cacheWrite -> cache_creation_input UNVERIFIED")
+check(cread.subtotal_of == "input" and cwrite.subtotal_of == "input", "Bedrock cache fields preserve parent=input")
+check(
+    cread.overlap == Overlap.SUBTOTAL_OF and cwrite.overlap == Overlap.SUBTOTAL_OF,
+    "Bedrock cache fields preserve subtotal overlap",
+)
+check(cread.trust == Trust.UNVERIFIED and cwrite.trust == Trust.UNVERIFIED, "Bedrock cache fields preserve unverified trust")
 check(cread.quantity_in_total == 0 and cwrite.quantity_in_total == 0, "unverified cache fields contribute 0")
 check(cread.export_warning == "unverified_additivity_excluded_from_total", "unverified cache is surfaced as a warning")
 

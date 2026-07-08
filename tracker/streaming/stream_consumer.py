@@ -67,16 +67,19 @@ def consume_stream(
                 final_quantities[key] = quantity
                 if quantity.token_type == TokenType.INPUT:
                     input_tokens = quantity.quantity
+                    tracker.observe_usage(input_tokens=quantity.quantity)
                 elif quantity.token_type == TokenType.OUTPUT:
                     output_tokens = quantity.quantity
                     saw_output = True
+                    tracker.observe_usage(output_tokens=quantity.quantity)
             if usage.provider_total_tokens is not None:
                 provider_total = usage.provider_total_tokens
 
         if not saw_output:
-            # keep whatever real usage was already received (e.g. Anthropic's exact input
-            # from message_start) — an interrupt must never throw away known tokens
-            return tracker.interrupt(input_tokens=input_tokens, output_tokens_seen=output_tokens)
+            # keep whatever real usage was already received (e.g. Anthropic's exact input from
+            # message_start) — an interrupt must never throw away known tokens. interrupt()
+            # reads the monotonic values recorded via observe_usage above.
+            return tracker.interrupt()
         if final_quantities:
             return tracker.complete_with_quantities(
                 quantities=list(final_quantities.values()),
@@ -93,6 +96,6 @@ def consume_stream(
         # terminal-event construction too, not just ingestion. Known usage received before
         # the failure (exact input, provider's cumulative output count) is preserved.
         try:
-            return tracker.interrupt(input_tokens=input_tokens, output_tokens_seen=output_tokens)
+            return tracker.interrupt()  # uses the monotonic values recorded via observe_usage
         except Exception:  # noqa: BLE001 — even malformed captured values must not escape
             return tracker.interrupt()

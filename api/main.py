@@ -94,14 +94,16 @@ def _make_handler(
                 self._send(404, {"error": "not_found"})
 
         def _stats(self) -> dict[str, Any]:
-            events = repo.read_all()
             traces: dict[str, int] = {}
             total = 0
-            for e in events:
+            count = 0
+            source = repo.iter_events() if hasattr(repo, "iter_events") else repo.read_all()
+            for e in source:
+                count += 1
                 contributing = event_contributing_tokens(e)
                 total += contributing
                 traces[e.trace_id] = traces.get(e.trace_id, 0) + contributing
-            return {"events": len(events), "total": total, "traces": traces}
+            return {"events": count, "total": total, "traces": traces}
 
         # --- writes ---
         def do_POST(self) -> None:  # noqa: N802 (http.server API)

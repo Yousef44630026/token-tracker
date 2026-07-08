@@ -44,7 +44,28 @@ def responses_from_payload(path, payload):
         for case in payload["cases"]:
             yield f"{path.name}:{case.get('family', 'case')}", case["response"]
         return
-    yield path.name, payload["response"]
+    if "response" in payload:
+        yield path.name, payload["response"]
+        return
+    # Streaming capture (family B): the auditable response is the final usage-bearing chunk.
+    captured = payload.get("captured")
+    if isinstance(captured, list):
+        usage_chunk = next((chunk for chunk in captured if isinstance(chunk, dict) and chunk.get("usage")), None)
+        if usage_chunk is not None:
+            yield path.name, usage_chunk
+        return
+    if isinstance(captured, dict):
+        yield path.name, captured
+        return
+    # RAG pipeline capture: the auditable response is the final generation.
+    if "generation" in payload:
+        yield path.name, payload["generation"]
+        return
+    # RAG control (two-arm): both the with-context and without-context responses reconcile.
+    if "with_context" in payload:
+        yield f"{path.name}:with_context", payload["with_context"]
+        yield f"{path.name}:without_context", payload["without_context"]
+        return
 
 
 paths = fixture_paths()

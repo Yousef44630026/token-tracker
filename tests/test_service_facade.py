@@ -7,8 +7,9 @@ fan out best-effort to a repository and/or collector — without ever throwing i
 """
 
 import os
+import shutil
 import sys
-import tempfile
+import uuid
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -45,7 +46,10 @@ res = track_response(PAYLOAD, adapter, context=ctx, trace=trace)
 check(trace.events == [res.event], "event attached to the trace")
 
 # --- persists to a repository ---
-path = os.path.join(tempfile.mkdtemp(prefix="tt_facade_"), "events.jsonl")
+work = os.path.join(os.getcwd(), f".test_service_facade_{uuid.uuid4().hex}")
+shutil.rmtree(work, ignore_errors=True)
+os.makedirs(work, exist_ok=True)
+path = os.path.join(work, "events.jsonl")
 repo = FileRepository(path)
 res = track_response(PAYLOAD, adapter, context=new_trace(), repository=repo)
 check(res.persisted is True and len(repo.read_all()) == 1, "repository sink persists the event")
@@ -72,7 +76,7 @@ check(r2.collected is False and "collector:rejected" in r2.sink_errors, "duplica
 # --- normalize options pass through ---
 res = track_response(PAYLOAD, adapter, context=new_trace(), event_id="custom-id", extra_flags=["demo_flag"])
 check(res.event.event_id == "custom-id", "event_id option passed through")
-check("demo_flag" in res.event.data_quality_flags, "extra_flags passed through")
+check("custom" in res.event.data_quality_flags, "unknown extra_flags are capped to custom")
 
 # --- bad payload never throws ---
 res = track_response({"id": "x"}, adapter, context=new_trace())
@@ -91,4 +95,5 @@ to = track_stream(context=sctx, provider="openai").timeout()
 check(next(q for q in to.quantities if q.token_type == TokenType.OUTPUT).quantity is None, "stream timeout -> unknown output")
 
 print("\nRESULT:", "all checks passed" if _failures == 0 else f"{_failures} FAILURE(S)")
+shutil.rmtree(work, ignore_errors=True)
 sys.exit(1 if _failures else 0)

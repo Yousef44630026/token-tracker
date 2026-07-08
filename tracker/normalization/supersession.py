@@ -28,11 +28,11 @@ Supersession is set HERE (the reconciler / stream tracker), never by an adapter.
 
 from __future__ import annotations
 
-from tracker.models.enums import UsageSource
+from tracker.models.enums import DataQualityFlag, TokenType, UsageSource
 from tracker.models.token_event import TokenEvent
 
-SUPERSEDED_FLAG = "superseded"
-COLLISION_FLAG = "correlation_id_collision"
+SUPERSEDED_FLAG = DataQualityFlag.SUPERSEDED.value
+COLLISION_FLAG = DataQualityFlag.CORRELATION_ID_COLLISION.value
 
 
 def _looks_like_distinct_call(a: TokenEvent, b: TokenEvent) -> bool:
@@ -49,7 +49,7 @@ def _looks_like_distinct_call(a: TokenEvent, b: TokenEvent) -> bool:
     return False
 
 
-PARTIAL_STREAM_ESTIMATE_FLAG = "partial_stream_estimate"
+PARTIAL_STREAM_ESTIMATE_FLAG = DataQualityFlag.PARTIAL_STREAM_ESTIMATE.value
 
 
 def _is_partial_estimate(event: TokenEvent) -> bool:
@@ -77,9 +77,23 @@ def _is_final_usage(event: TokenEvent) -> bool:
     authoritative final and supersede the REAL usage."""
     if _is_partial_estimate(event):
         return False
-    if event.provider_total_tokens is not None:
-        return True
-    return any(q.usage_source in (UsageSource.PROVIDER_RESPONSE, UsageSource.PROVIDER_STREAM_FINAL) for q in event.quantities)
+    if not event.is_authoritative:
+        return False
+    return any(
+        q.quantity is not None and q.usage_source in (UsageSource.PROVIDER_RESPONSE, UsageSource.PROVIDER_STREAM_FINAL)
+        for q in event.quantities
+    )
+
+
+def _can_supersede_partial(final: TokenEvent) -> bool:
+    """True if the final carries a provider-measured output quantity."""
+    output_types = {TokenType.OUTPUT, TokenType.AUDIO_OUTPUT, TokenType.RERANK_OUTPUT}
+    return any(
+        q.quantity is not None
+        and q.token_type in output_types
+        and q.usage_source in (UsageSource.PROVIDER_RESPONSE, UsageSource.PROVIDER_STREAM_FINAL)
+        for q in final.quantities
+    )
 
 
 def _pick_authoritative_final(finals: list[TokenEvent]) -> TokenEvent:
@@ -95,6 +109,13 @@ def _pick_authoritative_final(finals: list[TokenEvent]) -> TokenEvent:
     return finals[0]
 
 
+def _clear_supersession(event: TokenEvent) -> None:
+    """Reset reconciler-owned supersession state before recomputing it."""
+    event.superseded = False
+    event.superseded_by = None
+    event.data_quality_flags = [flag for flag in event.data_quality_flags if flag not in {SUPERSEDED_FLAG, COLLISION_FLAG}]
+
+
 def reconcile_supersession(events: list[TokenEvent]) -> list[TokenEvent]:
     """Mark partials AND duplicate finals as superseded by the one authoritative final
     sharing their correlation id.
@@ -104,6 +125,9 @@ def reconcile_supersession(events: list[TokenEvent]) -> list[TokenEvent]:
     group has no final usage, its partials are left untouched (they remain the best estimate
     available — supersession is never invented).
     """
+    for event in events:
+        _clear_supersession(event)
+
     by_rcid: dict[str, list[TokenEvent]] = {}
     for event in events:
         by_rcid.setdefault(event.request_correlation_id, []).append(event)
@@ -120,7 +144,7 @@ def reconcile_supersession(events: list[TokenEvent]) -> list[TokenEvent]:
             if event is final:
                 continue
             is_duplicate_final = event.event_id in duplicate_final_ids
-            if is_duplicate_final or _is_partial_estimate(event):
+            if is_duplicate_final or (_is_partial_estimate(event) and _can_supersede_partial(final)):
                 event.superseded = True
                 event.superseded_by = final.event_id
                 if SUPERSEDED_FLAG not in event.data_quality_flags:

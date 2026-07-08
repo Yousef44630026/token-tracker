@@ -8,8 +8,9 @@ read. Verifies no derived key ever lands on disk and that appends accumulate.
 
 import json
 import os
+import shutil
 import sys
-import tempfile
+import uuid
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -44,7 +45,10 @@ def evt(eid, out_qty):
     )
 
 
-path = os.path.join(tempfile.mkdtemp(prefix="tt_repo_"), "events.jsonl")
+work = os.path.join(os.getcwd(), ".test_file_repository")
+shutil.rmtree(work, ignore_errors=True)
+os.makedirs(work, exist_ok=True)
+path = os.path.join(work, f"events-{uuid.uuid4().hex}.jsonl")
 repo = FileRepository(path)
 
 # read before any write -> empty
@@ -72,4 +76,5 @@ check(offenders == set(), f"no derived key on disk (offenders: {offenders})")
 check(back[0].provider == "openai" and back[0].quantities[0].quantity == 100, "stored fields round-trip intact")
 
 print("\nRESULT:", "all checks passed" if _failures == 0 else f"{_failures} FAILURE(S)")
+shutil.rmtree(work, ignore_errors=True)
 sys.exit(1 if _failures else 0)

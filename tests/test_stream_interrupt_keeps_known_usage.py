@@ -105,11 +105,7 @@ class _StubAdapter:
             from tracker.models.token_quantity import TokenQuantity
 
             return _StubUsage(
-                [
-                    TokenQuantity(
-                        TokenType.INPUT, 123, PrecisionLevel.EXACT, UsageSource.PROVIDER_RESPONSE, Additivity.TOTAL_CONTRIBUTING
-                    )
-                ]
+                [TokenQuantity(TokenType.INPUT, 123, PrecisionLevel.EXACT, UsageSource.PROVIDER_RESPONSE, Additivity.TOTAL_CONTRIBUTING)]
             )
         return None
 

@@ -23,6 +23,7 @@ import os
 import sys
 import threading
 import urllib.request as urlreq
+import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -78,9 +79,7 @@ class FakeAnthropic(BaseHTTPRequestHandler):
 
 
 def post_stream(url, payload):
-    request = urlreq.Request(
-        url, data=json.dumps(payload).encode(), headers={"Content-Type": "application/json"}, method="POST"
-    )
+    request = urlreq.Request(url, data=json.dumps(payload).encode(), headers={"Content-Type": "application/json"}, method="POST")
     with urlreq.urlopen(request, timeout=5) as response:
         return response.status, response.read()
 
@@ -90,7 +89,9 @@ upstream_server.daemon_threads = True
 threading.Thread(target=upstream_server.serve_forever, daemon=True).start()
 upstream = f"http://127.0.0.1:{upstream_server.server_address[1]}"
 
-store = os.path.join(os.getcwd(), ".test_proxy_truncated_stream.jsonl")
+store_root = os.path.join(os.getcwd(), f".test_proxy_truncated_stream_{uuid.uuid4().hex}")
+os.makedirs(store_root, exist_ok=True)
+store = os.path.join(store_root, "events.jsonl")
 with open(store, "w", encoding="utf-8"):
     pass
 proxy = None
@@ -134,9 +135,9 @@ try:
 finally:
     if proxy is not None:
         proxy.shutdown()
+        proxy.server_close()
     upstream_server.shutdown()
-    if os.path.exists(store):
-        os.remove(store)
+    upstream_server.server_close()
 
 print("\nRESULT:", "all checks passed" if _failures == 0 else f"{_failures} FAILURE(S)")
 sys.exit(1 if _failures else 0)

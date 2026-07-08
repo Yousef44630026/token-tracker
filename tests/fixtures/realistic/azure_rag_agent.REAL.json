@@ -1,0 +1,107 @@
+{
+  "_SIMULATED": false,
+  "query": "How tall is the Eiffel Tower and where is it located?",
+  "retrieved": [
+    "The Eiffel Tower is 330 meters tall and stands on the Champ de Mars in Paris, France."
+  ],
+  "generation": {
+    "choices": [
+      {
+        "content_filter_results": {
+          "hate": {
+            "filtered": false,
+            "severity": "safe"
+          },
+          "protected_material_code": {
+            "detected": false,
+            "filtered": false
+          },
+          "protected_material_text": {
+            "detected": false,
+            "filtered": false
+          },
+          "self_harm": {
+            "filtered": false,
+            "severity": "safe"
+          },
+          "sexual": {
+            "filtered": false,
+            "severity": "safe"
+          },
+          "violence": {
+            "filtered": false,
+            "severity": "safe"
+          }
+        },
+        "finish_reason": "stop",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "annotations": [],
+          "content": "The Eiffel Tower is 330 meters tall and stands on the Champ de Mars in Paris, France.",
+          "refusal": null,
+          "role": "assistant"
+        }
+      }
+    ],
+    "created": 1783430296,
+    "id": "chatcmpl-Dyzyi2shscXFCQsD3FuksIirHWUHm",
+    "model": "gpt-5-mini-2025-08-07",
+    "object": "chat.completion",
+    "prompt_filter_results": [
+      {
+        "prompt_index": 0,
+        "content_filter_results": {
+          "hate": {
+            "filtered": false,
+            "severity": "safe"
+          },
+          "jailbreak": {
+            "detected": false,
+            "filtered": false
+          },
+          "self_harm": {
+            "filtered": false,
+            "severity": "safe"
+          },
+          "sexual": {
+            "filtered": false,
+            "severity": "safe"
+          },
+          "violence": {
+            "filtered": false,
+            "severity": "safe"
+          }
+        }
+      }
+    ],
+    "service_tier": "default",
+    "system_fingerprint": null,
+    "usage": {
+      "completion_tokens": 94,
+      "completion_tokens_details": {
+        "accepted_prediction_tokens": 0,
+        "audio_tokens": 0,
+        "reasoning_tokens": 64,
+        "rejected_prediction_tokens": 0
+      },
+      "latency_checkpoint": {
+        "engine_tbt_ms": 11,
+        "engine_ttft_ms": 35,
+        "engine_ttlt_ms": 1225,
+        "pre_inference_ms": 144,
+        "service_tbt_ms": 11,
+        "service_ttft_ms": 303,
+        "service_ttlt_ms": 1478,
+        "total_duration_ms": 1343,
+        "user_visible_ttft_ms": 159
+      },
+      "prompt_tokens": 48,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cached_tokens": 0
+      },
+      "total_tokens": 142
+    }
+  }
+}

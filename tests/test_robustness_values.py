@@ -9,8 +9,8 @@ turns it into a normalization_error event, contributing 0); zero and huge values
 
 import csv
 import os
+import shutil
 import sys
-import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -67,7 +67,9 @@ check(r.event_count == 0 and r.observed_total_contributing_tokens == 0, "empty r
 cov = build_coverage_exactness(empty)
 check(cov["coverage_ratio"] == 0.0 and cov["exactness_ratio"] == 0.0, "empty coverage ratios == 0 (no divide-by-zero)")
 
-out_dir = tempfile.mkdtemp(prefix="tt_empty_")
+out_dir = os.path.join(os.getcwd(), ".test_robustness_values")
+shutil.rmtree(out_dir, ignore_errors=True)
+os.makedirs(out_dir, exist_ok=True)
 paths = export_csv(empty, out_dir)
 check(
     {"token_quantities", "token_events", "token_spans"} <= set(paths),
@@ -95,4 +97,5 @@ sup.add_event(
 check(observed_total_contributing_tokens(sup) == 0, "all-superseded trace totals 0")
 
 print("\nRESULT:", "all checks passed" if _failures == 0 else f"{_failures} FAILURE(S)")
+shutil.rmtree(out_dir, ignore_errors=True)
 sys.exit(1 if _failures else 0)

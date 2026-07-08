@@ -75,6 +75,61 @@ except ValueError:
     bad_builder = True
 check(bad_builder, "typed Observation rejects invalid status")
 
+missing_authority_rejected = False
+try:
+    TokenEvent(
+        event_id="missing-authority",
+        request_correlation_id="req-missing-authority",
+        trace_id=trace.trace_id,
+        span_id="span-missing-authority",
+        quantities=[quantity(TokenType.INPUT, 1)],
+        observation={"status": "complete"},
+    )
+except ValueError:
+    missing_authority_rejected = True
+check(missing_authority_rejected, "TokenEvent requires explicit authoritative when observation metadata is present")
+
+empty_observation_rejected = False
+try:
+    TokenEvent(
+        event_id="empty-observation",
+        request_correlation_id="req-empty-observation",
+        trace_id=trace.trace_id,
+        span_id="span-empty-observation",
+        quantities=[quantity(TokenType.INPUT, 1)],
+        observation={},
+    )
+except ValueError:
+    empty_observation_rejected = True
+check(empty_observation_rejected, "TokenEvent rejects observation={} instead of defaulting into totals")
+
+typo_authority_rejected = False
+try:
+    TokenEvent(
+        event_id="typo-authority",
+        request_correlation_id="req-typo-authority",
+        trace_id=trace.trace_id,
+        span_id="span-typo-authority",
+        quantities=[quantity(TokenType.INPUT, 1)],
+        observation={"status": "failed", "authoratative": False},
+    )
+except ValueError:
+    typo_authority_rejected = True
+check(typo_authority_rejected, "TokenEvent rejects misspelled authoritative instead of defaulting into totals")
+
+non_authoritative = TokenEvent(
+    event_id="non-authoritative",
+    request_correlation_id="req-non-authoritative",
+    trace_id=trace.trace_id,
+    span_id="span-non-authoritative",
+    quantities=[quantity(TokenType.INPUT, 10)],
+    observation=Observation(authoritative=False, status="failed"),
+)
+check(
+    non_authoritative.is_authoritative is False and non_authoritative.event_contributing_tokens == 0,
+    "typed Observation(authoritative=False) gates totals to zero",
+)
+
 trace.add_event(
     TokenEvent(
         event_id="valid",
@@ -89,28 +144,30 @@ trace.add_event(
         observation=valid_observation,
     )
 )
-trace.add_event(
-    TokenEvent(
-        event_id="invalid",
-        request_correlation_id="req-invalid",
-        trace_id=trace.trace_id,
-        span_id="span-invalid",
-        provider="bedrock",
-        model="nova",
-        api_surface="converse",
-        quantities=[],
-        data_quality_flags=["raw_usage_missing"],
-        observation={
-            "status": "mystery",
-            "authoritative": "yes",
-            "http_status": 999,
-            "duration_ms": -1,
-            "retry_count": -2,
-            "provider_request_id": "",
-            "fallback_from": "bedrock",
-        },
-    )
+invalid = TokenEvent(
+    event_id="invalid",
+    request_correlation_id="req-invalid",
+    trace_id=trace.trace_id,
+    span_id="span-invalid",
+    provider="bedrock",
+    model="nova",
+    api_surface="converse",
+    quantities=[],
+    data_quality_flags=["raw_usage_missing"],
+    observation={"authoritative": True},
 )
+# Simulate a legacy/corrupt event object after load/mutation. New TokenEvent construction rejects
+# this shape, but the observation-contract analytics should still diagnose it if encountered.
+invalid.observation = {
+    "status": "mystery",
+    "authoritative": "yes",
+    "http_status": 999,
+    "duration_ms": -1,
+    "retry_count": -2,
+    "provider_request_id": "",
+    "fallback_from": "bedrock",
+}
+trace.add_event(invalid)
 
 issues = validate_trace_observations(trace)
 codes = sorted(issue.code for issue in issues)

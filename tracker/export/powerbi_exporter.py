@@ -19,7 +19,7 @@ import csv
 import json
 import os
 from collections import defaultdict
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from datetime import UTC, datetime
 from math import ceil
 from typing import Any
@@ -407,7 +407,7 @@ def _round(value: float | None) -> float | None:
     return round(value, 3) if value is not None else None
 
 
-def _dedupe_events_by_id(events: Sequence[TokenEvent]) -> list[TokenEvent]:
+def _dedupe_events_by_id(events: Iterable[TokenEvent]) -> list[TokenEvent]:
     """Collapse repeated event_ids (identity is the event_id), keeping first occurrence.
 
     The Trace model already rejects duplicate event_ids, but these fact builders aggregate a
@@ -911,7 +911,7 @@ def _manifest(
 
 
 def export_powerbi_events(
-    events: Sequence[TokenEvent],
+    events: Iterable[TokenEvent],
     out_dir: str,
     *,
     dataset_name: str = "ai_token_tracker",
@@ -921,6 +921,7 @@ def export_powerbi_events(
     """Export event data as a Power BI import folder and return created paths."""
     os.makedirs(out_dir, exist_ok=True)
     snapshot_ts = generated_at or _now_utc()
+    event_snapshot = _dedupe_events_by_id(events)
 
     metric_rows = metric_snapshot_rows(trace, snapshot_ts)
     metric_rows.extend(provider_validation_summary_rows(snapshot_ts))
@@ -928,14 +929,14 @@ def export_powerbi_events(
     table_specs: dict[str, tuple[str, list[dict[str, Any]], list[str], str, str]] = {
         "fact_token_events": (
             "fact_token_events.csv",
-            fact_token_event_rows(events),
+            fact_token_event_rows(event_snapshot),
             FACT_TOKEN_EVENT_HEADERS,
             "event",
             "event_id",
         ),
         "fact_token_quantities": (
             "fact_token_quantities.csv",
-            fact_token_quantity_rows(events),
+            fact_token_quantity_rows(event_snapshot),
             FACT_TOKEN_QUANTITY_HEADERS,
             "quantity",
             "event_id + token_type + token_role",
@@ -949,28 +950,28 @@ def export_powerbi_events(
         ),
         "fact_service_daily": (
             "fact_service_daily.csv",
-            fact_service_daily_rows(events),
+            fact_service_daily_rows(event_snapshot),
             FACT_SERVICE_DAILY_HEADERS,
             "service/provider/model/date",
             "event_date + service + provider + model",
         ),
         "dim_service": (
             "dim_service.csv",
-            dim_service_rows(events),
+            dim_service_rows(event_snapshot),
             DIM_SERVICE_HEADERS,
             "service",
             "service_key",
         ),
         "dim_model": (
             "dim_model.csv",
-            dim_model_rows(events),
+            dim_model_rows(event_snapshot),
             DIM_MODEL_HEADERS,
             "model",
             "model_key",
         ),
         "dim_provider_surface": (
             "dim_provider_surface.csv",
-            dim_provider_surface_rows(events),
+            dim_provider_surface_rows(event_snapshot),
             DIM_PROVIDER_SURFACE_HEADERS,
             "provider_surface",
             "provider_surface_key",

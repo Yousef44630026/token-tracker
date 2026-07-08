@@ -3,9 +3,9 @@
 import json
 import os
 import sys
-import tempfile
 import threading
 import time
+import uuid
 from urllib import error as url_error
 from urllib import request as url_request
 
@@ -47,8 +47,14 @@ def event(event_id, quantity=1):
     )
 
 
+def local_store(prefix):
+    root = os.path.abspath(f".test_{prefix}_{uuid.uuid4().hex}")
+    os.makedirs(root, exist_ok=True)
+    return os.path.join(root, "events.jsonl")
+
+
 # Repositories targeting the same path serialize thread writes, even across instances.
-repo_path = os.path.join(tempfile.mkdtemp(prefix="tt_repo_concurrent_"), "events.jsonl")
+repo_path = local_store("repo_concurrent")
 thread_count = 8
 per_thread = 100
 write_errors = []
@@ -87,7 +93,7 @@ check(
 check(repo_b.append_unique([event("unique")]) == [], "cross-instance duplicate is skipped")
 
 # A crash-truncated final line can be ignored without hiding corruption in complete lines.
-tail_path = os.path.join(tempfile.mkdtemp(prefix="tt_repo_tail_"), "events.jsonl")
+tail_path = local_store("repo_tail")
 tail_repo = FileRepository(tail_path)
 tail_repo.append(event("complete"))
 with open(tail_path, "ab") as handle:
@@ -158,7 +164,7 @@ check(len(transport.ids) == total and len(set(transport.ids)) == total, "deliver
 
 
 # HTTP ingestion is idempotent and enforces body/batch limits.
-api_path = os.path.join(tempfile.mkdtemp(prefix="tt_api_hardened_"), "events.jsonl")
+api_path = local_store("api_hardened")
 api_repo = FileRepository(api_path)
 server = create_server(api_repo, "127.0.0.1", 0, max_body_bytes=2048, max_batch_size=2)
 base = f"http://127.0.0.1:{server.server_address[1]}"
@@ -211,7 +217,7 @@ finally:
     server.server_close()
 
 # Optional bearer authentication protects ingestion and stats while health stays public.
-auth_repo = FileRepository(os.path.join(tempfile.mkdtemp(prefix="tt_api_auth_"), "events.jsonl"))
+auth_repo = FileRepository(local_store("api_auth"))
 auth_server = create_server(auth_repo, "127.0.0.1", 0, auth_token="secret")
 auth_base = f"http://127.0.0.1:{auth_server.server_address[1]}"
 threading.Thread(target=auth_server.serve_forever, daemon=True).start()

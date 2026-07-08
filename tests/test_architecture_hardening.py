@@ -3,8 +3,8 @@
 import csv
 import json
 import os
+import shutil
 import sys
-import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -24,6 +24,9 @@ from tracker.service import track_response, track_stream  # noqa: E402
 from tracker.storage.trace_repository import TraceFileRepository  # noqa: E402
 
 _failures = 0
+WORK_DIR = os.path.join(os.getcwd(), ".test_architecture_hardening")
+shutil.rmtree(WORK_DIR, ignore_errors=True)
+os.makedirs(WORK_DIR, exist_ok=True)
 
 
 def check(condition, message):
@@ -117,7 +120,9 @@ check(
 )
 trace.events[0].provider_total_tokens = 20
 reconcile_event_quality(trace.events[0])
-snapshot_path = os.path.join(tempfile.mkdtemp(prefix="tt_trace_"), "trace.json")
+snapshot_dir = os.path.join(WORK_DIR, "trace")
+os.makedirs(snapshot_dir, exist_ok=True)
+snapshot_path = os.path.join(snapshot_dir, "trace.json")
 snapshot = TraceFileRepository(snapshot_path)
 snapshot.save(trace)
 loaded = snapshot.load()
@@ -148,7 +153,9 @@ check(
     sum(row["quantity_in_total"] for row in quantity_rows(trace)) == 20,
     "quantity export total needs no superseded-row filter",
 )
-paths = export_csv(trace, tempfile.mkdtemp(prefix="tt_hardening_export_"))
+export_dir = os.path.join(WORK_DIR, "export")
+os.makedirs(export_dir, exist_ok=True)
+paths = export_csv(trace, export_dir)
 with open(paths["token_spans"], newline="", encoding="utf-8") as handle:
     span_export = list(csv.DictReader(handle))
 check(
@@ -172,4 +179,5 @@ check(result.event.event_contributing_tokens == 10, "public response façade nor
 check(facade_trace.events == [result.event], "public response façade attaches the event")
 
 print("\nRESULT:", "all checks passed" if _failures == 0 else f"{_failures} FAILURE(S)")
+shutil.rmtree(WORK_DIR, ignore_errors=True)
 sys.exit(1 if _failures else 0)

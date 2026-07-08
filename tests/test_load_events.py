@@ -9,7 +9,6 @@ agree on the contributing total at scale, and that it completes well under a gen
 import csv
 import os
 import sys
-import tempfile
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -68,12 +67,14 @@ rollup_s = time.perf_counter() - t1
 check(total == expected, f"rollup total over {N} events == {expected} (got {total})")
 
 cov = build_coverage_exactness(trace)
-check(cov["event_count"] == N, f"coverage counts all {N} events")
+check(cov["event_count"] == live, f"coverage counts the {live} non-superseded events")
+check(cov["excluded_event_count"] == N // 10, "coverage counts excluded superseded events")
 check(cov["superseded_event_count"] == N // 10, "coverage counts the superseded subset")
 check(cov["observed_total_contributing_tokens"] == expected, "coverage total agrees with the rollup")
 
 t2 = time.perf_counter()
-out_dir = tempfile.mkdtemp(prefix="tt_load_")
+out_dir = os.path.join(os.getcwd(), ".test_load_events")
+os.makedirs(out_dir, exist_ok=True)
 paths = export_csv(trace, out_dir)
 export_s = time.perf_counter() - t2
 with open(paths["token_events"], newline="", encoding="utf-8") as f:

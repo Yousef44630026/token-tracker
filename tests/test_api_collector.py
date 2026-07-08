@@ -10,8 +10,8 @@ CollectorClient -> HTTP transport -> api.main -> FileRepository (JSONL), plus /h
 import json
 import os
 import sys
-import tempfile
 import threading
+import uuid
 from urllib import error as urllib_error
 from urllib import request as urllib_request
 
@@ -54,7 +54,9 @@ def get_json(url):
         return resp.status, json.loads(resp.read())
 
 
-path = os.path.join(tempfile.mkdtemp(prefix="tt_api_"), "events.jsonl")
+root = os.path.abspath(f".test_api_collector_{uuid.uuid4().hex}")
+os.makedirs(root, exist_ok=True)
+path = os.path.join(root, "events.jsonl")
 repo = FileRepository(path)
 server = create_server(repo, "127.0.0.1", 0)
 host, port = server.server_address
@@ -105,6 +107,7 @@ try:
     check(len(repo.read_all()) == 8, "repository holds every delivered event")
 finally:
     server.shutdown()
+    server.server_close()
 
 print("\nRESULT:", "all checks passed" if _failures == 0 else f"{_failures} FAILURE(S)")
 sys.exit(1 if _failures else 0)

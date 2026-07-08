@@ -82,6 +82,107 @@ event = result.event
 For streaming, `track_stream(context=..., provider=..., api_surface=...)` creates a
 `StreamTracker` without manually copying trace identity fields.
 
+## Operational pre-flight
+
+Before running real provider traffic, run the doctor. It checks the local Python/runtime,
+Excel dependency, storage/derived invariant, collector network posture, Azure OpenAI env
+shape, store writability, and whether an existing JSONL/partitioned store can be read by
+streaming over events.
+
+```console
+scripts\tt-doctor.cmd --store real_call_events.jsonl
+```
+
+Installed entry point:
+
+```console
+ai-token-tracker-doctor --store real_call_events.jsonl
+```
+
+For partitioned high-volume stores:
+
+```console
+ai-token-tracker-doctor --store runs\events --partitioned-store
+ai-token-tracker-proxy report --store runs\events --partitioned-store
+ai-token-tracker-proxy powerbi-export --store runs\events --partitioned-store --output powerbi_dataset
+```
+
+Exit code is non-zero only for blockers (`FAIL`), unless `--strict-warnings` is used.
+`WARN` means the tracker can run but something deserves attention, e.g. no store exists yet
+or Azure env vars are only partially configured.
+
+### Azure live smoke
+
+Once Azure credentials are present in the current terminal, run the tiny live smoke harness.
+It makes one short call per configured surface, writes raw payloads/errors, `events.jsonl`,
+CSV, Excel, `trust_report.json`, and a small `README_AUDIT.md` under
+`runs\azure-smoke\<timestamp>`.
+
+```console
+scripts\tt-azure-smoke.cmd --require-live
+```
+
+The harness runs zero-cost skips for missing optional surfaces. Configure any subset:
+
+```console
+set AZURE_OPENAI_API_KEY=...
+set AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com
+set AZURE_OPENAI_DEPLOYMENT=your-chat-deployment
+set AZURE_OPENAI_API_VERSION=2024-10-21
+set AZURE_OPENAI_RESPONSES_ENDPOINT=https://your-resource.services.ai.azure.com/openai/v1
+set AZURE_OPENAI_RESPONSES_DEPLOYMENT=your-responses-deployment
+set AZURE_OPENAI_EMBEDDINGS_DEPLOYMENT=your-embeddings-deployment
+```
+
+Dry-run without provider calls:
+
+```console
+scripts\tt-azure-smoke.cmd --dry-run --json
+```
+
+### Local check suite
+
+Run the no-Black local gate with:
+
+```console
+scripts\tt-check.cmd
+```
+
+It runs Ruff plus the core storage/accounting, Azure adapter, smoke harness, proxy, API,
+Power BI, and deep fuzz regressions. It intentionally does not run Black.
+
+### Thread pools
+
+ContextVars flow into asyncio tasks automatically but NOT into a raw
+`ThreadPoolExecutor.submit()` — an LLM call made inside a plain pool silently becomes its
+own root, with no `propagation_lost` flag. Use the propagation-aware tools instead:
+
+```python
+from tracker.context.threads import ContextPropagatingExecutor, carry_context
+
+with ContextPropagatingExecutor(max_workers=8) as pool:   # drop-in ThreadPoolExecutor
+    future = pool.submit(call_llm, prompt)                 # worker sees YOUR span
+
+wrapped = carry_context(call_llm)                          # or wrap one callable
+```
+
+### Providers without a dedicated adapter
+
+`create_adapter(provider, surface)` stays strict (unknown pairs raise). When a call must
+never be dropped, resolve with fallback instead:
+
+```python
+from tracker.adapters.registry import create_adapter_with_fallback
+
+adapter = create_adapter_with_fallback("groq", "chat_completions")
+```
+
+An unknown provider is captured OPEN and counted CLOSED: the payload's real counts are kept
+(common key spellings only — nothing is ever invented), every quantity is `unverified`
+(fail-closed additivity, INV-4), so the event is present in the audit trail, raises
+`unverified_additivity`, and contributes 0 to totals until a dedicated adapter encodes the
+provider's verified additivity truth.
+
 ## Collector service
 
 When installed, run the threaded collector with:
@@ -111,6 +212,15 @@ idempotent `append_unique()`, and can recover a crash-truncated final JSONL line
 The optional loopback proxy compares a TokenTap-style pre-flight prompt estimate with the
 exact usage returned by Anthropic or OpenAI. It stores request/response hashes and token
 facts only: authorization headers and raw prompts are never persisted.
+
+Any OTHER provider (groq, together, an OpenAI-compatible gateway...) can be proxied too by
+naming its upstream explicitly — traffic on the common path shapes (`/chat/completions`,
+`/responses`, `/messages`, non-streaming or SSE) is captured through the generic fallback
+adapter instead of passing through unmeasured:
+
+```console
+ai-token-tracker-proxy serve --provider groq --upstream https://api.groq.com/openai --store groq_events.jsonl
+```
 
 Install the optional tokenizer to reproduce TokenTap's `cl100k_base` measurement:
 

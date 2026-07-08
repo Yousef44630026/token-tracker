@@ -68,7 +68,10 @@ check(
 check(c.get("total_is_lower_bound") is True, "coverage marks the total as a lower bound (an unverified real count was excluded)")
 
 r = roll_up(trace)
-check(getattr(r, "total_is_lower_bound", None) is True, "the rollup itself carries total_is_lower_bound=True (the headline number knows its status)")
+check(
+    getattr(r, "total_is_lower_bound", None) is True,
+    "the rollup itself carries total_is_lower_bound=True (the headline number knows its status)",
+)
 check(total_is_lower_bound(trace) is True, "total_is_lower_bound(trace) helper agrees")
 
 # --- a fully clean trace: everything counted and exactly measured, provider total reconciles ---

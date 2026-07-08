@@ -102,7 +102,7 @@ def _line_events(*, path: Path, start_offset: int, seen_request_ids: set[str]) -
                 timestamp=timestamp if isinstance(timestamp, str) else None,
                 observation={
                     "authoritative": True,
-                    "status": "claude_code_local_usage",
+                    "status": "complete",
                     "source": "claude_code_session_log",
                     "session_id": session_id,
                     "session_file": path.name,

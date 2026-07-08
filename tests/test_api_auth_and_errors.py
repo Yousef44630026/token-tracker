@@ -9,8 +9,8 @@ stays public. A failing storage backend surfaces 500 (read) / 503 (write) withou
 import json
 import os
 import sys
-import tempfile
 import threading
+import uuid
 from urllib import error as urlerr
 from urllib import request as urlreq
 
@@ -61,11 +61,14 @@ def event_dict(eid, out):
             }
         ],
         "provider_total_tokens": out,
+        "observation": {"authoritative": True},
     }
 
 
 # --- bearer auth ---
-auth_repo = FileRepository(os.path.join(tempfile.mkdtemp(prefix="tt_auth_"), "events.jsonl"))
+auth_root = os.path.abspath(f".test_api_auth_{uuid.uuid4().hex}")
+os.makedirs(auth_root, exist_ok=True)
+auth_repo = FileRepository(os.path.join(auth_root, "events.jsonl"))
 auth_server = create_server(auth_repo, "127.0.0.1", 0, auth_token="secret")
 abase = f"http://127.0.0.1:{auth_server.server_address[1]}"
 threading.Thread(target=auth_server.serve_forever, daemon=True).start()

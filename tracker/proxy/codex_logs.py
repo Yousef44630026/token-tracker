@@ -174,7 +174,7 @@ def _line_events(
                 timestamp=timestamp if isinstance(timestamp, str) else None,
                 observation={
                     "authoritative": True,
-                    "status": "codex_local_token_count",
+                    "status": "complete",
                     "source": "codex_session_log",
                     "session_id": session_id,
                     "session_file": path.name,
