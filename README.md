@@ -85,9 +85,9 @@ For streaming, `track_stream(context=..., provider=..., api_surface=...)` create
 ## Operational pre-flight
 
 Before running real provider traffic, run the doctor. It checks the local Python/runtime,
-Excel dependency, storage/derived invariant, collector network posture, Azure OpenAI env
-shape, store writability, and whether an existing JSONL/partitioned store can be read by
-streaming over events.
+Excel dependency, storage/derived invariant, collector network posture, local secret leaks,
+Azure/Foundry env profiles, store writability, and whether an existing JSONL/partitioned
+store can be read by streaming over events.
 
 ```console
 scripts\tt-doctor.cmd --store real_call_events.jsonl
@@ -107,9 +107,15 @@ ai-token-tracker-proxy report --store runs\events --partitioned-store
 ai-token-tracker-proxy powerbi-export --store runs\events --partitioned-store --output powerbi_dataset
 ```
 
+The Power BI exporter consumes the repository iterator once into a temporary, event-id
+deduplicated SQLite snapshot. Fact CSVs are then written from replayable iterators, avoiding
+an in-memory copy of the full event history; the temporary snapshot is deleted afterward.
+
 Exit code is non-zero only for blockers (`FAIL`), unless `--strict-warnings` is used.
-`WARN` means the tracker can run but something deserves attention, e.g. no store exists yet
-or Azure env vars are only partially configured.
+`WARN` means the tracker can run but something deserves attention, e.g. no store exists yet,
+a local ignored `.env` contains credentials, or Azure/Foundry env vars are only partially
+configured. `FAIL secret-scan` means a credential-shaped value is in a project file that could
+be shared or committed; rotate that credential before continuing.
 
 ### Azure live smoke
 
@@ -122,17 +128,27 @@ CSV, Excel, `trust_report.json`, and a small `README_AUDIT.md` under
 scripts\tt-azure-smoke.cmd --require-live
 ```
 
-The harness runs zero-cost skips for missing optional surfaces. Configure any subset:
+The harness runs zero-cost skips for missing optional surfaces. Configure any subset. For
+Azure AI Foundry / OpenAI v1 Responses only:
+
+```powershell
+$env:AZURE_OPENAI_API_KEY = "<key>"
+$env:AZURE_OPENAI_RESPONSES_ENDPOINT = "https://your-resource.services.ai.azure.com/openai/v1"
+$env:AZURE_OPENAI_RESPONSES_DEPLOYMENT = "your-responses-deployment"
+```
+
+For classic Azure OpenAI chat/embeddings deployment routes:
 
 ```console
 set AZURE_OPENAI_API_KEY=...
 set AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com
 set AZURE_OPENAI_DEPLOYMENT=your-chat-deployment
 set AZURE_OPENAI_API_VERSION=2024-10-21
-set AZURE_OPENAI_RESPONSES_ENDPOINT=https://your-resource.services.ai.azure.com/openai/v1
-set AZURE_OPENAI_RESPONSES_DEPLOYMENT=your-responses-deployment
 set AZURE_OPENAI_EMBEDDINGS_DEPLOYMENT=your-embeddings-deployment
 ```
+
+`config_redacted.json` records only whether the API key is present and lists the configured
+profiles (`foundry-responses`, `azure-chat`, `azure-embeddings`); it never writes the key.
 
 Dry-run without provider calls:
 
@@ -149,7 +165,8 @@ scripts\tt-check.cmd
 ```
 
 It runs Ruff plus the core storage/accounting, Azure adapter, smoke harness, proxy, API,
-Power BI, and deep fuzz regressions. It intentionally does not run Black.
+Power BI, collector rejection, invalid-row tolerance, and deep fuzz regressions. It
+intentionally does not run Black.
 
 ### Thread pools
 

@@ -8,10 +8,12 @@ expects. Built on ``http.server`` only — per the hard constraint, no FastAPI/F
 Routes:
     GET  /healthz      -> {"status": "ok"}
     GET  /v1/stats     -> {"events": N, "total": T, "traces": {trace_id: total}}
-    POST /v1/events    -> body is one event dict or a list; returns {"acked": [event_ids]}.
+    POST /v1/events    -> body is one event dict or a list; returns
+                          {"acked": [event_ids], "rejected": count}.
                           Malformed JSON -> 400; a malformed item inside a batch is skipped
                           (the valid ones are still accepted), so one bad event never drops a
-                          whole batch.
+                          whole batch. When configured, rejected raw items are written to a
+                          dead-letter JSONL file for audit.
 
 ``make_http_transport(url)`` is the matching client transport (stdlib urllib) so the loop
 CollectorClient -> HTTP -> here -> FileRepository can be wired end-to-end.
@@ -21,9 +23,11 @@ from __future__ import annotations
 
 import argparse
 import hmac
+import ipaddress
 import json
 import os
 import sys
+import threading
 from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
@@ -44,6 +48,17 @@ DEFAULT_MAX_BATCH_SIZE = 1000
 DEFAULT_REQUEST_TIMEOUT_S = 30.0
 
 
+def _is_loopback_host(host: str | None) -> bool:
+    if not host:
+        return False
+    if host.lower() == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
 def _make_handler(
     repo: FileRepository,
     *,
@@ -51,7 +66,21 @@ def _make_handler(
     max_batch_size: int,
     auth_token: str | None,
     request_timeout_s: float,
+    dead_letter_path: str | None,
 ) -> type[BaseHTTPRequestHandler]:
+    dead_letter_lock = threading.Lock()
+
+    def _write_dead_letters(items: list[dict[str, Any]]) -> None:
+        if not dead_letter_path or not items:
+            return
+        parent = os.path.dirname(os.path.abspath(dead_letter_path))
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        lines = [json.dumps(item, ensure_ascii=False) + "\n" for item in items]
+        with dead_letter_lock:
+            with open(dead_letter_path, "a", encoding="utf-8", newline="\n") as handle:
+                handle.write("".join(lines))
+
     class _Handler(BaseHTTPRequestHandler):
         server_version = "AITokenTracker/1"
         # Bounds how long a connection may sit idle (e.g. a client that declares
@@ -153,22 +182,38 @@ def _make_handler(
             events: list[TokenEvent] = []
             acked: list[str] = []
             seen_ids: set[str] = set()
+            rejected = 0
+            rejected_items: list[dict[str, Any]] = []
             for item in batch:
                 try:
                     event = TokenEvent.from_dict(item)
-                except (KeyError, TypeError, ValueError, AttributeError):
+                except (KeyError, TypeError, ValueError, AttributeError) as exc:
+                    rejected += 1
+                    if dead_letter_path:
+                        rejected_items.append(
+                            {
+                                "reason": f"{type(exc).__name__}: {exc}",
+                                "item": item,
+                            }
+                        )
                     continue  # skip a malformed item; never fail the whole batch
                 events.append(event)
                 if event.event_id not in seen_ids:
                     seen_ids.add(event.event_id)
                     acked.append(event.event_id)
+            if rejected_items:
+                try:
+                    _write_dead_letters(rejected_items)
+                except OSError:
+                    self._send(503, {"error": "dead_letter_write_failed", "acked": [], "rejected": rejected})
+                    return
             if events:
                 try:
                     repo.append_unique(events)
                 except (OSError, ValueError, TypeError):
-                    self._send(503, {"error": "storage_write_failed", "acked": []})
+                    self._send(503, {"error": "storage_write_failed", "acked": [], "rejected": rejected})
                     return
-            self._send(200, {"acked": acked})
+            self._send(200, {"acked": acked, "rejected": rejected})
 
     return _Handler
 
@@ -182,6 +227,7 @@ def create_server(
     max_batch_size: int = DEFAULT_MAX_BATCH_SIZE,
     auth_token: str | None = None,
     request_timeout_s: float = DEFAULT_REQUEST_TIMEOUT_S,
+    dead_letter_path: str | None = None,
 ) -> ThreadingHTTPServer:
     """Build (but do not start) the collector HTTP server bound to ``host:port``.
 
@@ -191,6 +237,8 @@ def create_server(
         raise ValueError("server limits must be positive")
     if request_timeout_s <= 0:
         raise ValueError("request_timeout_s must be positive")
+    if not _is_loopback_host(host) and not auth_token:
+        raise ValueError("non-loopback collector binds require auth_token")
     server = ThreadingHTTPServer(
         (host, port),
         _make_handler(
@@ -199,6 +247,7 @@ def create_server(
             max_batch_size=max_batch_size,
             auth_token=auth_token,
             request_timeout_s=request_timeout_s,
+            dead_letter_path=dead_letter_path,
         ),
     )
     server.daemon_threads = True

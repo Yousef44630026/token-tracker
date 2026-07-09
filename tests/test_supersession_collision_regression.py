@@ -119,5 +119,27 @@ check(
     "partial: a partial estimate differing from its final is expected, NOT a collision",
 )
 
+# --- timestamp offsets: choose the latest instant, not lexicographically largest string ---
+offset_early = final(
+    "offset-early",
+    "rc-offset",
+    100,
+    request_hash="req-offset",
+    response_hash="resp-offset",
+    ts="2026-01-01T10:00:00+02:00",
+)
+utc_late = final(
+    "utc-late",
+    "rc-offset",
+    100,
+    request_hash="req-offset",
+    response_hash="resp-offset",
+    ts="2026-01-01T09:00:00Z",
+)
+offset_events = [offset_early, utc_late]
+reconcile_supersession(offset_events)
+check(utc_late.superseded is False, "timestamp offsets: latest UTC instant is kept")
+check(offset_early.superseded_by == "utc-late", "timestamp offsets: older offset timestamp is superseded")
+
 print("\nRESULT:", "all checks passed" if _failures == 0 else f"{_failures} FAILURE(S)")
 sys.exit(1 if _failures else 0)

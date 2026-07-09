@@ -106,6 +106,15 @@ check(coverage["capture_completeness_ratio"] == 0.8767, "capture completeness is
 report = build_trust_report(trace)
 streaming_report = build_trust_report_from_events((event for event in trace.events), trace_id=trace.trace_id)
 check(streaming_report.to_dict() == report.to_dict(), "iterator TrustReport matches Trace TrustReport")
+aggregate_report = build_trust_report_from_events(
+    (event for event in trace.events),
+    trace_id=trace.trace_id,
+    collect_anomalies=False,
+)
+check(
+    aggregate_report.anomaly_count == report.anomaly_count and aggregate_report.anomalies == [],
+    "aggregate-only TrustReport keeps anomaly count without retaining anomaly details",
+)
 check(report.headline_floor_tokens == 660 and report.headline_ceiling_tokens == 730, "TrustReport carries headline band")
 check(report.unattributed_tokens == 60 and report.over_attributed_tokens == 100, "TrustReport carries mismatch magnitudes")
 check(any(a.event_id == "over" and a.severity == "high" for a in report.anomalies), "over-attribution anomaly is high severity")

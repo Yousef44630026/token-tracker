@@ -106,6 +106,20 @@ def event_output_tokens(event: TokenEvent) -> int:
     )
 
 
+def event_duration_ms(event: TokenEvent) -> float | None:
+    """Return an event's wall-clock duration from its observation, or None.
+
+    The observation contract recognizes three duration keys; they are tried in a fixed order so
+    every analytics view (latency, service attribution, ...) reads the SAME number for the same
+    event and cannot disagree about whether duration data exists.
+    """
+    for key in ("duration_ms", "total_duration_ms", "provider_duration_ms"):
+        value = event.observation.get(key)
+        if is_non_negative_number(value):
+            return float(value)
+    return None
+
+
 def span_duration_ms(span: Span) -> float | None:
     """Return duration from metadata or ISO-ish timestamps when available.
 

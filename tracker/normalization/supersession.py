@@ -28,6 +28,8 @@ Supersession is set HERE (the reconciler / stream tracker), never by an adapter.
 
 from __future__ import annotations
 
+import datetime as dt
+
 from tracker.models.enums import DataQualityFlag, TokenType, UsageSource
 from tracker.models.token_event import TokenEvent
 
@@ -99,14 +101,26 @@ def _can_supersede_partial(final: TokenEvent) -> bool:
 def _pick_authoritative_final(finals: list[TokenEvent]) -> TokenEvent:
     """Choose the one authoritative final among duplicates sharing a correlation id.
 
-    Prefers the latest ``timestamp`` (assumed comparable ISO-8601 strings, as produced
-    throughout this codebase); falls back to the first in input order when timestamps are
-    absent or tied, so the choice is always deterministic for a given input.
+    Prefers the latest timestamp instant, normalizing ISO-8601 offsets to UTC. Falls back
+    to the first in input order when timestamps are absent, invalid, or tied, so the choice
+    is always deterministic for a given input.
     """
-    timestamped = [e for e in finals if e.timestamp]
+    timestamped = [(event, parsed) for event in finals if (parsed := _parse_timestamp_utc(event.timestamp)) is not None]
     if timestamped:
-        return max(timestamped, key=lambda e: e.timestamp)
+        return max(timestamped, key=lambda item: item[1])[0]
     return finals[0]
+
+
+def _parse_timestamp_utc(value: str | None) -> dt.datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=dt.UTC)
+    return parsed.astimezone(dt.UTC)
 
 
 def _clear_supersession(event: TokenEvent) -> None:

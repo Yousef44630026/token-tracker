@@ -40,6 +40,7 @@ class AzureSmokeCase:
     """One live Azure call to attempt."""
 
     name: str
+    profile: str
     surface: str
     deployment: str
     endpoint: str
@@ -145,7 +146,19 @@ def _redacted_config(environment: Mapping[str, str]) -> dict[str, Any]:
     )
     data = {key: _env(environment, key) for key in keys if _env(environment, key)}
     data["AZURE_OPENAI_API_KEY"] = "present" if _env(environment, "AZURE_OPENAI_API_KEY") else "missing"
+    data["configured_profiles"] = _configured_profiles(environment)
     return data
+
+
+def _configured_profiles(environment: Mapping[str, str]) -> list[str]:
+    profiles: list[str] = []
+    if not _missing(environment, ("AZURE_OPENAI_API_KEY", "AZURE_OPENAI_RESPONSES_ENDPOINT", "AZURE_OPENAI_RESPONSES_DEPLOYMENT")):
+        profiles.append("foundry-responses")
+    if not _missing(environment, ("AZURE_OPENAI_API_KEY", "AZURE_OPENAI_ENDPOINT", "AZURE_OPENAI_DEPLOYMENT")):
+        profiles.append("azure-chat")
+    if not _missing(environment, ("AZURE_OPENAI_API_KEY", "AZURE_OPENAI_ENDPOINT", "AZURE_OPENAI_EMBEDDINGS_DEPLOYMENT")):
+        profiles.append("azure-embeddings")
+    return profiles
 
 
 def planned_cases(environment: Mapping[str, str]) -> tuple[list[AzureSmokeCase], list[AzureSmokeResult]]:
@@ -164,6 +177,7 @@ def planned_cases(environment: Mapping[str, str]) -> tuple[list[AzureSmokeCase],
         cases.append(
             AzureSmokeCase(
                 name="chat",
+                profile="azure-chat",
                 surface="chat_completions",
                 endpoint=_resource_endpoint(_env(environment, "AZURE_OPENAI_ENDPOINT") or ""),
                 deployment=_env(environment, "AZURE_OPENAI_DEPLOYMENT") or "",
@@ -188,6 +202,7 @@ def planned_cases(environment: Mapping[str, str]) -> tuple[list[AzureSmokeCase],
         cases.append(
             AzureSmokeCase(
                 name="responses",
+                profile="foundry-responses",
                 surface="responses",
                 endpoint=_responses_endpoint(_env(environment, "AZURE_OPENAI_RESPONSES_ENDPOINT") or ""),
                 deployment=_env(environment, "AZURE_OPENAI_RESPONSES_DEPLOYMENT") or "",
@@ -211,6 +226,7 @@ def planned_cases(environment: Mapping[str, str]) -> tuple[list[AzureSmokeCase],
         cases.append(
             AzureSmokeCase(
                 name="embeddings",
+                profile="azure-embeddings",
                 surface="embeddings",
                 endpoint=_resource_endpoint(_env(environment, "AZURE_OPENAI_ENDPOINT") or ""),
                 deployment=_env(environment, "AZURE_OPENAI_EMBEDDINGS_DEPLOYMENT") or "",

@@ -74,6 +74,13 @@ class TokenQuantity:
             raise ValueError("unknown_reason is only valid for a missing quantity")
         if self.overlap == Overlap.SUBTOTAL_OF and not self.subtotal_of:
             raise ValueError("subtotal overlap requires subtotal_of to name a parent token type")
+        # Converse guard: subtotal_of only means "the parent I am a breakdown of". An INDEPENDENT
+        # count is not a breakdown of anything, so naming a parent contradicts itself — and such a
+        # count IS summed (independent+verified+known), so the contradiction would let a summed
+        # quantity masquerade as a subtotal while bypassing the event-level dangling-subtotal check
+        # (which only fires for SUBTOTAL_OF overlap). Reject it at the boundary, like an empty one.
+        if self.overlap == Overlap.INDEPENDENT and self.subtotal_of is not None:
+            raise ValueError("independent overlap must not name a subtotal_of parent")
         if self.additivity == Additivity.TOTAL_CONTRIBUTING and (self.overlap != Overlap.INDEPENDENT or self.trust != Trust.VERIFIED):
             raise ValueError("total_contributing must be independent and verified")
         if self.additivity == Additivity.SUBTOTAL_OF and (self.overlap != Overlap.SUBTOTAL_OF or self.trust != Trust.VERIFIED):

@@ -1,0 +1,57 @@
+name: tracker-check
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  tracker-check:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install package and dev tools
+        run: python -m pip install -e ".[dev]"
+
+      - name: Ruff
+        run: python -m ruff check --no-cache tracker tests api
+
+      - name: Core operational tests
+        shell: pwsh
+        run: |
+          $tests = @(
+            "tests/test_operational_doctor.py",
+            "tests/test_azure_smoke_harness.py",
+            "tests/test_azure_openai_adapters.py",
+            "tests/test_azure_simulated.py",
+            "tests/test_real_payload_azure.py",
+            "tests/test_storage_no_stored_derived_fields.py",
+            "tests/test_repository_tolerates_invalid_row.py",
+            "tests/test_overlap_trust_axes.py",
+            "tests/test_independent_subtotal_contradiction.py",
+            "tests/test_context_core.py",
+            "tests/test_normalizer_more.py",
+            "tests/test_stream_tracker.py",
+            "tests/test_stream_timeout_keeps_known_input.py",
+            "tests/test_proxy_truncated_stream.py",
+            "tests/test_trust_report_storage_scale.py",
+            "tests/test_proxy_report.py",
+            "tests/test_powerbi_export.py",
+            "tests/test_powerbi_dedup_event_id.py",
+            "tests/test_api_collector.py",
+            "tests/test_api_server_errors.py",
+            "tests/test_collector_rejects_surfaced.py",
+            "tests/test_supersession_collision_regression.py",
+            "tests/test_core_logic_deep.py"
+          )
+          foreach ($test in $tests) {
+            Write-Host "=== $test ==="
+            python $test
+          }

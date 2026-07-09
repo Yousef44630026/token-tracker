@@ -8,9 +8,10 @@ event is accepted, and an all-invalid batch acks nothing — the server stays up
 
 import json
 import os
+import shutil
 import sys
-import tempfile
 import threading
+import uuid
 from urllib import error as urlerr
 from urllib import request as urlreq
 
@@ -58,7 +59,18 @@ def event_dict(eid, out):
     }
 
 
-repo = FileRepository(os.path.join(tempfile.mkdtemp(prefix="tt_apierr_"), "events.jsonl"))
+root = os.path.abspath(f".test_api_server_errors_{uuid.uuid4().hex}")
+shutil.rmtree(root, ignore_errors=True)
+os.makedirs(root, exist_ok=True)
+repo = FileRepository(os.path.join(root, "events.jsonl"))
+
+try:
+    create_server(repo, "0.0.0.0", 0)
+    non_loopback_rejected = False
+except ValueError:
+    non_loopback_rejected = True
+check(non_loopback_rejected, "non-loopback collector bind without auth is rejected")
+
 server = create_server(repo, "127.0.0.1", 0)
 base = f"http://127.0.0.1:{server.server_address[1]}"
 threading.Thread(target=server.serve_forever, daemon=True).start()
@@ -101,6 +113,7 @@ try:
     check(request(base, "/v1/stats")[1]["total"] == 7 + 3 + 4, "stats reflect only the accepted events (14)")
 finally:
     server.shutdown()
+    shutil.rmtree(root, ignore_errors=True)
 
 print("\nRESULT:", "all checks passed" if _failures == 0 else f"{_failures} FAILURE(S)")
 sys.exit(1 if _failures else 0)

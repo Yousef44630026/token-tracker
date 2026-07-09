@@ -37,6 +37,7 @@ from tracker.context.model import TraceContext, new_trace
 # and TraceContext is frozen — there is no shared mutable state to race on.
 
 _active: ContextVar[TraceContext | None] = ContextVar("tracker_active_context", default=None)
+_active_flags: ContextVar[tuple[str, ...]] = ContextVar("tracker_active_context_flags", default=())
 
 _HEADER_PREFIX = "X-TokenTracker-"
 
@@ -46,13 +47,21 @@ def current() -> TraceContext | None:
     return _active.get()
 
 
+def current_flags() -> tuple[str, ...]:
+    """Data-quality flags inherited from the active propagation boundary."""
+    return _active_flags.get()
+
+
 @contextmanager
-def _bind(ctx: TraceContext) -> Iterator[TraceContext]:
+def _bind(ctx: TraceContext, *, flags: tuple[str, ...] | None = None) -> Iterator[TraceContext]:
     """Bind ``ctx`` as active for the duration; restore the previous on exit."""
     token = _active.set(ctx)
+    flags_token = _active_flags.set(flags) if flags is not None else None
     try:
         yield ctx
     finally:
+        if flags_token is not None:
+            _active_flags.reset(flags_token)
         _active.reset(token)
 
 
@@ -64,7 +73,10 @@ def trace(
     environment: str | None = None,
 ) -> Iterator[TraceContext]:
     """Open (and bind) a fresh root trace."""
-    with _bind(new_trace(business_id=business_id, workflow=workflow, environment=environment)) as ctx:
+    with _bind(
+        new_trace(business_id=business_id, workflow=workflow, environment=environment),
+        flags=(),
+    ) as ctx:
         yield ctx
 
 
@@ -127,5 +139,5 @@ def continue_from_headers(headers: Mapping[str, str]) -> Iterator[ResolvedContex
         lost = _has_tracker_headers(headers)
 
     flags: tuple[str, ...] = ("propagation_lost",) if lost else ()
-    with _bind(ctx):
+    with _bind(ctx, flags=flags):
         yield ResolvedContext(context=ctx, propagation_lost=lost, flags=flags)

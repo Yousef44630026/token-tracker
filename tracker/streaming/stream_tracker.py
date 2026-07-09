@@ -19,11 +19,17 @@ Additivity is taken from the central table (INV-4); input/output are total_contr
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 
-from tracker.context.propagation import TraceContext
+from tracker.context.propagation import TraceContext, current, current_flags
 from tracker.estimation.local_tokenizer import estimate_tokens
-from tracker.models.enums import DataQualityFlag, PrecisionLevel, TokenType, UnknownReason, UsageSource
+from tracker.models.enums import (
+    DataQualityFlag,
+    PrecisionLevel,
+    TokenType,
+    UnknownReason,
+    UsageSource,
+)
 from tracker.models.token_event import TokenEvent
 from tracker.models.token_quantity import TokenQuantity
 from tracker.normalization.additivity import assign_additivity
@@ -60,6 +66,7 @@ class StreamTracker:
             workflow=context.workflow,
             environment=context.environment,
             estimator=estimator,
+            context_flags=current_flags() if current() is context else (),
         )
 
     def __init__(
@@ -76,6 +83,7 @@ class StreamTracker:
         workflow: str | None = None,
         environment: str | None = None,
         estimator: Callable[[str], int] = estimate_tokens,
+        context_flags: Iterable[str] = (),
     ) -> None:
         self.request_correlation_id = request_correlation_id
         self.trace_id = trace_id
@@ -87,6 +95,7 @@ class StreamTracker:
         self.business_id = business_id
         self.workflow = workflow
         self.environment = environment
+        self._context_flags = tuple(context_flags)
         self._estimator = estimator
         self._chunks: list[str] = []
         self._partial: TokenEvent | None = None
@@ -135,7 +144,7 @@ class StreamTracker:
             model=model if model is not None else self.model,
             quantities=quantities,
             provider_total_tokens=provider_total,
-            leading_flags=flags,
+            leading_flags=[*self._context_flags, *flags],
         )
 
     def _quantity(self, token_type, quantity, precision, source, unknown_reason=None):
@@ -168,7 +177,12 @@ class StreamTracker:
         provider_total_tokens: int | None = None,
     ) -> TokenEvent:
         """Clean completion: emit EXACT usage from the provider's final stream event."""
-        quantities = self._usage_quantities(output_tokens, input_tokens, UsageSource.PROVIDER_STREAM_FINAL, PrecisionLevel.EXACT)
+        quantities = self._usage_quantities(
+            output_tokens,
+            input_tokens,
+            UsageSource.PROVIDER_STREAM_FINAL,
+            PrecisionLevel.EXACT,
+        )
         return self._new_event(quantities, provider_total_tokens, [])
 
     def complete_with_quantities(
@@ -228,7 +242,12 @@ class StreamTracker:
         if input_tokens is not None:
             quantities.insert(
                 0,
-                self._quantity(TokenType.INPUT, input_tokens, PrecisionLevel.EXACT, UsageSource.PROVIDER_RESPONSE),
+                self._quantity(
+                    TokenType.INPUT,
+                    input_tokens,
+                    PrecisionLevel.EXACT,
+                    UsageSource.PROVIDER_RESPONSE,
+                ),
             )
         self._partial = self._new_event(quantities, None, [PARTIAL_STREAM_ESTIMATE_FLAG, STREAM_INTERRUPTED_FLAG])
         return self._partial
@@ -250,13 +269,34 @@ class StreamTracker:
             reconcile_supersession([self._partial, final])
         return final
 
-    def timeout(self) -> TokenEvent:
-        """No usage arrived in time: emit output None / UNKNOWN, surfaced not zeroed (INV-6)."""
-        q = self._quantity(
-            TokenType.OUTPUT,
-            None,
-            PrecisionLevel.UNKNOWN,
-            UsageSource.NONE,
-            unknown_reason=UnknownReason.STREAM_TIMEOUT,
-        )
-        return self._new_event([q], None, [STREAM_INTERRUPTED_FLAG])
+    def timeout(self, *, input_tokens: int | None = None) -> TokenEvent:
+        """No OUTPUT arrived in time: emit output None / UNKNOWN, surfaced not zeroed (INV-6).
+
+        The output is genuinely lost, so it stays a surfaced unknown (never a confident zero).
+        But an EXACT input already received from the provider (e.g. Anthropic's message_start)
+        is real, billed data and must not be thrown away just because the output timed out —
+        the same rule ``interrupt()`` follows (S1 regression). Explicit ``input_tokens`` wins;
+        otherwise the tracker falls back on the cumulative input it observed mid-stream.
+        """
+        if input_tokens is None:
+            input_tokens = self._observed_input
+        quantities = [
+            self._quantity(
+                TokenType.OUTPUT,
+                None,
+                PrecisionLevel.UNKNOWN,
+                UsageSource.NONE,
+                unknown_reason=UnknownReason.STREAM_TIMEOUT,
+            )
+        ]
+        if input_tokens is not None:
+            quantities.insert(
+                0,
+                self._quantity(
+                    TokenType.INPUT,
+                    input_tokens,
+                    PrecisionLevel.EXACT,
+                    UsageSource.PROVIDER_RESPONSE,
+                ),
+            )
+        return self._new_event(quantities, None, [STREAM_INTERRUPTED_FLAG])

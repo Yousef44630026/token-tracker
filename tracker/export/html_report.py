@@ -88,6 +88,16 @@ def render_html_report(trace: Trace, *, title: str | None = None) -> str:
         "workflow": trace.workflow,
         "environment": trace.environment,
         "observed_total_contributing_tokens": rollup.observed_total_contributing_tokens,
+        # The headline number never travels without its epistemic status. observed_total is a
+        # POINT value only when total_is_lower_bound is False; otherwise it is a FLOOR (true
+        # total >= it), so the floor/estimate/ceiling band and the flag sit right beside it here
+        # rather than only in the separate Coverage section below — a reader scanning the Trace
+        # Summary must not mistake a floor for a measurement (see test_lower_bound_signal_regression).
+        "total_is_lower_bound": rollup.total_is_lower_bound,
+        "headline_floor_tokens": rollup.headline_floor_tokens,
+        "headline_estimate_tokens": rollup.headline_estimate_tokens,
+        "headline_ceiling_tokens": rollup.headline_ceiling_tokens,
+        "capture_completeness_ratio": rollup.capture_completeness_ratio,
         "event_count": rollup.event_count,
         "superseded_event_count": rollup.superseded_event_count,
         "flagged_event_count": rollup.flagged_event_count,

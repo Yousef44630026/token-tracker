@@ -9,10 +9,16 @@ adapter closes that gap without ever guessing:
     ``input_tokens``/``output_tokens``, ``promptTokenCount``/``candidatesTokenCount``).
     Anything unrecognized stays in ``raw_usage`` for audit — it never becomes a token type
     and no count is ever invented (INV-3: no fabricated provider fields).
-  - COUNTING IS CLOSED: the provider is not in the central additivity table, so every
-    captured quantity fails closed to ``unverified`` (INV-4) — present in the audit trail,
-    EXACT-but-unverified (precision is not trust), contributing 0 until a dedicated adapter
-    encodes the provider's real additivity truth.
+  - COUNTING IS CLOSED: every captured quantity fails closed to ``unverified`` (INV-4) —
+    present in the audit trail, EXACT-but-unverified (precision is not trust), contributing 0
+    until a dedicated adapter encodes the provider's real additivity truth.
+
+    This adapter assigns ``unverified`` DIRECTLY rather than relying on the central table's
+    default. The table is keyed by provider and ignores the surface, so a KNOWN provider on an
+    UNKNOWN/unverified surface (e.g. a future ``openai/realtime``) would otherwise resolve to
+    ``total_contributing`` and be counted at full confidence with no flag — the opposite of
+    fail-closed. The fallback is used precisely when no dedicated, TESTED adapter proves the
+    surface's semantics, so its counting must stay closed no matter which provider it is.
 
 The class-level ``provider``/``api_surface`` stay empty so registry auto-discovery skips it;
 instances stamp the REAL requested pair so events name the actual provider for the audit.
@@ -25,7 +31,7 @@ from __future__ import annotations
 from typing import Any
 
 from tracker.adapters.base import BaseAPISurfaceAdapter, NormalizedUsage, field_value
-from tracker.models.enums import PrecisionLevel, TokenType, UsageSource
+from tracker.models.enums import Additivity, PrecisionLevel, TokenType, UsageSource
 
 # Usage containers and count-key spellings shared by the major wire formats. Deliberately
 # short: a spelling not listed here is preserved raw, never mapped by guesswork.
@@ -61,6 +67,15 @@ class GenericFallbackAdapter(BaseAPISurfaceAdapter):
             raise ValueError("GenericFallbackAdapter requires the real provider and api_surface")
         self.provider = provider
         self.api_surface = api_surface
+
+    def assign_additivity(self, token_type: TokenType) -> tuple[Additivity, str | None]:
+        """Fail closed: a fallback-captured quantity is ALWAYS unverified.
+
+        Overrides the base lookup so a known provider on an unverified surface cannot be
+        silently counted via the central table (which is keyed by provider, not surface).
+        Contributing 0 + ``unverified_additivity`` until a dedicated adapter proves the surface.
+        """
+        return Additivity.UNVERIFIED, None
 
     def _find_usage(self, response: Any) -> Any | None:
         for container in _USAGE_CONTAINERS:

@@ -69,17 +69,27 @@ def build_trust_report_from_events(
     events: Iterable[TokenEvent],
     *,
     trace_id: str | None = None,
+    collect_anomalies: bool = True,
 ) -> TrustReport:
-    """Build an audit report from a streaming event source."""
+    """Build an audit report from a streaming event source.
+
+    Set ``collect_anomalies=False`` for aggregate-only high-volume exports. The report keeps
+    the exact anomaly_count while leaving the detailed anomaly list empty, avoiding memory
+    growth proportional to the number of findings.
+    """
     coverage_accumulator = CoverageExactnessAccumulator()
     anomalies: list[AnomalySignal] = []
+    anomaly_count = 0
     flagged_event_count = 0
     first_trace_id: str | None = None
     mixed_trace_ids = False
 
     for event in events:
         coverage_accumulator.add(event)
-        anomalies.extend(event_anomalies(event))
+        signals = event_anomalies(event)
+        anomaly_count += len(signals)
+        if collect_anomalies:
+            anomalies.extend(signals)
         if event.data_quality_flags:
             flagged_event_count += 1
         if first_trace_id is None:
@@ -103,7 +113,7 @@ def build_trust_report_from_events(
         excluded_event_count=coverage["excluded_event_count"],
         superseded_event_count=coverage["superseded_event_count"],
         flagged_event_count=flagged_event_count,
-        anomaly_count=len(anomalies),
+        anomaly_count=anomaly_count,
         anomalies=anomalies,
         coverage=coverage,
     )

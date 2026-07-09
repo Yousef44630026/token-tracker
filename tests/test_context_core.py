@@ -21,6 +21,7 @@ from tracker.context import headers as H  # noqa: E402
 from tracker.context.propagation import (  # noqa: E402
     continue_from_headers,
     current,
+    current_flags,
     new_trace,
     retry,
     span,
@@ -88,12 +89,16 @@ def main() -> int:
     with continue_from_headers(partial) as res:
         check(res.propagation_lost is True, "partial tracker headers -> propagation_lost")
         check("propagation_lost" in res.flags, "flag 'propagation_lost' is surfaced")
+        check("propagation_lost" in current_flags(), "lost flag is active for downstream event builders")
         check(res.context.parent_span_id is None, "lost propagation starts a fresh root")
+        with span():
+            check("propagation_lost" in current_flags(), "child spans inherit the lost-propagation signal")
 
     # --- no tracker headers at all -> clean fresh root, NOT lost ---
     with continue_from_headers({"content-type": "application/json"}) as res:
         check(res.propagation_lost is False, "no tracker headers -> clean root, not lost")
         check(res.flags == (), "clean root has no flags")
+        check(current_flags() == (), "clean root has no ambient quality flags")
 
     print()
     if _failures:

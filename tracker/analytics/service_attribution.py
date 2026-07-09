@@ -7,10 +7,10 @@ from typing import Any
 
 from tracker.analytics._common import (
     authoritative_events,
+    event_duration_ms,
     event_input_tokens,
     event_output_tokens,
     first_quantity_metadata,
-    is_non_negative_number,
     round_metric,
 )
 from tracker.models.token_event import TokenEvent
@@ -112,7 +112,7 @@ def build_service_attribution(trace: Trace) -> dict[str, Any]:
 
     rows = []
     for key, group in sorted(groups.items()):
-        durations = [float(value) for event in group if is_non_negative_number(value := event.observation.get("duration_ms"))]
+        durations = [value for event in group if (value := event_duration_ms(event)) is not None]
         rows.append(
             {
                 "service_name": key[0],

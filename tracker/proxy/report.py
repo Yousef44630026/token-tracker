@@ -141,6 +141,10 @@ def _is_incomplete(event: TokenEvent) -> bool:
     )
 
 
+def _is_countable(event: TokenEvent) -> bool:
+    return not event.superseded and not _is_incomplete(event)
+
+
 def _prompt_group_identity(event: TokenEvent) -> tuple[int, str, str, str | None] | None:
     observation = event.observation
     sequence = observation.get("suite_prompt_sequence")
@@ -163,7 +167,7 @@ def _comparison_totals(events: Iterable[TokenEvent]) -> tuple[int, int, int, int
     provider_prompt_tokens = 0
     absolute_error = 0
     for event in events:
-        if _is_incomplete(event):
+        if not _is_countable(event):
             continue
         comparison = _comparison(event)
         if comparison is None:
@@ -196,11 +200,11 @@ def _prompt_group_summaries_from_groups(groups: dict[tuple[int, str, str, str | 
         groups.items(),
         key=lambda item: item[0][0],
     ):
-        authoritative_events = [event for event in group_events if not _is_incomplete(event)]
+        countable_events = [event for event in group_events if _is_countable(event)]
         comparison = _comparison_totals(group_events)
         provider_prompt_tokens = comparison[2]
         if comparison[0] == 0:
-            provider_prompt_tokens = sum(_provider_prompt_tokens(event, None) for event in authoritative_events)
+            provider_prompt_tokens = sum(_provider_prompt_tokens(event, None) for event in countable_events)
         estimate_tokens = comparison[1]
         coverage = round(estimate_tokens / provider_prompt_tokens, 6) if comparison[0] > 0 and provider_prompt_tokens else None
         summaries.append(
@@ -212,16 +216,17 @@ def _prompt_group_summaries_from_groups(groups: dict[tuple[int, str, str, str | 
                 "events": len(group_events),
                 "exact_usage_events": sum(
                     1
-                    for event in authoritative_events
+                    for event in countable_events
                     if any(quantity.precision_level == PrecisionLevel.EXACT for quantity in event.quantities)
                 ),
                 "incomplete_events": sum(1 for event in group_events if _is_incomplete(event)),
+                "superseded_events": sum(1 for event in group_events if event.superseded),
                 "statuses": dict(sorted(Counter(event.observation.get("status", "legacy") for event in group_events).items())),
-                "fresh_input_tokens": sum(_quantity(event, TokenType.INPUT) for event in authoritative_events),
-                "cache_read_input_tokens": sum(_quantity(event, TokenType.CACHED_INPUT) for event in authoritative_events),
-                "cache_creation_input_tokens": sum(_quantity(event, TokenType.CACHE_CREATION_INPUT) for event in authoritative_events),
-                "output_tokens": sum(_quantity(event, TokenType.OUTPUT) for event in authoritative_events),
-                "contributing_tokens": sum(_current_rule_total(event) for event in authoritative_events),
+                "fresh_input_tokens": sum(_quantity(event, TokenType.INPUT) for event in countable_events),
+                "cache_read_input_tokens": sum(_quantity(event, TokenType.CACHED_INPUT) for event in countable_events),
+                "cache_creation_input_tokens": sum(_quantity(event, TokenType.CACHE_CREATION_INPUT) for event in countable_events),
+                "output_tokens": sum(_quantity(event, TokenType.OUTPUT) for event in countable_events),
+                "contributing_tokens": sum(_current_rule_total(event) for event in countable_events),
                 "comparison_events": comparison[0],
                 "estimated_prompt_tokens": estimate_tokens,
                 "provider_prompt_tokens": provider_prompt_tokens,
@@ -251,6 +256,7 @@ def summarize_events(events: Iterable[TokenEvent]) -> dict:
     provider_response_id_count = 0
     exact_usage_events = 0
     incomplete_events = 0
+    superseded_events = 0
     legacy_rule_events = 0
     comparison_events = 0
     estimate_tokens = 0
@@ -299,12 +305,15 @@ def summarize_events(events: Iterable[TokenEvent]) -> dict:
             prompt_groups.setdefault(identity, []).append(event)
 
         incomplete = _is_incomplete(event)
-        if any(quantity.precision_level == PrecisionLevel.EXACT for quantity in event.quantities) and not incomplete:
+        countable = _is_countable(event)
+        if event.superseded:
+            superseded_events += 1
+        if any(quantity.precision_level == PrecisionLevel.EXACT for quantity in event.quantities) and countable:
             exact_usage_events += 1
         if incomplete:
             incomplete_events += 1
             incomplete_estimated_tokens += event.event_contributing_tokens
-        else:
+        elif countable:
             fresh_input_tokens += _quantity(event, TokenType.INPUT)
             cache_read_input_tokens += _quantity(event, TokenType.CACHED_INPUT)
             cache_creation_input_tokens += _quantity(event, TokenType.CACHE_CREATION_INPUT)
@@ -328,7 +337,7 @@ def summarize_events(events: Iterable[TokenEvent]) -> dict:
             legacy_rule_events += 1
 
         comparison = _comparison(event)
-        if comparison is None or incomplete:
+        if comparison is None or not countable:
             continue
         estimate = comparison.get("quantity")
         if not isinstance(estimate, int) or isinstance(estimate, bool) or estimate < 0:
@@ -346,6 +355,7 @@ def summarize_events(events: Iterable[TokenEvent]) -> dict:
         "events": event_count,
         "exact_usage_events": exact_usage_events,
         "incomplete_events": incomplete_events,
+        "superseded_events": superseded_events,
         "legacy_rule_events": legacy_rule_events,
         "comparison_events": comparison_events,
         "models": dict(sorted(models.items())),
@@ -405,6 +415,7 @@ def render_summary(summary: dict) -> str:
         f"events: {summary['events']}",
         f"exact usage events: {summary['exact_usage_events']}",
         f"incomplete events: {summary['incomplete_events']}",
+        f"superseded events: {summary.get('superseded_events', 0)}",
         f"legacy-rule events: {summary['legacy_rule_events']}",
         f"models: {models}",
         ("statuses: " + (", ".join(f"{name}={count}" for name, count in summary["statuses"].items()) or "none")),
@@ -456,6 +467,7 @@ def render_summary(summary: dict) -> str:
                 f"events={group['events']} "
                 f"exact={group['exact_usage_events']} "
                 f"incomplete={group['incomplete_events']} "
+                f"superseded={group.get('superseded_events', 0)} "
                 f"tokens={group['contributing_tokens']} "
                 f"prompt_provider={group['provider_prompt_tokens']} "
                 f"estimate={group['estimated_prompt_tokens']} "
@@ -477,6 +489,7 @@ _PROMPT_GROUP_CSV_FIELDS = [
     "events",
     "exact_usage_events",
     "incomplete_events",
+    "superseded_events",
     "statuses",
     "fresh_input_tokens",
     "cache_read_input_tokens",

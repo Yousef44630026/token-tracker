@@ -54,6 +54,58 @@ check(by_name["python"].status == "pass", "doctor checks supported Python")
 check(by_name["storage-contract"].status == "pass", "doctor verifies source/derived storage contract")
 check(by_name["store-writable"].status == "pass", "doctor verifies store directory writability")
 check(by_name["store-read"].status == "warn", "missing store is a warning, not a failure")
+check(by_name["azure-openai-env"].status == "info", "missing Azure/Foundry env is informational")
+
+foundry_checks = run_checks(
+    store=missing_store,
+    skip_store=True,
+    environment={
+        "AZURE_OPENAI_API_KEY": "unit-key",
+        "AZURE_OPENAI_RESPONSES_ENDPOINT": "https://unit.services.ai.azure.com/openai/v1",
+        "AZURE_OPENAI_RESPONSES_DEPLOYMENT": "gpt-5-mini",
+    },
+)
+foundry_env = {item.name: item for item in foundry_checks}["azure-openai-env"]
+check(foundry_env.status == "pass", "Foundry Responses-only env passes doctor")
+check(foundry_env.data["profiles"] == ["foundry-responses"], "doctor reports the Foundry Responses profile")
+
+classic_checks = run_checks(
+    store=missing_store,
+    skip_store=True,
+    environment={
+        "AZURE_OPENAI_API_KEY": "unit-key",
+        "AZURE_OPENAI_ENDPOINT": "https://unit.openai.azure.com",
+        "AZURE_OPENAI_DEPLOYMENT": "chat-dep",
+    },
+)
+classic_env = {item.name: item for item in classic_checks}["azure-openai-env"]
+check(classic_env.status == "pass", "classic Azure chat env passes without requiring explicit api-version")
+check(classic_env.data["profiles"] == ["azure-chat"], "doctor reports the Azure chat profile")
+
+partial_checks = run_checks(
+    store=missing_store,
+    skip_store=True,
+    environment={"AZURE_OPENAI_API_KEY": "unit-key"},
+)
+partial_env = {item.name: item for item in partial_checks}["azure-openai-env"]
+check(partial_env.status == "warn", "API key alone is a partial Azure/Foundry env")
+
+secret_root = os.path.join(root, "secret-scan")
+os.makedirs(secret_root, exist_ok=True)
+with open(os.path.join(secret_root, "README.md"), "w", encoding="utf-8") as handle:
+    handle.write("leaked=" + ("A" * 88) + "\n")
+secret_checks = run_checks(store=missing_store, skip_store=True, environment={}, secret_scan_root=secret_root)
+secret_scan = {item.name: item for item in secret_checks}["secret-scan"]
+check(secret_scan.status == "fail", "doctor fails when credential-shaped values are in project files")
+check(secret_scan.data["findings"][0]["path"] == "README.md", "secret scan reports only path/line/kind metadata")
+
+local_secret_root = os.path.join(root, "local-secret-scan")
+os.makedirs(local_secret_root, exist_ok=True)
+with open(os.path.join(local_secret_root, ".env"), "w", encoding="utf-8") as handle:
+    handle.write("AZURE_OPENAI_API_KEY=" + ("B" * 88) + "\n")
+local_secret_checks = run_checks(store=missing_store, skip_store=True, environment={}, secret_scan_root=local_secret_root)
+local_secret_scan = {item.name: item for item in local_secret_checks}["secret-scan"]
+check(local_secret_scan.status == "warn", "doctor warns, not fails, for ignored local .env secrets")
 
 store = os.path.join(root, "events.jsonl")
 FileRepository(store).append(event("evt-1"))

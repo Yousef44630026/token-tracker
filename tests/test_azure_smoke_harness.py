@@ -111,6 +111,11 @@ check(all(event.observation.get("region") == "unit-region" for event in events),
 config_text = Path(summary.artifacts["config"]).read_text(encoding="utf-8")
 check("secret-unit-key" not in config_text, "redacted config never writes the API key")
 check('"AZURE_OPENAI_API_KEY": "present"' in config_text, "redacted config records key presence only")
+config_payload = json.loads(config_text)
+check(
+    config_payload["configured_profiles"] == ["foundry-responses", "azure-chat", "azure-embeddings"],
+    "redacted config records configured Azure/Foundry profiles",
+)
 
 missing_summary = run_smoke(out_dir=str(root / "missing"), environment={}, opener=fake_opener)
 check(missing_summary.passed is True, "missing env is a zero-cost skip by default")

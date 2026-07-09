@@ -186,6 +186,44 @@ check(
 )
 check("per-prompt:" in render_summary(summary), "summary renders per-prompt section")
 
+superseded_exact = event(
+    "superseded",
+    [
+        quantity(
+            TokenType.INPUT,
+            100,
+            metadata={
+                "prompt_estimate": {
+                    "quantity": 80,
+                    "provider_prompt_tokens": 100,
+                }
+            },
+        ),
+        quantity(TokenType.CACHED_INPUT, 20),
+        quantity(TokenType.OUTPUT, 30),
+    ],
+    status="complete",
+    authoritative=True,
+    suite_sequence=3,
+    suite_label="Superseded prompt",
+    suite_fingerprint="c" * 64,
+)
+superseded_exact.superseded = True
+superseded_exact.superseded_by = "replacement"
+superseded_summary = summarize_events([superseded_exact])
+check(superseded_summary["events"] == 1, "superseded exact event remains visible")
+check(superseded_summary["superseded_events"] == 1, "superseded event is counted separately")
+check(superseded_summary["exact_usage_events"] == 0, "superseded exact event is not counted as exact usage")
+check(superseded_summary["fresh_input_tokens"] == 0, "superseded event does not feed fresh input bucket")
+check(superseded_summary["cache_read_input_tokens"] == 0, "superseded event does not feed cache bucket")
+check(superseded_summary["output_tokens"] == 0, "superseded event does not feed output bucket")
+check(superseded_summary["provider_prompt_tokens"] == 0, "superseded event does not feed comparison buckets")
+check(superseded_summary["contributing_tokens"] == 0, "superseded event contributes zero")
+check(
+    superseded_summary["prompt_groups"][0]["superseded_events"] == 1 and superseded_summary["prompt_groups"][0]["fresh_input_tokens"] == 0,
+    "prompt group keeps superseded event visible without bucket totals",
+)
+
 partitioned_root = os.path.abspath(f".test_proxy_report_partitioned_{uuid.uuid4().hex}")
 PartitionedFileRepository(partitioned_root).append_many([complete, failed_with_exact_usage])
 buffer = StringIO()

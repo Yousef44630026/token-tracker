@@ -19,16 +19,15 @@ ai-token-tracker-doctor = "tracker.ops.doctor:main"
 ai-token-tracker-azure-smoke = "tracker.ops.azure_smoke:main"
 
 [project.optional-dependencies]
-# Dev toolchain. NOTE (this environment): pytest/ruff/black are NOT installed and
-# installs are disabled. Tests are written as plain runnable scripts under tests/
-# (no pytest dependency); ruff/black are honored as conventions and run only if present.
+# Dev toolchain. Tests are plain runnable scripts under tests/ (no pytest required
+# for the local gate); ruff + black are the lint gate run by tests/run_all.py.
 dev = ["pytest>=8", "ruff>=0.5", "black>=24"]
 proxy = ["tiktoken>=0.7"]
 
 [tool.setuptools.packages.find]
 include = ["tracker*", "api*"]
 
-# --- Tool configs (applied when the tools are available) ---
+# black must match ruff's line-length or the two tools fight; run_all.py runs both.
 [tool.black]
 line-length = 140
 target-version = ["py311"]

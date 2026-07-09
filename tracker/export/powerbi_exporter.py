@@ -10,6 +10,10 @@ grain remains the tracker model grain:
   quantity-grain token total.
 - fact_service_daily: pre-aggregated trend rows for production dashboards.
 
+One-shot event iterators are captured into a temporary SQLite snapshot keyed by event_id.
+This keeps deduplication and multi-table replay disk-backed instead of retaining every event
+and fact row in memory. The snapshot is removed after the export.
+
 No pricing fields are generated here.
 """
 
@@ -18,15 +22,16 @@ from __future__ import annotations
 import csv
 import json
 import os
-from collections import defaultdict
-from collections.abc import Iterable, Sequence
+import sqlite3
+import tempfile
+from collections.abc import Iterable, Iterator
 from datetime import UTC, datetime
 from math import ceil
 from typing import Any
 
 from tracker.analytics.agent import build_agent_summary
 from tracker.analytics.cache import build_cache_summary
-from tracker.analytics.coverage import build_coverage_exactness
+from tracker.analytics.coverage import build_coverage_exactness, build_coverage_exactness_from_events
 from tracker.analytics.latency import build_latency_summary
 from tracker.analytics.observation_contract import build_observation_contract_summary
 from tracker.analytics.provider_validation import (
@@ -35,6 +40,7 @@ from tracker.analytics.provider_validation import (
 )
 from tracker.analytics.rag import build_rag_summary
 from tracker.analytics.reliability import build_reliability_summary
+from tracker.analytics.trust_report import build_trust_report, build_trust_report_from_events
 from tracker.models.enums import Additivity, TokenType
 from tracker.models.token_event import TokenEvent
 from tracker.models.trace import Trace
@@ -84,6 +90,9 @@ FACT_TOKEN_EVENT_HEADERS = [
     "rate_limit_count",
     "flagged_event",
     "provider_total_mismatch",
+    "event_total_mismatch",
+    "under_attributed_tokens",
+    "over_attributed_tokens",
     "quality_flag_count",
     "data_quality_flags",
     "provider_request_id",
@@ -144,6 +153,9 @@ FACT_SERVICE_DAILY_HEADERS = [
     "rate_limit_count",
     "flagged_event_count",
     "provider_total_mismatch_count",
+    "event_total_mismatch",
+    "under_attributed_tokens",
+    "over_attributed_tokens",
     "retry_count",
     "average_duration_ms",
     "p95_duration_ms",
@@ -424,92 +436,133 @@ def _dedupe_events_by_id(events: Iterable[TokenEvent]) -> list[TokenEvent]:
     return unique
 
 
-def fact_token_event_rows(events: Sequence[TokenEvent]) -> list[dict[str, Any]]:
-    rows = []
-    for event in _dedupe_events_by_id(events):
+class _DiskEventSnapshot:
+    """Replayable, event-id-deduplicated snapshot backed by a temporary SQLite file."""
+
+    def __init__(self, events: Iterable[TokenEvent]) -> None:
+        descriptor, self.path = tempfile.mkstemp(
+            prefix=".powerbi-event-snapshot-",
+            suffix=".sqlite3",
+        )
+        os.close(descriptor)
+        self._connection = sqlite3.connect(self.path)
+        self._connection.execute("CREATE TABLE events (sequence INTEGER PRIMARY KEY, event_id TEXT UNIQUE, payload TEXT NOT NULL)")
+        try:
+            with self._connection:
+                for event in events:
+                    self._connection.execute(
+                        "INSERT OR IGNORE INTO events(event_id, payload) VALUES (?, ?)",
+                        (
+                            event.event_id,
+                            json.dumps(event.to_dict(), ensure_ascii=False, separators=(",", ":")),
+                        ),
+                    )
+        except Exception:
+            self.close()
+            raise
+
+    def __iter__(self) -> Iterator[TokenEvent]:
+        cursor = self._connection.execute("SELECT payload FROM events ORDER BY sequence")
+        for (payload,) in cursor:
+            yield TokenEvent.from_dict(json.loads(payload))
+
+    def close(self) -> None:
+        self._connection.close()
+        try:
+            os.remove(self.path)
+        except FileNotFoundError:
+            pass
+
+
+def _iter_fact_token_event_rows(events: Iterable[TokenEvent]) -> Iterator[dict[str, Any]]:
+    for event in events:
         event_date, event_month, event_hour = _date_parts(event.timestamp)
         duration = _duration_ms(event)
-        rows.append(
-            {
+        yield {
+            "event_id": event.event_id,
+            "request_correlation_id": event.request_correlation_id,
+            "trace_id": event.trace_id,
+            "span_id": event.span_id,
+            "parent_span_id": event.parent_span_id,
+            "event_date": event_date,
+            "event_month": event_month,
+            "event_hour": event_hour,
+            "timestamp": event.timestamp,
+            "service_name": _service_name(event),
+            "tenant": _tenant(event),
+            "cloud_provider": _cloud_provider(event),
+            "region": _region(event),
+            "workflow": event.workflow or "unknown",
+            "environment": event.environment or "unknown",
+            "provider": event.provider or "unknown",
+            "api_surface": event.api_surface or "unknown",
+            "model": event.model or "unknown",
+            "deployment": _deployment(event),
+            "status": _status(event),
+            "http_status": event.observation.get("http_status"),
+            "authoritative": event.is_authoritative,
+            "superseded": event.superseded,
+            "provider_total_tokens": event.provider_total_tokens,
+            "event_contributing_tokens": event.event_contributing_tokens,
+            "input_tokens": _quantity_sum(event, TokenType.INPUT),
+            "fresh_input_tokens": _fresh_input_tokens(event),
+            "output_tokens": _quantity_sum(event, TokenType.OUTPUT),
+            "cached_input_tokens": _quantity_sum(event, TokenType.CACHED_INPUT),
+            "cache_creation_input_tokens": _quantity_sum(event, TokenType.CACHE_CREATION_INPUT),
+            "reasoning_tokens": _quantity_sum(event, TokenType.REASONING),
+            "thinking_tokens": _quantity_sum(event, TokenType.THINKING),
+            "embedding_tokens": _quantity_sum(event, TokenType.EMBEDDING),
+            "rerank_tokens": _quantity_sum(event, TokenType.RERANK_INPUT, TokenType.RERANK_OUTPUT),
+            "duration_ms": duration,
+            "time_to_first_token_ms": _number(event.observation.get("time_to_first_token_ms")),
+            "time_to_last_token_ms": _number(event.observation.get("time_to_last_token_ms")),
+            "retry_count": _integer(event.observation.get("retry_count")),
+            "measured": 1 if _is_measured(event) else 0,
+            "error_count": 1 if _is_error(event) else 0,
+            "rate_limit_count": 1 if _is_rate_limited(event) else 0,
+            "flagged_event": 1 if event.data_quality_flags else 0,
+            "provider_total_mismatch": 1 if event.event_total_mismatch not in (None, 0) else 0,
+            "event_total_mismatch": event.event_total_mismatch,
+            "under_attributed_tokens": event.under_attributed_tokens,
+            "over_attributed_tokens": event.over_attributed_tokens,
+            "quality_flag_count": len(event.data_quality_flags),
+            "data_quality_flags": ";".join(event.data_quality_flags),
+            "provider_request_id": event.observation.get("provider_request_id"),
+            "provider_response_id": event.observation.get("provider_response_id"),
+        }
+
+
+def fact_token_event_rows(events: Iterable[TokenEvent]) -> list[dict[str, Any]]:
+    return list(_iter_fact_token_event_rows(_dedupe_events_by_id(events)))
+
+
+def _iter_fact_token_quantity_rows(events: Iterable[TokenEvent]) -> Iterator[dict[str, Any]]:
+    for event in events:
+        event_date, _, _ = _date_parts(event.timestamp)
+        for quantity in event.quantities:
+            yield {
                 "event_id": event.event_id,
-                "request_correlation_id": event.request_correlation_id,
                 "trace_id": event.trace_id,
-                "span_id": event.span_id,
-                "parent_span_id": event.parent_span_id,
                 "event_date": event_date,
-                "event_month": event_month,
-                "event_hour": event_hour,
-                "timestamp": event.timestamp,
                 "service_name": _service_name(event),
-                "tenant": _tenant(event),
-                "cloud_provider": _cloud_provider(event),
-                "region": _region(event),
-                "workflow": event.workflow or "unknown",
-                "environment": event.environment or "unknown",
                 "provider": event.provider or "unknown",
                 "api_surface": event.api_surface or "unknown",
                 "model": event.model or "unknown",
                 "deployment": _deployment(event),
-                "status": _status(event),
-                "http_status": event.observation.get("http_status"),
-                "authoritative": event.is_authoritative,
-                "superseded": event.superseded,
-                "provider_total_tokens": event.provider_total_tokens,
-                "event_contributing_tokens": event.event_contributing_tokens,
-                "input_tokens": _quantity_sum(event, TokenType.INPUT),
-                "fresh_input_tokens": _fresh_input_tokens(event),
-                "output_tokens": _quantity_sum(event, TokenType.OUTPUT),
-                "cached_input_tokens": _quantity_sum(event, TokenType.CACHED_INPUT),
-                "cache_creation_input_tokens": _quantity_sum(event, TokenType.CACHE_CREATION_INPUT),
-                "reasoning_tokens": _quantity_sum(event, TokenType.REASONING),
-                "thinking_tokens": _quantity_sum(event, TokenType.THINKING),
-                "embedding_tokens": _quantity_sum(event, TokenType.EMBEDDING),
-                "rerank_tokens": _quantity_sum(event, TokenType.RERANK_INPUT, TokenType.RERANK_OUTPUT),
-                "duration_ms": duration,
-                "time_to_first_token_ms": _number(event.observation.get("time_to_first_token_ms")),
-                "time_to_last_token_ms": _number(event.observation.get("time_to_last_token_ms")),
-                "retry_count": _integer(event.observation.get("retry_count")),
-                "measured": 1 if _is_measured(event) else 0,
-                "error_count": 1 if _is_error(event) else 0,
-                "rate_limit_count": 1 if _is_rate_limited(event) else 0,
-                "flagged_event": 1 if event.data_quality_flags else 0,
-                "provider_total_mismatch": 1 if event.event_total_mismatch not in (None, 0) else 0,
-                "quality_flag_count": len(event.data_quality_flags),
-                "data_quality_flags": ";".join(event.data_quality_flags),
-                "provider_request_id": event.observation.get("provider_request_id"),
-                "provider_response_id": event.observation.get("provider_response_id"),
+                "token_type": quantity.token_type.value,
+                "token_role": quantity.token_role,
+                "quantity": quantity.quantity,
+                "quantity_in_total": _safe_quantity_in_total(event, quantity),
+                "precision_level": quantity.precision_level.value,
+                "usage_source": quantity.usage_source.value,
+                "additivity": quantity.additivity.value,
+                "subtotal_of": quantity.subtotal_of,
+                "export_warning": quantity.export_warning,
             }
-        )
-    return rows
 
 
-def fact_token_quantity_rows(events: Sequence[TokenEvent]) -> list[dict[str, Any]]:
-    rows = []
-    for event in _dedupe_events_by_id(events):
-        event_date, _, _ = _date_parts(event.timestamp)
-        for quantity in event.quantities:
-            rows.append(
-                {
-                    "event_id": event.event_id,
-                    "trace_id": event.trace_id,
-                    "event_date": event_date,
-                    "service_name": _service_name(event),
-                    "provider": event.provider or "unknown",
-                    "api_surface": event.api_surface or "unknown",
-                    "model": event.model or "unknown",
-                    "deployment": _deployment(event),
-                    "token_type": quantity.token_type.value,
-                    "token_role": quantity.token_role,
-                    "quantity": quantity.quantity,
-                    "quantity_in_total": _safe_quantity_in_total(event, quantity),
-                    "precision_level": quantity.precision_level.value,
-                    "usage_source": quantity.usage_source.value,
-                    "additivity": quantity.additivity.value,
-                    "subtotal_of": quantity.subtotal_of,
-                    "export_warning": quantity.export_warning,
-                }
-            )
-    return rows
+def fact_token_quantity_rows(events: Iterable[TokenEvent]) -> list[dict[str, Any]]:
+    return list(_iter_fact_token_quantity_rows(_dedupe_events_by_id(events)))
 
 
 def fact_span_rows(trace: Trace | None) -> list[dict[str, Any]]:
@@ -530,10 +583,25 @@ def fact_span_rows(trace: Trace | None) -> list[dict[str, Any]]:
     ]
 
 
-def fact_service_daily_rows(events: Sequence[TokenEvent]) -> list[dict[str, Any]]:
-    groups: dict[tuple[str, ...], list[dict[str, Any]]] = defaultdict(list)
-    event_rows = fact_token_event_rows(events)
-    for row in event_rows:
+def _fact_service_daily_rows(events: Iterable[TokenEvent]) -> list[dict[str, Any]]:
+    groups: dict[tuple[str, ...], dict[str, Any]] = {}
+    aggregate_fields = (
+        "event_contributing_tokens",
+        "input_tokens",
+        "output_tokens",
+        "cached_input_tokens",
+        "cache_creation_input_tokens",
+        "measured",
+        "error_count",
+        "rate_limit_count",
+        "flagged_event",
+        "provider_total_mismatch",
+        "event_total_mismatch",
+        "under_attributed_tokens",
+        "over_attributed_tokens",
+        "retry_count",
+    )
+    for row in _iter_fact_token_event_rows(events):
         key = (
             row["event_date"],
             row["service_name"],
@@ -547,11 +615,23 @@ def fact_service_daily_rows(events: Sequence[TokenEvent]) -> list[dict[str, Any]
             row["model"],
             row["deployment"],
         )
-        groups[key].append(row)
+        group = groups.setdefault(
+            key,
+            {
+                "event_count": 0,
+                "durations": [],
+                **{field: 0 for field in aggregate_fields},
+            },
+        )
+        group["event_count"] += 1
+        for field in aggregate_fields:
+            group[field] += int(row[field] or 0)
+        if row["duration_ms"] not in (None, ""):
+            group["durations"].append(float(row["duration_ms"]))
 
     rows = []
     for key, group in sorted(groups.items()):
-        durations = [float(row["duration_ms"]) for row in group if row["duration_ms"] not in (None, "")]
+        durations = group["durations"]
         rows.append(
             {
                 "event_date": key[0],
@@ -565,18 +645,21 @@ def fact_service_daily_rows(events: Sequence[TokenEvent]) -> list[dict[str, Any]
                 "api_surface": key[8],
                 "model": key[9],
                 "deployment": key[10],
-                "event_count": len(group),
-                "contributing_tokens": sum(int(row["event_contributing_tokens"] or 0) for row in group),
-                "input_tokens": sum(int(row["input_tokens"] or 0) for row in group),
-                "output_tokens": sum(int(row["output_tokens"] or 0) for row in group),
-                "cached_input_tokens": sum(int(row["cached_input_tokens"] or 0) for row in group),
-                "cache_creation_input_tokens": sum(int(row["cache_creation_input_tokens"] or 0) for row in group),
-                "measured_count": sum(int(row["measured"] or 0) for row in group),
-                "error_count": sum(int(row["error_count"] or 0) for row in group),
-                "rate_limit_count": sum(int(row["rate_limit_count"] or 0) for row in group),
-                "flagged_event_count": sum(int(row["flagged_event"] or 0) for row in group),
-                "provider_total_mismatch_count": sum(int(row["provider_total_mismatch"] or 0) for row in group),
-                "retry_count": sum(int(row["retry_count"] or 0) for row in group),
+                "event_count": group["event_count"],
+                "contributing_tokens": group["event_contributing_tokens"],
+                "input_tokens": group["input_tokens"],
+                "output_tokens": group["output_tokens"],
+                "cached_input_tokens": group["cached_input_tokens"],
+                "cache_creation_input_tokens": group["cache_creation_input_tokens"],
+                "measured_count": group["measured"],
+                "error_count": group["error_count"],
+                "rate_limit_count": group["rate_limit_count"],
+                "flagged_event_count": group["flagged_event"],
+                "provider_total_mismatch_count": group["provider_total_mismatch"],
+                "event_total_mismatch": group["event_total_mismatch"],
+                "under_attributed_tokens": group["under_attributed_tokens"],
+                "over_attributed_tokens": group["over_attributed_tokens"],
+                "retry_count": group["retry_count"],
                 "average_duration_ms": _round(sum(durations) / len(durations) if durations else None),
                 "p95_duration_ms": _round(_percentile(durations, 0.95)),
             }
@@ -584,7 +667,11 @@ def fact_service_daily_rows(events: Sequence[TokenEvent]) -> list[dict[str, Any]
     return rows
 
 
-def dim_service_rows(events: Sequence[TokenEvent]) -> list[dict[str, Any]]:
+def fact_service_daily_rows(events: Iterable[TokenEvent]) -> list[dict[str, Any]]:
+    return _fact_service_daily_rows(_dedupe_events_by_id(events))
+
+
+def dim_service_rows(events: Iterable[TokenEvent]) -> list[dict[str, Any]]:
     rows = {}
     for event in events:
         row = {
@@ -599,7 +686,7 @@ def dim_service_rows(events: Sequence[TokenEvent]) -> list[dict[str, Any]]:
     return [rows[key] for key in sorted(rows)]
 
 
-def dim_model_rows(events: Sequence[TokenEvent]) -> list[dict[str, Any]]:
+def dim_model_rows(events: Iterable[TokenEvent]) -> list[dict[str, Any]]:
     rows = {}
     for event in events:
         row = {
@@ -631,7 +718,7 @@ def provider_validation_rows() -> list[dict[str, Any]]:
     ]
 
 
-def dim_provider_surface_rows(events: Sequence[TokenEvent]) -> list[dict[str, Any]]:
+def dim_provider_surface_rows(events: Iterable[TokenEvent]) -> list[dict[str, Any]]:
     validation = {(row["provider"], row["api_surface"]): row for row in build_provider_validation_matrix(realistic_fixture_records())}
     pairs = {(event.provider or "unknown", event.api_surface or "unknown") for event in events}
     pairs.update(validation)
@@ -678,18 +765,40 @@ def dim_token_type_rows() -> list[dict[str, Any]]:
     ]
 
 
-def metric_snapshot_rows(trace: Trace | None, snapshot_ts: str) -> list[dict[str, Any]]:
-    if trace is None:
+def metric_snapshot_rows(
+    trace: Trace | None,
+    snapshot_ts: str,
+    *,
+    events: Iterable[TokenEvent] | None = None,
+) -> list[dict[str, Any]]:
+    """Build KPI snapshots from a Trace or an event-only export source.
+
+    Event-only exports cannot derive span-based latency/RAG/agent summaries, but they still
+    have enough source data for coverage and the audit-oriented trust headline. Omitting
+    those metrics made iterator exports look healthier by absence precisely when no Trace
+    container was available.
+    """
+    summaries: dict[str, dict[str, Any]] = {}
+    if trace is not None:
+        summaries.update(
+            {
+                "coverage_exactness": build_coverage_exactness(trace),
+                "latency": build_latency_summary(trace),
+                "reliability": build_reliability_summary(trace),
+                "observation_contract": build_observation_contract_summary(trace),
+                "cache_efficiency": build_cache_summary(trace),
+                "rag_efficiency": build_rag_summary(trace),
+                "agent_efficiency": build_agent_summary(trace),
+            }
+        )
+        trust = build_trust_report(trace).to_dict()
+    elif events is not None:
+        summaries["coverage_exactness"] = build_coverage_exactness_from_events(events)
+        trust = build_trust_report_from_events(events, collect_anomalies=False).to_dict()
+    else:
         return []
-    summaries = {
-        "coverage_exactness": build_coverage_exactness(trace),
-        "latency": build_latency_summary(trace),
-        "reliability": build_reliability_summary(trace),
-        "observation_contract": build_observation_contract_summary(trace),
-        "cache_efficiency": build_cache_summary(trace),
-        "rag_efficiency": build_rag_summary(trace),
-        "agent_efficiency": build_agent_summary(trace),
-    }
+
+    summaries["trust_report"] = {metric: value for metric, value in trust.items() if metric not in {"anomalies", "coverage"}}
     rows = []
     for group, summary in summaries.items():
         for metric, value in summary.items():
@@ -757,6 +866,9 @@ def data_dictionary_rows() -> list[dict[str, Any]]:
         ),
         ("fact_token_events", "rate_limit_count", "event", "yes", "1 when the provider call is rate limited."),
         ("fact_token_events", "provider_total_mismatch", "event", "yes", "1 when provider total does not reconcile to quantities."),
+        ("fact_token_events", "event_total_mismatch", "event", "yes", "Signed provider-total minus attributed-token delta."),
+        ("fact_token_events", "under_attributed_tokens", "event", "yes", "Positive unattributed provider tokens."),
+        ("fact_token_events", "over_attributed_tokens", "event", "yes", "Positive over-attributed tracker tokens."),
         (
             "fact_token_quantities",
             "quantity_in_total",
@@ -798,6 +910,9 @@ Rate Limited Events = SUM(fact_token_events[rate_limit_count])
 Retry Count = SUM(fact_token_events[retry_count])
 Flagged Events = SUM(fact_token_events[flagged_event])
 Provider Mismatch Events = SUM(fact_token_events[provider_total_mismatch])
+Provider Total Mismatch Tokens = SUM(fact_token_events[event_total_mismatch])
+Under Attributed Tokens = SUM(fact_token_events[under_attributed_tokens])
+Over Attributed Tokens = SUM(fact_token_events[over_attributed_tokens])
 Average Duration MS = AVERAGE(fact_token_events[duration_ms])
 P95 Duration MS = PERCENTILEX.INC(FILTER(fact_token_events, NOT ISBLANK(fact_token_events[duration_ms])), fact_token_events[duration_ms], 0.95)
 Average TTFT MS = AVERAGE(fact_token_events[time_to_first_token_ms])
@@ -842,12 +957,15 @@ No pricing or cost fields are included.
 """
 
 
-def _write_csv(path: str, headers: list[str], rows: list[dict[str, Any]]) -> None:
+def _write_csv(path: str, headers: list[str], rows: Iterable[dict[str, Any]]) -> int:
+    row_count = 0
     with open(path, "w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=headers)
         writer.writeheader()
         for row in rows:
             writer.writerow({header: "" if row.get(header) is None else row.get(header) for header in headers})
+            row_count += 1
+    return row_count
 
 
 def _write_text(path: str, content: str) -> None:
@@ -865,7 +983,7 @@ def _manifest(
     *,
     dataset_name: str,
     snapshot_ts: str,
-    table_specs: dict[str, tuple[str, list[dict[str, Any]], str, str]],
+    table_specs: dict[str, tuple[str, int, str, str]],
 ) -> dict[str, Any]:
     return {
         "dataset_name": dataset_name,
@@ -881,15 +999,16 @@ def _manifest(
             "mode": "replace_folder_then_refresh_power_bi",
             "recommended_schedule": "hourly_or_daily_depending_on_volume",
             "stable_schema": True,
+            "event_snapshot": "temporary_sqlite_event_id_deduplicated",
         },
         "tables": {
             name: {
                 "file": filename,
-                "rows": len(rows),
+                "rows": row_count,
                 "grain": grain,
                 "primary_key": primary_key,
             }
-            for name, (filename, rows, grain, primary_key) in sorted(table_specs.items())
+            for name, (filename, row_count, grain, primary_key) in sorted(table_specs.items())
         },
         "relationships": [
             "fact_token_quantities.event_id -> fact_token_events.event_id",
@@ -921,98 +1040,100 @@ def export_powerbi_events(
     """Export event data as a Power BI import folder and return created paths."""
     os.makedirs(out_dir, exist_ok=True)
     snapshot_ts = generated_at or _now_utc()
-    event_snapshot = _dedupe_events_by_id(events)
+    event_snapshot = _DiskEventSnapshot(events)
+    try:
+        metric_rows = metric_snapshot_rows(trace, snapshot_ts, events=event_snapshot)
+        metric_rows.extend(provider_validation_summary_rows(snapshot_ts))
 
-    metric_rows = metric_snapshot_rows(trace, snapshot_ts)
-    metric_rows.extend(provider_validation_summary_rows(snapshot_ts))
+        table_specs: dict[str, tuple[str, Iterable[dict[str, Any]], list[str], str, str]] = {
+            "fact_token_events": (
+                "fact_token_events.csv",
+                _iter_fact_token_event_rows(event_snapshot),
+                FACT_TOKEN_EVENT_HEADERS,
+                "event",
+                "event_id",
+            ),
+            "fact_token_quantities": (
+                "fact_token_quantities.csv",
+                _iter_fact_token_quantity_rows(event_snapshot),
+                FACT_TOKEN_QUANTITY_HEADERS,
+                "quantity",
+                "event_id + token_type + token_role",
+            ),
+            "fact_spans": (
+                "fact_spans.csv",
+                fact_span_rows(trace),
+                FACT_SPAN_HEADERS,
+                "span",
+                "span_id",
+            ),
+            "fact_service_daily": (
+                "fact_service_daily.csv",
+                _fact_service_daily_rows(event_snapshot),
+                FACT_SERVICE_DAILY_HEADERS,
+                "service/provider/model/date",
+                "event_date + service + provider + model",
+            ),
+            "dim_service": (
+                "dim_service.csv",
+                dim_service_rows(event_snapshot),
+                DIM_SERVICE_HEADERS,
+                "service",
+                "service_key",
+            ),
+            "dim_model": (
+                "dim_model.csv",
+                dim_model_rows(event_snapshot),
+                DIM_MODEL_HEADERS,
+                "model",
+                "model_key",
+            ),
+            "dim_provider_surface": (
+                "dim_provider_surface.csv",
+                dim_provider_surface_rows(event_snapshot),
+                DIM_PROVIDER_SURFACE_HEADERS,
+                "provider_surface",
+                "provider_surface_key",
+            ),
+            "dim_token_type": (
+                "dim_token_type.csv",
+                dim_token_type_rows(),
+                DIM_TOKEN_TYPE_HEADERS,
+                "token_type",
+                "token_type",
+            ),
+            "metric_snapshots": (
+                "metric_snapshots.csv",
+                metric_rows,
+                METRIC_SNAPSHOT_HEADERS,
+                "snapshot_metric",
+                "snapshot_ts + metric_group + metric",
+            ),
+            "provider_validation_matrix": (
+                "provider_validation_matrix.csv",
+                provider_validation_rows(),
+                PROVIDER_VALIDATION_HEADERS,
+                "provider_surface",
+                "provider + api_surface",
+            ),
+            "data_dictionary": (
+                "data_dictionary.csv",
+                data_dictionary_rows(),
+                DATA_DICTIONARY_HEADERS,
+                "field",
+                "table + column",
+            ),
+        }
 
-    table_specs: dict[str, tuple[str, list[dict[str, Any]], list[str], str, str]] = {
-        "fact_token_events": (
-            "fact_token_events.csv",
-            fact_token_event_rows(event_snapshot),
-            FACT_TOKEN_EVENT_HEADERS,
-            "event",
-            "event_id",
-        ),
-        "fact_token_quantities": (
-            "fact_token_quantities.csv",
-            fact_token_quantity_rows(event_snapshot),
-            FACT_TOKEN_QUANTITY_HEADERS,
-            "quantity",
-            "event_id + token_type + token_role",
-        ),
-        "fact_spans": (
-            "fact_spans.csv",
-            fact_span_rows(trace),
-            FACT_SPAN_HEADERS,
-            "span",
-            "span_id",
-        ),
-        "fact_service_daily": (
-            "fact_service_daily.csv",
-            fact_service_daily_rows(event_snapshot),
-            FACT_SERVICE_DAILY_HEADERS,
-            "service/provider/model/date",
-            "event_date + service + provider + model",
-        ),
-        "dim_service": (
-            "dim_service.csv",
-            dim_service_rows(event_snapshot),
-            DIM_SERVICE_HEADERS,
-            "service",
-            "service_key",
-        ),
-        "dim_model": (
-            "dim_model.csv",
-            dim_model_rows(event_snapshot),
-            DIM_MODEL_HEADERS,
-            "model",
-            "model_key",
-        ),
-        "dim_provider_surface": (
-            "dim_provider_surface.csv",
-            dim_provider_surface_rows(event_snapshot),
-            DIM_PROVIDER_SURFACE_HEADERS,
-            "provider_surface",
-            "provider_surface_key",
-        ),
-        "dim_token_type": (
-            "dim_token_type.csv",
-            dim_token_type_rows(),
-            DIM_TOKEN_TYPE_HEADERS,
-            "token_type",
-            "token_type",
-        ),
-        "metric_snapshots": (
-            "metric_snapshots.csv",
-            metric_rows,
-            METRIC_SNAPSHOT_HEADERS,
-            "snapshot_metric",
-            "snapshot_ts + metric_group + metric",
-        ),
-        "provider_validation_matrix": (
-            "provider_validation_matrix.csv",
-            provider_validation_rows(),
-            PROVIDER_VALIDATION_HEADERS,
-            "provider_surface",
-            "provider + api_surface",
-        ),
-        "data_dictionary": (
-            "data_dictionary.csv",
-            data_dictionary_rows(),
-            DATA_DICTIONARY_HEADERS,
-            "field",
-            "table + column",
-        ),
-    }
-
-    paths = {}
-    manifest_specs: dict[str, tuple[str, list[dict[str, Any]], str, str]] = {}
-    for table_name, (filename, rows, headers, grain, primary_key) in table_specs.items():
-        path = os.path.join(out_dir, filename)
-        _write_csv(path, headers, rows)
-        paths[table_name] = path
-        manifest_specs[table_name] = (filename, rows, grain, primary_key)
+        paths = {}
+        manifest_specs: dict[str, tuple[str, int, str, str]] = {}
+        for table_name, (filename, rows, headers, grain, primary_key) in table_specs.items():
+            path = os.path.join(out_dir, filename)
+            row_count = _write_csv(path, headers, rows)
+            paths[table_name] = path
+            manifest_specs[table_name] = (filename, row_count, grain, primary_key)
+    finally:
+        event_snapshot.close()
 
     measures_path = os.path.join(out_dir, "measures.dax")
     readme_path = os.path.join(out_dir, "README.md")

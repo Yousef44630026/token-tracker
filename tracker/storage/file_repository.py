@@ -29,15 +29,23 @@ class FileRepository:
         *,
         durable: bool = False,
         recover_truncated_tail: bool = True,
+        skip_invalid_records: bool = True,
     ) -> None:
         self.path = os.path.abspath(path)
         self.durable = durable
         self.recover_truncated_tail = recover_truncated_tail
+        self.skip_invalid_records = skip_invalid_records
+        self._skipped_invalid_count = 0
         self._lock = lock_for(self.path)
         self._known_ids: set[str] | None = None
         self._known_signature: tuple[int, int] | None = None
         parent = os.path.dirname(self.path)
         os.makedirs(parent, exist_ok=True)
+
+    @property
+    def skipped_invalid_count(self) -> int:
+        """Number of schema-invalid rows skipped by the most recent read."""
+        return self._skipped_invalid_count
 
     def append(self, event: TokenEvent) -> None:
         self.append_many([event])
@@ -180,6 +188,7 @@ class FileRepository:
         return list(self._iter_events_unlocked())
 
     def _iter_events_unlocked(self) -> Iterator[TokenEvent]:
+        self._skipped_invalid_count = 0
         if not os.path.exists(self.path):
             return
         with open(self.path, encoding="utf-8") as fh:
@@ -191,7 +200,12 @@ class FileRepository:
                     yield TokenEvent.from_dict(json.loads(line))
                 except json.JSONDecodeError:
                     is_truncated_tail = not raw_line.endswith("\n")
-                    if self.recover_truncated_tail and is_truncated_tail:
+                    if is_truncated_tail:
+                        # A crash-truncated tail is governed by recover_truncated_tail ALONE:
+                        # strict mode must raise even when skip_invalid_records is on, or the
+                        # strict contract silently degrades into the lenient one.
+                        if not self.recover_truncated_tail:
+                            raise
                         # Same ambiguity as _repair_tail_unlocked: this looks like a
                         # crash-truncated line (last line, no trailing newline) but could in
                         # principle be corrupt for another reason. Silently omitting it from
@@ -203,8 +217,28 @@ class FileRepository:
                             index + 1,
                             self.path,
                         )
+                        self._skipped_invalid_count += 1
                         break
+                    if self.skip_invalid_records:
+                        self._skipped_invalid_count += 1
+                        _logger.warning(
+                            "FileRepository: skipping malformed JSONL row %d in %s",
+                            index + 1,
+                            self.path,
+                        )
+                        continue
                     raise
+                except (KeyError, TypeError, ValueError, AttributeError) as exc:
+                    if not self.skip_invalid_records:
+                        raise
+                    self._skipped_invalid_count += 1
+                    _logger.warning(
+                        "FileRepository: skipping schema-invalid JSONL row %d in %s: %s: %s",
+                        index + 1,
+                        self.path,
+                        type(exc).__name__,
+                        exc,
+                    )
 
 
 _SAFE_SEGMENT = re.compile(r"[^A-Za-z0-9_.=-]+")
@@ -234,11 +268,19 @@ class PartitionedFileRepository:
         *,
         durable: bool = False,
         recover_truncated_tail: bool = True,
+        skip_invalid_records: bool = True,
     ) -> None:
         self.root_dir = os.path.abspath(root_dir)
         self.durable = durable
         self.recover_truncated_tail = recover_truncated_tail
+        self.skip_invalid_records = skip_invalid_records
+        self._skipped_invalid_count = 0
         os.makedirs(self.root_dir, exist_ok=True)
+
+    @property
+    def skipped_invalid_count(self) -> int:
+        """Number of schema-invalid rows skipped by the most recent partitioned read."""
+        return self._skipped_invalid_count
 
     def _path_for_event(self, event: TokenEvent) -> str:
         date = _safe_segment(_event_date(event), "unknown-date")
@@ -246,7 +288,12 @@ class PartitionedFileRepository:
         return os.path.join(self.root_dir, f"date={date}", f"trace_id={trace_id}", "events.jsonl")
 
     def _repo_for_path(self, path: str) -> FileRepository:
-        return FileRepository(path, durable=self.durable, recover_truncated_tail=self.recover_truncated_tail)
+        return FileRepository(
+            path,
+            durable=self.durable,
+            recover_truncated_tail=self.recover_truncated_tail,
+            skip_invalid_records=self.skip_invalid_records,
+        )
 
     def append(self, event: TokenEvent) -> None:
         self.append_many([event])
@@ -263,21 +310,29 @@ class PartitionedFileRepository:
     def append_unique(self, events: Iterable[TokenEvent]) -> list[str]:
         appended: list[str] = []
         grouped: dict[str, list[TokenEvent]] = defaultdict(list)
+        known = self.event_ids()
+        batch_ids: set[str] = set()
         for event in events:
             if not isinstance(event, TokenEvent):
                 raise TypeError("events must contain TokenEvent objects")
+            if event.event_id in known or event.event_id in batch_ids:
+                continue
+            batch_ids.add(event.event_id)
             grouped[self._path_for_event(event)].append(event)
         for path, group in grouped.items():
             appended.extend(self._repo_for_path(path).append_unique(group))
         return appended
 
     def iter_events(self) -> Iterator[TokenEvent]:
+        self._skipped_invalid_count = 0
         for root, dirs, files in os.walk(self.root_dir):
             dirs.sort()
             for name in sorted(files):
                 if name != "events.jsonl":
                     continue
-                yield from self._repo_for_path(os.path.join(root, name)).iter_events()
+                repo = self._repo_for_path(os.path.join(root, name))
+                yield from repo.iter_events()
+                self._skipped_invalid_count += repo.skipped_invalid_count
 
     def read_all(self) -> list[TokenEvent]:
         return list(self.iter_events())
@@ -298,6 +353,7 @@ class PartitionedFileRepository:
                 destination,
                 durable=self.durable,
                 recover_truncated_tail=self.recover_truncated_tail,
+                skip_invalid_records=self.skip_invalid_records,
             ).append(event)
             kept += 1
         return kept

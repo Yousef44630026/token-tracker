@@ -4,10 +4,12 @@ Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_powerbi_
 """
 
 import csv
+import glob
 import json
 import os
 import shutil
 import sys
+import tempfile
 from contextlib import redirect_stdout
 from io import StringIO
 
@@ -105,7 +107,7 @@ trace.add_event(
         model="gpt-agent",
         api_surface="responses",
         quantities=[q(TokenType.INPUT, 100), q(TokenType.OUTPUT, 50)],
-        provider_total_tokens=150,
+        provider_total_tokens=160,
         timestamp="2026-07-02T11:30:00Z",
         observation={
             "authoritative": True,
@@ -179,6 +181,11 @@ azure_row = next(row for row in event_rows if row["event_id"] == "evt-azure")
 check(azure_row["event_contributing_tokens"] == "1300", "event fact exposes safe contributing total")
 check(azure_row["cached_input_tokens"] == "200", "event fact exposes cache-read tokens for dashboards")
 check(azure_row["deployment"] == "prod-gpt", "event fact carries deployment dimension")
+openai_row = next(row for row in event_rows if row["event_id"] == "evt-openai")
+check(openai_row["provider_total_mismatch"] == "1", "event fact exposes provider mismatch flag")
+check(openai_row["event_total_mismatch"] == "10", "event fact exposes signed mismatch magnitude")
+check(openai_row["under_attributed_tokens"] == "10", "event fact exposes under-attributed magnitude")
+check(openai_row["over_attributed_tokens"] == "0", "event fact exposes over-attributed magnitude")
 error_row = next(row for row in event_rows if row["event_id"] == "evt-error")
 check(error_row["event_contributing_tokens"] == "0", "non-authoritative error contributes 0")
 check(error_row["error_count"] == "1" and error_row["rate_limit_count"] == "1", "event fact tracks reliability counters")
@@ -193,6 +200,11 @@ check(
     any(row["provider"] == "azure_openai" and row["contributing_tokens"] == "1300" for row in daily_rows),
     "daily fact has Azure service trend row",
 )
+openai_daily = next(row for row in daily_rows if row["provider"] == "openai")
+check(openai_daily["provider_total_mismatch_count"] == "1", "daily fact aggregates mismatch count")
+check(openai_daily["event_total_mismatch"] == "10", "daily fact aggregates signed mismatch magnitude")
+check(openai_daily["under_attributed_tokens"] == "10", "daily fact aggregates under-attributed tokens")
+check(openai_daily["over_attributed_tokens"] == "0", "daily fact aggregates over-attributed tokens")
 
 metric_rows = read_csv(paths["metric_snapshots"])
 check(
@@ -206,12 +218,17 @@ with open(paths["manifest"], encoding="utf-8") as handle:
 check(manifest["target"] == "power_bi_import_folder", "manifest declares Power BI import target")
 check(manifest["tables"]["fact_token_events"]["rows"] == 3, "manifest records fact row counts")
 check(
+    manifest["refresh_strategy"]["event_snapshot"] == "temporary_sqlite_event_id_deduplicated",
+    "manifest documents disk-backed event snapshot semantics",
+)
+check(
     "fact_token_events.provider_total_tokens" in manifest["source_of_truth"]["never_sum"], "manifest warns against summing provider totals"
 )
 
 with open(paths["measures"], encoding="utf-8") as handle:
     measures = handle.read()
 check("Total Contributing Tokens" in measures, "DAX measures include total contributing tokens")
+check("Under Attributed Tokens" in measures and "Over Attributed Tokens" in measures, "DAX measures include mismatch magnitudes")
 check("pricing" not in measures.lower() and "cost" not in measures.lower(), "DAX measures do not introduce pricing")
 
 store_path = os.path.join(out_dir, "events.jsonl")
@@ -255,18 +272,30 @@ check(exit_code == 0, "partitioned powerbi-export CLI exits successfully")
 check(os.path.exists(os.path.join(partitioned_cli_out_dir, "manifest.json")), "partitioned powerbi-export writes manifest")
 
 iterator_out_dir = os.path.join(out_dir, "iterator")
+snapshots_before = set(glob.glob(os.path.join(tempfile.gettempdir(), ".powerbi-event-snapshot-*.sqlite3")))
 iterator_paths = export_powerbi_events(
-    (event for event in trace.events),
+    (event for event in [*trace.events, trace.events[0]]),
     iterator_out_dir,
     dataset_name="iterator_tracker",
     generated_at="2026-07-02T12:00:00+00:00",
 )
+snapshots_after = set(glob.glob(os.path.join(tempfile.gettempdir(), ".powerbi-event-snapshot-*.sqlite3")))
 iterator_event_rows = read_csv(iterator_paths["fact_token_events"])
 iterator_quantity_rows = read_csv(iterator_paths["fact_token_quantities"])
 iterator_daily_rows = read_csv(iterator_paths["fact_service_daily"])
-check(len(iterator_event_rows) == 3, "Power BI export consumes an event iterator once and keeps event rows")
+iterator_metric_rows = read_csv(iterator_paths["metric_snapshots"])
+check(len(iterator_event_rows) == 3, "disk-backed iterator export deduplicates event ids")
 check(sum(int(row["quantity_in_total"] or 0) for row in iterator_quantity_rows) == 1450, "iterator export keeps quantity rows")
 check(any(row["provider"] == "azure_openai" for row in iterator_daily_rows), "iterator export keeps downstream derived tables")
+check(snapshots_after == snapshots_before, "temporary disk snapshot is removed after export")
+check(
+    any(row["metric_group"] == "coverage_exactness" for row in iterator_metric_rows),
+    "iterator export keeps coverage metrics without requiring a Trace container",
+)
+check(
+    any(row["metric_group"] == "trust_report" and row["metric"] == "headline_ceiling_tokens" for row in iterator_metric_rows),
+    "iterator export keeps the audit trust band without requiring a Trace container",
+)
 
 shutil.rmtree(out_dir, ignore_errors=True)
 

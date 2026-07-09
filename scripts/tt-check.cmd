@@ -45,8 +45,43 @@ echo === tests\test_storage_no_stored_derived_fields.py ===
 if errorlevel 1 set FAIL=1
 
 echo.
+echo === tests\test_repository_tolerates_invalid_row.py ===
+"%PY%" tests\test_repository_tolerates_invalid_row.py
+if errorlevel 1 set FAIL=1
+
+echo.
 echo === tests\test_overlap_trust_axes.py ===
 "%PY%" tests\test_overlap_trust_axes.py
+if errorlevel 1 set FAIL=1
+
+echo.
+echo === tests\test_independent_subtotal_contradiction.py ===
+"%PY%" tests\test_independent_subtotal_contradiction.py
+if errorlevel 1 set FAIL=1
+
+echo.
+echo === tests\test_context_core.py ===
+"%PY%" tests\test_context_core.py
+if errorlevel 1 set FAIL=1
+
+echo.
+echo === tests\test_normalizer_more.py ===
+"%PY%" tests\test_normalizer_more.py
+if errorlevel 1 set FAIL=1
+
+echo.
+echo === tests\test_stream_tracker.py ===
+"%PY%" tests\test_stream_tracker.py
+if errorlevel 1 set FAIL=1
+
+echo.
+echo === tests\test_stream_timeout_keeps_known_input.py ===
+"%PY%" tests\test_stream_timeout_keeps_known_input.py
+if errorlevel 1 set FAIL=1
+
+echo.
+echo === tests\test_proxy_truncated_stream.py ===
+"%PY%" tests\test_proxy_truncated_stream.py
 if errorlevel 1 set FAIL=1
 
 echo.
@@ -65,8 +100,28 @@ echo === tests\test_powerbi_export.py ===
 if errorlevel 1 set FAIL=1
 
 echo.
+echo === tests\test_powerbi_dedup_event_id.py ===
+"%PY%" tests\test_powerbi_dedup_event_id.py
+if errorlevel 1 set FAIL=1
+
+echo.
 echo === tests\test_api_collector.py ===
 "%PY%" tests\test_api_collector.py
+if errorlevel 1 set FAIL=1
+
+echo.
+echo === tests\test_api_server_errors.py ===
+"%PY%" tests\test_api_server_errors.py
+if errorlevel 1 set FAIL=1
+
+echo.
+echo === tests\test_collector_rejects_surfaced.py ===
+"%PY%" tests\test_collector_rejects_surfaced.py
+if errorlevel 1 set FAIL=1
+
+echo.
+echo === tests\test_supersession_collision_regression.py ===
+"%PY%" tests\test_supersession_collision_regression.py
 if errorlevel 1 set FAIL=1
 
 echo.

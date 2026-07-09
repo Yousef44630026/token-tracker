@@ -18,6 +18,8 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from tracker.context import headers as context_headers  # noqa: E402
+from tracker.context.propagation import continue_from_headers, new_trace  # noqa: E402
 from tracker.models.enums import PrecisionLevel, TokenType, UnknownReason, UsageSource  # noqa: E402
 from tracker.streaming.stream_tracker import StreamTracker  # noqa: E402
 
@@ -82,6 +84,17 @@ check(tq.precision_level == PrecisionLevel.UNKNOWN, "timeout: precision UNKNOWN"
 check(tq.unknown_reason == UnknownReason.STREAM_TIMEOUT, "timeout: reason stream_timeout")
 check(to.event_contributing_tokens == 0, "timeout: contributes 0 (a known-unknown, INV-6)")
 check(tq.export_warning == "unknown_quantity_excluded_from_total", "timeout: surfaced as unknown, not summed")
+
+# --- 5) cross-service propagation loss follows the streamed event automatically ---
+partial_headers = context_headers.inject(new_trace())
+del partial_headers["X-TokenTracker-Span-Id"]
+with continue_from_headers(partial_headers) as resumed:
+    lost_stream = StreamTracker.from_context(resumed.context, provider="openai").complete(
+        output_tokens=2,
+        input_tokens=3,
+        provider_total_tokens=5,
+    )
+check("propagation_lost" in lost_stream.data_quality_flags, "stream event automatically records lost inbound propagation")
 
 print("\nRESULT:", "all checks passed" if _failures == 0 else f"{_failures} FAILURE(S)")
 sys.exit(1 if _failures else 0)

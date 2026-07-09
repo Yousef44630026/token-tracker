@@ -7,6 +7,7 @@ import importlib.util
 import ipaddress
 import json
 import os
+import re
 import sys
 import tempfile
 from collections.abc import Iterable, Sequence
@@ -28,6 +29,17 @@ _DERIVED_EVENT_KEYS = {
     "over_attributed_tokens",
 }
 _DERIVED_QUANTITY_KEYS = {"included_in_total", "quantity_in_total", "export_warning"}
+_SECRET_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("bearer_token", re.compile(r"\bbearer\s+[A-Za-z0-9._~+/=-]{16,}", re.IGNORECASE)),
+    ("openai_style_key", re.compile(r"\bsk-[A-Za-z0-9_-]{16,}\b")),
+    ("azure_key_shaped", re.compile(r"\b[A-Za-z0-9]{80,100}\b")),
+    ("aws_access_key_id", re.compile(r"\bAKIA[0-9A-Z]{16}\b")),
+    ("google_api_key", re.compile(r"\bAIza[0-9A-Za-z_-]{35}\b")),
+)
+_SECRET_SCAN_ROOTS = ("tracker", "api", "scripts", "docs", "examples", ".github")
+_SECRET_SCAN_FILES = ("README.md", "pyproject.toml", ".env.example")
+_LOCAL_SECRET_FILES = (".env",)
+_MAX_SECRET_SCAN_BYTES = 1_000_000
 
 
 @dataclass(frozen=True)
@@ -128,7 +140,9 @@ def _write_probe(path: str, *, partitioned: bool) -> DoctorCheck:
 
 
 def _store_events(path: str, *, partitioned: bool) -> Iterable[TokenEvent]:
-    repository = PartitionedFileRepository(path) if partitioned else FileRepository(path)
+    repository = (
+        PartitionedFileRepository(path, skip_invalid_records=False) if partitioned else FileRepository(path, skip_invalid_records=False)
+    )
     return repository.iter_events()
 
 
@@ -169,15 +183,114 @@ def _network_posture_check(environment: dict[str, str]) -> DoctorCheck:
     return _check("collector-network", "fail", "collector is non-loopback without TRACKER_AUTH_TOKEN", host=host)
 
 
+def _secret_scan_candidates(root: Path) -> Iterable[Path]:
+    for name in _SECRET_SCAN_FILES + _LOCAL_SECRET_FILES:
+        candidate = root / name
+        if candidate.is_file():
+            yield candidate
+    for directory_name in _SECRET_SCAN_ROOTS:
+        directory = root / directory_name
+        if not directory.is_dir():
+            continue
+        for path in directory.rglob("*"):
+            if path.is_file() and path.suffix.lower() in {".cmd", ".json", ".md", ".ps1", ".py", ".toml", ".yaml", ".yml"}:
+                yield path
+
+
+def _secret_scan_check(root: str) -> DoctorCheck:
+    base = Path(root).resolve()
+    findings: list[dict[str, Any]] = []
+    local_secret_findings = 0
+    for path in _secret_scan_candidates(base):
+        try:
+            if path.stat().st_size > _MAX_SECRET_SCAN_BYTES:
+                continue
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        relative = str(path.relative_to(base))
+        for line_number, line in enumerate(text.splitlines(), start=1):
+            for name, pattern in _SECRET_PATTERNS:
+                if pattern.search(line):
+                    item = {"path": relative, "line": line_number, "kind": name}
+                    if path.name in _LOCAL_SECRET_FILES:
+                        local_secret_findings += 1
+                        item["local_secret_file"] = True
+                    findings.append(item)
+    if not findings:
+        return _check("secret-scan", "pass", "no credential-shaped values found in checked project files", root=str(base))
+    if len(findings) == local_secret_findings:
+        return _check(
+            "secret-scan",
+            "warn",
+            "credential-shaped values found only in local ignored secret files",
+            root=str(base),
+            finding_count=len(findings),
+            findings=findings[:10],
+        )
+    return _check(
+        "secret-scan",
+        "fail",
+        "credential-shaped values found in project files; rotate exposed credentials before sharing/committing",
+        root=str(base),
+        finding_count=len(findings),
+        findings=findings[:10],
+    )
+
+
 def _azure_env_check(environment: dict[str, str]) -> DoctorCheck:
-    required = ("AZURE_OPENAI_ENDPOINT", "AZURE_OPENAI_API_KEY", "AZURE_OPENAI_API_VERSION")
-    present = [key for key in required if environment.get(key)]
-    missing = [key for key in required if not environment.get(key)]
-    if not present:
-        return _check("azure-openai-env", "info", "Azure OpenAI env vars are not set; OK unless running Azure live tests")
-    if missing:
-        return _check("azure-openai-env", "warn", "Azure OpenAI env is partial", present=present, missing=missing)
-    return _check("azure-openai-env", "pass", "Azure OpenAI env vars are present", present=present)
+    profiles = {
+        "foundry-responses": (
+            "AZURE_OPENAI_API_KEY",
+            "AZURE_OPENAI_RESPONSES_ENDPOINT",
+            "AZURE_OPENAI_RESPONSES_DEPLOYMENT",
+        ),
+        "azure-chat": (
+            "AZURE_OPENAI_API_KEY",
+            "AZURE_OPENAI_ENDPOINT",
+            "AZURE_OPENAI_DEPLOYMENT",
+        ),
+        "azure-embeddings": (
+            "AZURE_OPENAI_API_KEY",
+            "AZURE_OPENAI_ENDPOINT",
+            "AZURE_OPENAI_EMBEDDINGS_DEPLOYMENT",
+        ),
+    }
+    profile_specific_keys = {
+        "foundry-responses": ("AZURE_OPENAI_RESPONSES_ENDPOINT", "AZURE_OPENAI_RESPONSES_DEPLOYMENT"),
+        "azure-chat": ("AZURE_OPENAI_DEPLOYMENT",),
+        "azure-embeddings": ("AZURE_OPENAI_EMBEDDINGS_DEPLOYMENT",),
+    }
+    azure_keys = sorted(key for key in environment if key.startswith("AZURE_OPENAI_") and environment.get(key))
+    configured: list[str] = []
+    present_by_profile: dict[str, list[str]] = {}
+    partial: dict[str, list[str]] = {}
+    for profile, required in profiles.items():
+        present = [key for key in required if environment.get(key)]
+        present_by_profile[profile] = present
+        if len(present) == len(required):
+            configured.append(profile)
+    for profile, required in profiles.items():
+        if profile in configured:
+            continue
+        present = present_by_profile[profile]
+        surface_hint_present = any(environment.get(key) for key in profile_specific_keys[profile])
+        if surface_hint_present or (present and not configured):
+            partial[profile] = [key for key in required if not environment.get(key)]
+    if not azure_keys:
+        return _check("azure-openai-env", "info", "Azure/Foundry env vars are not set; OK unless running live tests")
+    if configured:
+        detail = "Azure/Foundry env configured for: " + ", ".join(configured)
+        if partial:
+            return _check("azure-openai-env", "warn", detail + "; some optional surfaces are partial", profiles=configured, partial=partial)
+        return _check("azure-openai-env", "pass", detail, profiles=configured)
+    return _check(
+        "azure-openai-env",
+        "warn",
+        "Azure/Foundry env is partial; no runnable live surface detected",
+        present=azure_keys,
+        partial=partial,
+    )
 
 
 def run_checks(
@@ -186,6 +299,7 @@ def run_checks(
     partitioned_store: bool = False,
     skip_store: bool = False,
     environment: dict[str, str] | None = None,
+    secret_scan_root: str | None = None,
 ) -> list[DoctorCheck]:
     """Run operational readiness checks."""
     env = dict(os.environ if environment is None else environment)
@@ -197,6 +311,7 @@ def run_checks(
         _import_check("ruff", required=False),
         _storage_contract_check(),
         _network_posture_check(env),
+        _secret_scan_check(secret_scan_root or os.getcwd()),
         _azure_env_check(env),
     ]
     if not skip_store:

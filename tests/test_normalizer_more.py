@@ -13,7 +13,8 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from tracker.adapters.openai_chat_completions_adapter import OpenAIChatCompletionsAdapter  # noqa: E402
-from tracker.context.propagation import current, new_trace, span, trace  # noqa: E402
+from tracker.context import headers as context_headers  # noqa: E402
+from tracker.context.propagation import continue_from_headers, current, new_trace, span, trace  # noqa: E402
 from tracker.normalization.normalizer import normalize  # noqa: E402
 
 _failures = 0
@@ -56,6 +57,13 @@ check(current() is None, "no ambient context outside a trace block")
 ev3 = normalize(payload, adapter)
 check(bool(ev3.trace_id) and bool(ev3.span_id) and bool(ev3.request_correlation_id), "fallback root has full identity")
 check(ev3.event_contributing_tokens == 1300, "fallback-root event still computes correctly")
+
+# --- broken inbound propagation is attached automatically to normalized events ---
+partial_headers = context_headers.inject(new_trace())
+del partial_headers["X-TokenTracker-Span-Id"]
+with continue_from_headers(partial_headers):
+    lost_event = normalize(payload, adapter)
+check("propagation_lost" in lost_event.data_quality_flags, "normalizer automatically records lost inbound propagation")
 
 print("\nRESULT:", "all checks passed" if _failures == 0 else f"{_failures} FAILURE(S)")
 sys.exit(1 if _failures else 0)

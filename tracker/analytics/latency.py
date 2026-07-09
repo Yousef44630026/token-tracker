@@ -8,6 +8,7 @@ from typing import Any
 
 from tracker.analytics._common import (
     authoritative_events,
+    event_duration_ms,
     event_output_tokens,
     is_non_negative_number,
     ratio,
@@ -33,11 +34,9 @@ def _observation_number(event: TokenEvent, key: str) -> float | None:
 
 
 def _duration_ms(event: TokenEvent) -> float | None:
-    for key in ("duration_ms", "total_duration_ms", "provider_duration_ms"):
-        value = _observation_number(event, key)
-        if value is not None:
-            return value
-    return None
+    # Shared with service attribution (and any future view) via _common so every view reads the
+    # same duration keys in the same order — see tracker/analytics/_common.event_duration_ms.
+    return event_duration_ms(event)
 
 
 def _average(values: list[float]) -> float | None:

@@ -26,7 +26,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from tracker.context.propagation import TraceContext, current, new_trace
+from tracker.context.propagation import TraceContext, current, current_flags, new_trace
 from tracker.models.token_event import TokenEvent
 from tracker.normalization.event_builder import build_event
 from tracker.observability.observation import Observation
@@ -48,8 +48,10 @@ def normalize(
     observation: dict[str, Any] | None = None,
 ) -> TokenEvent:
     """Assemble one TokenEvent from a raw provider ``response`` using ``adapter``."""
-    ctx = context or current() or new_trace()
-    extra = list(extra_flags or [])
+    ambient = current()
+    ctx = context or ambient or new_trace()
+    propagation_flags = current_flags() if ambient is not None and ctx is ambient else ()
+    extra = [*propagation_flags, *(extra_flags or [])]
 
     def _error_event(exc: Exception) -> TokenEvent:
         error_flag = adapter.classify_error(exc)
