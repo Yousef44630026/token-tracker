@@ -23,6 +23,9 @@ jobs:
       - name: Ruff
         run: python -m ruff check --no-cache tracker tests api
 
+      - name: Black
+        run: python -m black --check tracker tests api
+
       - name: Core operational tests
         shell: pwsh
         run: |
@@ -51,7 +54,15 @@ jobs:
             "tests/test_supersession_collision_regression.py",
             "tests/test_core_logic_deep.py"
           )
+          # Track failures explicitly: a pwsh step's exit code is the LAST command's,
+          # so without this a failing test mid-list is masked by a passing final test.
+          $failed = @()
           foreach ($test in $tests) {
             Write-Host "=== $test ==="
             python $test
+            if ($LASTEXITCODE -ne 0) { $failed += $test }
+          }
+          if ($failed.Count -gt 0) {
+            Write-Host "FAILED: $($failed -join ', ')"
+            exit 1
           }
