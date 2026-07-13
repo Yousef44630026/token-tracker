@@ -38,6 +38,8 @@ class FakeResponse:
 def fake_opener(req, timeout):
     url = req.full_url
     assert "/openai/v1/openai/" not in url, url
+    assert req.get_header("Api-key") == "secret-unit-key"
+    assert req.get_header("Authorization") is None
     body = json.loads(req.data.decode("utf-8")) if req.data else {}
     if "/chat/completions" in url:
         return FakeResponse(

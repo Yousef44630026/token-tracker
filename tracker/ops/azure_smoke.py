@@ -268,7 +268,6 @@ def _request_for(case: AzureSmokeCase, api_key: str) -> request.Request:
     headers = {
         "Content-Type": "application/json",
         "api-key": api_key,
-        "Authorization": f"Bearer {api_key}",
     }
     return request.Request(
         _case_url(case),
