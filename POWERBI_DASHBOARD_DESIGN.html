@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>AI Token Tracker - Power BI Dashboard Design</title>
+  <title>AI Token Tracker - Illustrative Power BI Dashboard Design</title>
   <style>
     :root {
       --bg: #f6f7f9;
@@ -166,6 +166,37 @@
       padding: 18px 22px 28px;
     }
 
+    .prototype-notice {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 14px;
+      border: 2px solid #c2410c;
+      border-radius: 8px;
+      background: #fff7ed;
+      color: #7c2d12;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .prototype-notice strong {
+      align-self: stretch;
+      display: flex;
+      align-items: center;
+      padding: 10px 14px;
+      background: #c2410c;
+      color: #fff;
+      font-size: 12px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .prototype-notice span {
+      padding: 9px 14px 9px 0;
+      font-weight: 700;
+    }
+
     .topbar {
       background: var(--panel);
       border: 1px solid var(--line);
@@ -199,6 +230,16 @@
       justify-content: flex-end;
     }
 
+    .filter-status {
+      flex-basis: 100%;
+      margin: 0;
+      color: #9a3412;
+      font-size: 11px;
+      font-weight: 800;
+      text-align: right;
+      text-transform: uppercase;
+    }
+
     .filter {
       display: grid;
       gap: 3px;
@@ -219,6 +260,14 @@
       background: #fff;
       color: var(--text);
       padding: 0 28px 0 9px;
+    }
+
+    .filter select:disabled {
+      border-style: dashed;
+      background: #f3f4f6;
+      color: #6b7280;
+      cursor: not-allowed;
+      opacity: 1;
     }
 
     .dashboard-page {
@@ -836,6 +885,17 @@
         padding: 12px;
       }
 
+      .prototype-notice {
+        align-items: stretch;
+        flex-direction: column;
+        gap: 0;
+      }
+
+      .prototype-notice strong,
+      .prototype-notice span {
+        padding: 9px 12px;
+      }
+
       .filters {
         justify-content: stretch;
       }
@@ -881,7 +941,7 @@
         <div class="mark">TT</div>
         <div>
           <h1>AI Token Operations</h1>
-          <span>Power BI dashboard concept</span>
+          <span>Illustrative Power BI concept - not live</span>
         </div>
       </div>
 
@@ -902,32 +962,37 @@
       </div>
     </aside>
 
-    <main class="main">
+    <main class="main" aria-describedby="prototypeNotice">
+      <div class="prototype-notice" id="prototypeNotice" role="note">
+        <strong>Illustrative prototype - not live</strong>
+        <span>All figures, trends, statuses, and comparisons on every page are sample data. No live source is connected; do not use this concept for operational decisions.</span>
+      </div>
       <section class="topbar">
         <div class="page-title">
           <h2 id="pageHeading">Executive Usage</h2>
           <p id="pageSubtitle">Production usage, reliability, and trust posture across providers and services.</p>
         </div>
-        <div class="filters" aria-label="Dashboard filters">
+        <div class="filters" aria-label="Illustrative dashboard filters" aria-disabled="true" aria-describedby="filterStatus">
+          <p class="filter-status" id="filterStatus">Preview only - filters are disabled and do not change the sample figures</p>
           <div class="filter">
-            <label>Date range</label>
-            <select>
+            <label for="filterDateRange">Date range</label>
+            <select id="filterDateRange" disabled>
               <option>Last 30 days</option>
               <option>Last 7 days</option>
               <option>Current month</option>
             </select>
           </div>
           <div class="filter">
-            <label>Environment</label>
-            <select>
+            <label for="filterEnvironment">Environment</label>
+            <select id="filterEnvironment" disabled>
               <option>Production</option>
               <option>Staging</option>
               <option>All</option>
             </select>
           </div>
           <div class="filter">
-            <label>Provider</label>
-            <select>
+            <label for="filterProvider">Provider</label>
+            <select id="filterProvider" disabled>
               <option>All providers</option>
               <option>Azure OpenAI</option>
               <option>Bedrock</option>
@@ -936,8 +1001,8 @@
             </select>
           </div>
           <div class="filter">
-            <label>Service</label>
-            <select>
+            <label for="filterService">Service</label>
+            <select id="filterService" disabled>
               <option>All services</option>
               <option>support-api</option>
               <option>claims-agent</option>

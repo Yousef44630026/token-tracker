@@ -9,6 +9,7 @@ from __future__ import annotations
 import html
 import json
 import os
+import re
 from collections.abc import Iterable
 from typing import Any
 
@@ -38,44 +39,97 @@ def _value(value: Any) -> str:
     return html.escape(str(value))
 
 
+def _section_id(title: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", title.casefold()).strip("-")
+    return f"{slug or 'report'}-section"
+
+
+def _status_parts(status: Any) -> tuple[str, str]:
+    label = "unknown" if status is None else str(status).strip() or "unknown"
+    candidate = label.casefold()
+    normalized = candidate if candidate in {"pass", "warn", "fail"} else "unknown"
+    return normalized, label
+
+
+def _status_badge(status: Any) -> str:
+    normalized, label = _status_parts(status)
+    escaped_label = html.escape(label)
+    return f'<span class="badge {normalized}" aria-label="Status: {escaped_label}">{escaped_label}</span>'
+
+
 def _metric_table(title: str, summary: dict[str, Any]) -> str:
     rows = []
     for key, value in summary.items():
         if key == "rows":
             continue
-        rows.append(f"<tr><th>{html.escape(key)}</th><td>{_value(value)}</td></tr>")
-    return f"<section><h2>{html.escape(title)}</h2><table>{''.join(rows)}</table></section>"
+        rendered_value = _status_badge(value) if key in {"status", "overall_status"} else _value(value)
+        rows.append(f'<tr><th scope="row">{html.escape(key)}</th><td>{rendered_value}</td></tr>')
+    escaped_title = html.escape(title)
+    section_id = _section_id(title)
+    return (
+        f'<section aria-labelledby="{section_id}"><h2 id="{section_id}">{escaped_title}</h2>'
+        f'<div class="table-wrap" role="region" aria-labelledby="{section_id}" tabindex="0">'
+        f'<table class="metric-table"><caption>{escaped_title}</caption><tbody>{"".join(rows)}</tbody></table>'
+        "</div></section>"
+    )
 
 
-def _status_badge(status: str) -> str:
-    normalized = status if status in {"pass", "warn", "fail"} else "unknown"
-    return f'<span class="badge {normalized}">{html.escape(status)}</span>'
-
-
-def _rows_table(title: str, rows: Iterable[dict[str, Any]]) -> str:
+def _rows_table(title: str, rows: Iterable[dict[str, Any]], *, empty_message: str | None = None) -> str:
     materialized = list(rows)
+    escaped_title = html.escape(title)
+    section_id = _section_id(title)
     if not materialized:
-        return f"<section><h2>{html.escape(title)}</h2><p>No rows.</p></section>"
-    headers = list(materialized[0])
-    head = "".join(f"<th>{html.escape(header)}</th>" for header in headers)
+        message = empty_message or f"No {title.casefold()} data available."
+        return (
+            f'<section aria-labelledby="{section_id}"><h2 id="{section_id}">{escaped_title}</h2>'
+            f'<p class="empty-state">{html.escape(message)}</p></section>'
+        )
+    headers: list[str] = []
+    seen_headers: set[str] = set()
+    for row in materialized:
+        for header in row:
+            if header not in seen_headers:
+                headers.append(header)
+                seen_headers.add(header)
+    head = "".join(f'<th scope="col">{html.escape(header)}</th>' for header in headers)
     body = []
     for row in materialized:
         status_value = row.get("status")
-        # escaped: `status` can trace back to event.observation, which any proxy/collector may
-        # populate from an external provider response — never trust it unescaped in an HTML
-        # attribute, even though today's call sites only ever pass known-safe literals.
-        row_class = f' class="status-{html.escape(str(status_value))}"' if status_value else ""
+        normalized_status, _ = _status_parts(status_value)
+        row_class = f' class="status-{normalized_status}"' if "status" in headers else ""
         body.append(
             f"<tr{row_class}>"
             + "".join(f"<td>{_status_badge(row.get(header)) if header == 'status' else _value(row.get(header))}</td>" for header in headers)
             + "</tr>"
         )
-    return f"<section><h2>{html.escape(title)}</h2><table><thead><tr>{head}</tr></thead><tbody>{''.join(body)}</tbody></table></section>"
+    return (
+        f'<section aria-labelledby="{section_id}"><h2 id="{section_id}">{escaped_title}</h2>'
+        f'<div class="table-wrap" role="region" aria-labelledby="{section_id}" tabindex="0">'
+        f'<table class="data-table"><caption>{escaped_title}</caption>'
+        f'<thead><tr>{head}</tr></thead><tbody>{"".join(body)}</tbody></table></div></section>'
+    )
 
 
 def _anomaly_table(trace: Trace) -> str:
     rows = [{"event_id": signal.event_id, "code": signal.code, "detail": signal.detail} for signal in detect_anomalies(trace)]
-    return _rows_table("Anomalies", rows)
+    return _rows_table("Anomalies", rows, empty_message="No anomalies detected.")
+
+
+def _readiness_verdict(readiness: dict[str, Any]) -> str:
+    normalized_status, _ = _status_parts(readiness.get("overall_status"))
+    return (
+        f'<section class="verdict status-{normalized_status}" aria-labelledby="readiness-verdict">'
+        '<div class="verdict-copy"><p class="eyebrow">Provider validation readiness</p>'
+        f'<h2 id="readiness-verdict">Evidence status {_status_badge(readiness.get("overall_status"))}</h2>'
+        '<p class="verdict-note">Based on adapter and fixture evidence. '
+        "This status does not describe the health of the selected trace.</p></div>"
+        '<dl class="verdict-stats">'
+        f'<div><dt>Surfaces</dt><dd>{_value(readiness.get("surface_count"))}</dd></div>'
+        f'<div><dt>Pass</dt><dd>{_value(readiness.get("pass_count"))}</dd></div>'
+        f'<div><dt>Warn</dt><dd>{_value(readiness.get("warn_count"))}</dd></div>'
+        f'<div><dt>Fail</dt><dd>{_value(readiness.get("fail_count"))}</dd></div>'
+        "</dl></section>"
+    )
 
 
 def render_html_report(trace: Trace, *, title: str | None = None) -> str:
@@ -115,7 +169,11 @@ def render_html_report(trace: Trace, *, title: str | None = None) -> str:
         _metric_table("Cache Efficiency", build_cache_summary(trace)),
         _metric_table("RAG Efficiency", build_rag_summary(trace)),
         _metric_table("Agent Efficiency", build_agent_summary(trace)),
-        _rows_table("Service Attribution", build_service_attribution(trace)["rows"]),
+        _rows_table(
+            "Service Attribution",
+            build_service_attribution(trace)["rows"],
+            empty_message="No service attribution data is available for this trace.",
+        ),
         _rows_table(
             "Provider Validation Matrix",
             provider_matrix,
@@ -123,27 +181,97 @@ def render_html_report(trace: Trace, *, title: str | None = None) -> str:
         _anomaly_table(trace),
     ]
     css = """
-body{font-family:Segoe UI,Arial,sans-serif;margin:0;background:#f7f8fa;color:#1f2933}
-header{background:#18202f;color:#fff;padding:24px 32px}
-main{padding:24px 32px;max-width:1280px;margin:auto}
-section{margin:0 0 24px 0}
-h1{font-size:28px;margin:0}
-h2{font-size:18px;margin:0 0 10px 0}
-table{border-collapse:collapse;width:100%;background:#fff;border:1px solid #d8dde6}
-th,td{border:1px solid #d8dde6;padding:8px 10px;text-align:left;vertical-align:top;font-size:13px}
-th{background:#eef2f7;font-weight:600}
-p{background:#fff;border:1px solid #d8dde6;padding:12px}
-.badge{display:inline-block;border-radius:999px;padding:2px 8px;font-size:12px;font-weight:700;text-transform:uppercase}
+:root{color-scheme:light;--ink:#1f2933;--muted:#52606d;--surface:#fff;--page:#f5f7fa;--line:#cbd2dc;--navy:#18202f;--focus:#2563eb}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{font-family:"Segoe UI",Arial,sans-serif;margin:0;background:var(--page);color:var(--ink);line-height:1.45}
+.skip-link{
+  position:fixed;z-index:10;left:16px;top:0;transform:translateY(-140%);
+  background:#fff;color:#123b6d;padding:10px 14px;border-radius:0 0 6px 6px;font-weight:700
+}
+.skip-link:focus{transform:translateY(0)}
+header{background:var(--navy);color:#fff;padding:24px 32px}
+.header-inner{max-width:1280px;margin:auto}
+.report-kind{margin:0 0 4px;color:#d9e2ec;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase}
+main{padding:24px 32px;max-width:1344px;margin:auto}
+section{margin:0 0 24px}
+h1{font-size:clamp(24px,3vw,32px);line-height:1.2;margin:0;overflow-wrap:anywhere}
+h2{font-size:18px;line-height:1.3;margin:0 0 10px}
+.table-wrap{
+  overflow-x:auto;background:var(--surface);border:1px solid var(--line);
+  border-radius:8px;box-shadow:0 1px 2px rgba(16,24,40,.05)
+}
+.table-wrap:focus-visible,.skip-link:focus-visible{outline:3px solid var(--focus);outline-offset:3px}
+table{border-collapse:collapse;width:100%;background:var(--surface)}
+.data-table{min-width:720px}
+caption{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+th,td{
+  border:0;border-bottom:1px solid var(--line);border-right:1px solid var(--line);
+  padding:9px 11px;text-align:left;vertical-align:top;font-size:13px;overflow-wrap:anywhere
+}
+th:last-child,td:last-child{border-right:0}
+tbody tr:last-child>th,tbody tr:last-child>td{border-bottom:0}
+th{background:#eef2f7;font-weight:650;color:#243b53}
+.metric-table th{width:min(42%,360px)}
+.badge{
+  display:inline-block;border-radius:999px;padding:3px 9px;font-size:12px;font-weight:750;
+  line-height:1.35;text-transform:uppercase;letter-spacing:.02em
+}
 .pass{background:#dcfce7;color:#166534}
-.warn{background:#fef3c7;color:#92400e}
+.warn{background:#fef3c7;color:#854d0e}
 .fail{background:#fee2e2;color:#991b1b}
+.unknown{background:#e5e7eb;color:#374151}
 tr.status-warn td{background:#fffbeb}
 tr.status-fail td{background:#fef2f2}
+.verdict{
+  display:grid;grid-template-columns:minmax(0,1.5fr) minmax(300px,1fr);gap:24px;align-items:center;
+  background:var(--surface);border:1px solid var(--line);border-left:6px solid #64748b;
+  border-radius:10px;padding:20px 22px;box-shadow:0 2px 8px rgba(16,24,40,.07)
+}
+.verdict.status-pass{border-left-color:#15803d}
+.verdict.status-warn{border-left-color:#d97706}
+.verdict.status-fail{border-left-color:#be123c}
+.eyebrow{margin:0 0 6px;color:var(--muted);font-size:12px;font-weight:750;letter-spacing:.08em;text-transform:uppercase}
+.verdict h2{display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:22px}
+.verdict-note{margin:0;color:var(--muted);max-width:70ch}
+.verdict-stats{display:grid;grid-template-columns:repeat(4,minmax(60px,1fr));gap:8px;margin:0}
+.verdict-stats div{background:#f8fafc;border:1px solid #e2e8f0;border-radius:7px;padding:10px;text-align:center}
+.verdict-stats dt{font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase}
+.verdict-stats dd{margin:2px 0 0;font-size:20px;font-weight:750;font-variant-numeric:tabular-nums}
+.empty-state{margin:0;background:var(--surface);border:1px dashed var(--line);border-radius:8px;padding:16px;color:var(--muted)}
+@media (max-width:700px){
+  header{padding:20px 16px}
+  main{padding:18px 12px}
+  section{margin-bottom:20px}
+  .verdict{grid-template-columns:1fr;padding:17px}
+  .verdict-stats{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .metric-table th{width:48%}
+  th,td{padding:8px;font-size:12px}
+}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+@media print{
+  @page{margin:12mm}
+  body{background:#fff;color:#000;font-size:10pt;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .skip-link{display:none}
+  header{background:#fff;color:#000;border-bottom:2px solid #000;padding:0 0 12px}
+  .report-kind{color:#333}
+  main{max-width:none;padding:14px 0 0}
+  .verdict,.table-wrap{box-shadow:none}
+  .table-wrap{overflow:visible}
+  .data-table{min-width:0}
+  h2{break-after:avoid-page}
+  tr{break-inside:avoid-page}
+  th,td{font-size:8.5pt;padding:5px 6px}
+}
 """
     return (
-        '<!doctype html><html><head><meta charset="utf-8">'
+        '<!doctype html><html lang="en"><head><meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width, initial-scale=1">'
         f"<title>{html.escape(title_text)}</title><style>{css}</style></head>"
-        f"<body><header><h1>{html.escape(title_text)}</h1></header><main>" + "".join(sections) + "</main></body></html>"
+        '<body><a class="skip-link" href="#report-content">Skip to report content</a>'
+        '<header><div class="header-inner"><p class="report-kind">Operational trace report</p>'
+        f"<h1>{html.escape(title_text)}</h1></div></header>"
+        f'<main id="report-content" tabindex="-1">{_readiness_verdict(readiness)}' + "".join(sections) + "</main></body></html>"
     )
 
 

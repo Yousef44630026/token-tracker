@@ -1,15 +1,15 @@
 @echo off
 setlocal
 
-set "PROXY=C:\Users\yerabhaoui\python-portable\Scripts\ai-token-tracker-proxy.exe"
+set "PY=%~dp0_python.cmd"
+set "ROOT=%~dp0.."
 set "STORE=%~1"
 
 if "%STORE%"=="" set "STORE=codex_live.jsonl"
 
-if not exist "%PROXY%" (
-  echo ai-token-tracker-proxy.exe not found at:
-  echo %PROXY%
-  exit /b 1
-)
+pushd "%ROOT%" >nul
+"%PY%" -m tracker.proxy.cli report --store "%STORE%"
+set "CODE=%ERRORLEVEL%"
 
-"%PROXY%" report --store "%STORE%"
+popd >nul
+exit /b %CODE%

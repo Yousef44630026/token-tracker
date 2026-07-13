@@ -11,6 +11,7 @@ import json
 import logging
 import os
 import re
+import sqlite3
 from collections import defaultdict
 from collections.abc import Iterable, Iterator
 
@@ -262,6 +263,9 @@ def _event_date(event: TokenEvent) -> str:
 class PartitionedFileRepository:
     """Date/trace partitioned JSONL repository for higher-volume observability."""
 
+    _INDEX_FILENAME = ".event-index.sqlite3"
+    _INDEX_SCHEMA_VERSION = "1"
+
     def __init__(
         self,
         root_dir: str,
@@ -275,12 +279,19 @@ class PartitionedFileRepository:
         self.recover_truncated_tail = recover_truncated_tail
         self.skip_invalid_records = skip_invalid_records
         self._skipped_invalid_count = 0
+        self._lock = lock_for(os.path.join(self.root_dir, ".repository"))
+        self._index_path = os.path.join(self.root_dir, self._INDEX_FILENAME)
         os.makedirs(self.root_dir, exist_ok=True)
 
     @property
     def skipped_invalid_count(self) -> int:
         """Number of schema-invalid rows skipped by the most recent partitioned read."""
         return self._skipped_invalid_count
+
+    @property
+    def index_path(self) -> str:
+        """Path to the disposable, automatically rebuilt event-id index."""
+        return self._index_path
 
     def _path_for_event(self, event: TokenEvent) -> str:
         date = _safe_segment(_event_date(event), "unknown-date")
@@ -299,29 +310,55 @@ class PartitionedFileRepository:
         self.append_many([event])
 
     def append_many(self, events: Iterable[TokenEvent]) -> None:
+        materialized = list(events)
         grouped: dict[str, list[TokenEvent]] = defaultdict(list)
-        for event in events:
+        for event in materialized:
             if not isinstance(event, TokenEvent):
                 raise TypeError("events must contain TokenEvent objects")
             grouped[self._path_for_event(event)].append(event)
-        for path, group in grouped.items():
-            self._repo_for_path(path).append_many(group)
+        if not grouped:
+            return
+        with self._lock:
+            connection = self._open_synced_index_unlocked()
+            try:
+                for path, group in grouped.items():
+                    self._repo_for_path(path).append_many(group)
+                    self._record_appended_events_unlocked(connection, path, group)
+                connection.commit()
+            finally:
+                connection.close()
 
     def append_unique(self, events: Iterable[TokenEvent]) -> list[str]:
-        appended: list[str] = []
-        grouped: dict[str, list[TokenEvent]] = defaultdict(list)
-        known = self.event_ids()
-        batch_ids: set[str] = set()
-        for event in events:
-            if not isinstance(event, TokenEvent):
-                raise TypeError("events must contain TokenEvent objects")
-            if event.event_id in known or event.event_id in batch_ids:
-                continue
-            batch_ids.add(event.event_id)
-            grouped[self._path_for_event(event)].append(event)
-        for path, group in grouped.items():
-            appended.extend(self._repo_for_path(path).append_unique(group))
-        return appended
+        materialized = list(events)
+        if any(not isinstance(event, TokenEvent) for event in materialized):
+            raise TypeError("events must contain TokenEvent objects")
+        if not materialized:
+            return []
+        with self._lock:
+            connection = self._open_synced_index_unlocked()
+            try:
+                known = self._known_event_ids_unlocked(
+                    connection,
+                    [event.event_id for event in materialized],
+                )
+                unique: list[TokenEvent] = []
+                batch_ids: set[str] = set()
+                for event in materialized:
+                    if event.event_id in known or event.event_id in batch_ids:
+                        continue
+                    batch_ids.add(event.event_id)
+                    unique.append(event)
+
+                grouped: dict[str, list[TokenEvent]] = defaultdict(list)
+                for event in unique:
+                    grouped[self._path_for_event(event)].append(event)
+                for path, group in grouped.items():
+                    self._repo_for_path(path).append_many(group)
+                    self._record_appended_events_unlocked(connection, path, group)
+                connection.commit()
+                return [event.event_id for event in unique]
+            finally:
+                connection.close()
 
     def iter_events(self) -> Iterator[TokenEvent]:
         self._skipped_invalid_count = 0
@@ -338,22 +375,188 @@ class PartitionedFileRepository:
         return list(self.iter_events())
 
     def event_ids(self) -> set[str]:
-        return {event.event_id for event in self.iter_events()}
+        with self._lock:
+            connection = self._open_synced_index_unlocked()
+            try:
+                return {row[0] for row in connection.execute("SELECT DISTINCT event_id FROM event_locations")}
+            finally:
+                connection.close()
 
     def write_compacted(self, destination_root: str, *, drop_superseded: bool = True) -> int:
         """Write a partition-preserving compacted copy and return retained event count."""
         destination = os.path.abspath(destination_root)
         if destination == self.root_dir:
             raise ValueError("destination_root must differ from the source root")
+        destination_repo = self.__class__(
+            destination,
+            durable=self.durable,
+            recover_truncated_tail=self.recover_truncated_tail,
+            skip_invalid_records=self.skip_invalid_records,
+        )
         kept = 0
+        batch: list[TokenEvent] = []
         for event in self.iter_events():
             if drop_superseded and event.superseded:
                 continue
-            self.__class__(
-                destination,
-                durable=self.durable,
-                recover_truncated_tail=self.recover_truncated_tail,
-                skip_invalid_records=self.skip_invalid_records,
-            ).append(event)
+            batch.append(event)
             kept += 1
+            if len(batch) >= 1000:
+                destination_repo.append_many(batch)
+                batch.clear()
+        if batch:
+            destination_repo.append_many(batch)
         return kept
+
+    def _open_synced_index_unlocked(self) -> sqlite3.Connection:
+        """Open and synchronize the disposable index, rebuilding it if corrupt."""
+        for attempt in range(2):
+            connection: sqlite3.Connection | None = None
+            try:
+                connection = sqlite3.connect(self._index_path, timeout=30.0)
+                connection.execute("PRAGMA journal_mode=DELETE")
+                connection.execute(f"PRAGMA synchronous={'FULL' if self.durable else 'NORMAL'}")
+                self._ensure_index_schema_unlocked(connection)
+                self._sync_index_unlocked(connection)
+                return connection
+            except sqlite3.DatabaseError:
+                if connection is not None:
+                    connection.close()
+                if attempt:
+                    raise
+                _logger.warning("PartitionedFileRepository: rebuilding corrupt index %s", self._index_path)
+                self._discard_index_unlocked()
+        raise RuntimeError("unreachable index recovery state")
+
+    def _ensure_index_schema_unlocked(self, connection: sqlite3.Connection) -> None:
+        connection.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS index_metadata (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS indexed_partitions (
+                partition_path TEXT PRIMARY KEY,
+                size_bytes INTEGER NOT NULL,
+                mtime_ns INTEGER NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS event_locations (
+                event_id TEXT NOT NULL,
+                partition_path TEXT NOT NULL,
+                PRIMARY KEY (event_id, partition_path)
+            );
+            CREATE INDEX IF NOT EXISTS idx_event_locations_partition
+                ON event_locations(partition_path);
+            """
+        )
+        row = connection.execute(
+            "SELECT value FROM index_metadata WHERE key = 'schema_version'"
+        ).fetchone()
+        if row is not None and row[0] != self._INDEX_SCHEMA_VERSION:
+            connection.execute("DELETE FROM event_locations")
+            connection.execute("DELETE FROM indexed_partitions")
+        connection.execute(
+            "INSERT OR REPLACE INTO index_metadata(key, value) VALUES ('schema_version', ?)",
+            (self._INDEX_SCHEMA_VERSION,),
+        )
+        connection.commit()
+
+    def _sync_index_unlocked(self, connection: sqlite3.Connection) -> None:
+        current: dict[str, tuple[int, int]] = {}
+        for path in self._partition_paths():
+            try:
+                stat = os.stat(path)
+            except FileNotFoundError:
+                continue
+            current[self._relative_partition_path(path)] = (stat.st_size, stat.st_mtime_ns)
+
+        indexed = {
+            row[0]: (row[1], row[2])
+            for row in connection.execute(
+                "SELECT partition_path, size_bytes, mtime_ns FROM indexed_partitions"
+            )
+        }
+        for relative_path in indexed.keys() - current.keys():
+            connection.execute("DELETE FROM event_locations WHERE partition_path = ?", (relative_path,))
+            connection.execute("DELETE FROM indexed_partitions WHERE partition_path = ?", (relative_path,))
+        for relative_path, signature in current.items():
+            if indexed.get(relative_path) == signature:
+                continue
+            self._reindex_partition_unlocked(connection, relative_path)
+        connection.commit()
+
+    def _reindex_partition_unlocked(self, connection: sqlite3.Connection, relative_path: str) -> None:
+        path = os.path.join(self.root_dir, relative_path)
+        repository = self._repo_for_path(path)
+        connection.execute("DELETE FROM event_locations WHERE partition_path = ?", (relative_path,))
+        with repository._lock:
+            rows = ((event.event_id, relative_path) for event in repository._iter_events_unlocked())
+            connection.executemany(
+                "INSERT OR IGNORE INTO event_locations(event_id, partition_path) VALUES (?, ?)",
+                rows,
+            )
+            signature = repository._file_signature_unlocked()
+        if signature is None:
+            connection.execute("DELETE FROM indexed_partitions WHERE partition_path = ?", (relative_path,))
+            return
+        connection.execute(
+            """
+            INSERT OR REPLACE INTO indexed_partitions(partition_path, size_bytes, mtime_ns)
+            VALUES (?, ?, ?)
+            """,
+            (relative_path, signature[0], signature[1]),
+        )
+
+    def _record_appended_events_unlocked(
+        self,
+        connection: sqlite3.Connection,
+        path: str,
+        events: Iterable[TokenEvent],
+    ) -> None:
+        relative_path = self._relative_partition_path(path)
+        connection.executemany(
+            "INSERT OR IGNORE INTO event_locations(event_id, partition_path) VALUES (?, ?)",
+            ((event.event_id, relative_path) for event in events),
+        )
+        stat = os.stat(path)
+        connection.execute(
+            """
+            INSERT OR REPLACE INTO indexed_partitions(partition_path, size_bytes, mtime_ns)
+            VALUES (?, ?, ?)
+            """,
+            (relative_path, stat.st_size, stat.st_mtime_ns),
+        )
+
+    def _known_event_ids_unlocked(
+        self,
+        connection: sqlite3.Connection,
+        event_ids: Iterable[str],
+    ) -> set[str]:
+        distinct_ids = list(dict.fromkeys(event_ids))
+        known: set[str] = set()
+        for offset in range(0, len(distinct_ids), 900):
+            chunk = distinct_ids[offset : offset + 900]
+            placeholders = ",".join("?" for _ in chunk)
+            known.update(
+                row[0]
+                for row in connection.execute(
+                    f"SELECT DISTINCT event_id FROM event_locations WHERE event_id IN ({placeholders})",
+                    chunk,
+                )
+            )
+        return known
+
+    def _partition_paths(self) -> Iterator[str]:
+        for root, dirs, files in os.walk(self.root_dir):
+            dirs.sort()
+            if "events.jsonl" in files:
+                yield os.path.join(root, "events.jsonl")
+
+    def _relative_partition_path(self, path: str) -> str:
+        return os.path.relpath(path, self.root_dir)
+
+    def _discard_index_unlocked(self) -> None:
+        for suffix in ("", "-journal", "-wal", "-shm"):
+            try:
+                os.remove(f"{self._index_path}{suffix}")
+            except FileNotFoundError:
+                pass

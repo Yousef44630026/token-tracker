@@ -10,12 +10,13 @@ import os
 import re
 import sys
 import tempfile
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
 from tracker.analytics.coverage import build_coverage_exactness_from_events
+from tracker.estimation.local_tokenizer import tokenizer_status
 from tracker.models.enums import Additivity, PrecisionLevel, TokenType, UsageSource
 from tracker.models.token_event import TokenEvent
 from tracker.models.token_quantity import TokenQuantity
@@ -36,7 +37,7 @@ _SECRET_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("aws_access_key_id", re.compile(r"\bAKIA[0-9A-Z]{16}\b")),
     ("google_api_key", re.compile(r"\bAIza[0-9A-Za-z_-]{35}\b")),
 )
-_SECRET_SCAN_ROOTS = ("tracker", "api", "scripts", "docs", "examples", ".github")
+_SECRET_SCAN_ROOTS = ("tracker", "api", "scripts", "docs", "examples", "tests", ".github")
 _SECRET_SCAN_FILES = ("README.md", "pyproject.toml", ".env.example")
 _LOCAL_SECRET_FILES = (".env",)
 _MAX_SECRET_SCAN_BYTES = 1_000_000
@@ -75,9 +76,88 @@ def _is_loopback(host: str | None) -> bool:
         return False
 
 
-def _python_check() -> DoctorCheck:
-    version = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
-    return _check("python", "pass", f"Python {version} is supported", executable=sys.executable)
+def _python_check(version_info: Sequence[int] | None = None) -> DoctorCheck:
+    selected = version_info or sys.version_info
+    major, minor = int(selected[0]), int(selected[1])
+    micro = int(selected[2]) if len(selected) > 2 else 0
+    version = f"{major}.{minor}.{micro}"
+    if (major, minor) < (3, 11):
+        return _check(
+            "python",
+            "fail",
+            f"Python {version} is unsupported; Python 3.11+ is required",
+            executable=sys.executable,
+            required=">=3.11",
+        )
+    return _check("python", "pass", f"Python {version} is supported", executable=sys.executable, required=">=3.11")
+
+
+def _durability_check(environment: Mapping[str, str]) -> DoctorCheck:
+    settings = ("TRACKER_DURABLE", "TRACKER_PROXY_DURABLE")
+    disabled: list[str] = []
+    invalid: dict[str, str] = {}
+    for name in settings:
+        raw = environment.get(name)
+        if raw is None or not raw.strip():
+            continue  # both operational CLIs default to durable writes
+        normalized = raw.strip().lower()
+        if normalized in {"0", "false", "no", "off"}:
+            disabled.append(name)
+        elif normalized not in {"1", "true", "yes", "on"}:
+            invalid[name] = raw
+    if invalid:
+        return _check(
+            "durable-persistence",
+            "fail",
+            "invalid durability environment value",
+            invalid_keys=sorted(invalid),
+        )
+    if disabled:
+        return _check(
+            "durable-persistence",
+            "warn",
+            "acknowledged events may be lost on a crash because durable writes are disabled",
+            disabled=disabled,
+        )
+    return _check("durable-persistence", "pass", "collector and proxy durable writes are enabled by default")
+
+
+def _tokenizer_check() -> DoctorCheck:
+    status = tokenizer_status()
+    backend = str(status["backend"])
+    if status["tokenizer_available"]:
+        return _check(
+            "tokenizer-backend",
+            "pass",
+            f"local estimates use {backend}",
+            **status,
+        )
+    return _check(
+        "tokenizer-backend",
+        "warn",
+        "tiktoken is unavailable; interrupted-stream estimates use the coarse char4 fallback",
+        **status,
+    )
+
+
+def _storage_substrate_check(store: str) -> DoctorCheck:
+    path = os.path.abspath(os.path.expanduser(store))
+    normalized = path.replace("\\", "/").lower()
+    markers = {
+        "onedrive": "OneDrive",
+        "dropbox": "Dropbox",
+        "google drive": "Google Drive",
+    }
+    matched = next((label for marker, label in markers.items() if marker in normalized), None)
+    if matched:
+        return _check(
+            "storage-substrate",
+            "warn",
+            f"event store is inside {matched}; sync engines can stall locks or fork append-only ledgers",
+            store=path,
+            recommendation="move TRACKER_STORE to a non-synced local volume and export copies for sharing",
+        )
+    return _check("storage-substrate", "pass", "event store path is not inside a recognized sync folder", store=path)
 
 
 def _import_check(module: str, *, required: bool) -> DoctorCheck:
@@ -311,6 +391,9 @@ def run_checks(
         _import_check("ruff", required=False),
         _storage_contract_check(),
         _network_posture_check(env),
+        _durability_check(env),
+        _tokenizer_check(),
+        _storage_substrate_check(store),
         _secret_scan_check(secret_scan_root or os.getcwd()),
         _azure_env_check(env),
     ]
@@ -347,11 +430,21 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--store", default=os.environ.get("TRACKER_STORE", "collector_events.jsonl"))
     parser.add_argument("--partitioned-store", action="store_true", help="treat --store as a date/trace partitioned repository root")
     parser.add_argument("--skip-store", action="store_true", help="skip store write/read checks")
+    parser.add_argument(
+        "--secret-scan-root",
+        default=os.getcwd(),
+        help="project directory to scan for credential-shaped values (default: current directory)",
+    )
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--strict-warnings", action="store_true", help="return non-zero when warnings are present")
     args = parser.parse_args(argv)
 
-    checks = run_checks(store=args.store, partitioned_store=args.partitioned_store, skip_store=args.skip_store)
+    checks = run_checks(
+        store=args.store,
+        partitioned_store=args.partitioned_store,
+        skip_store=args.skip_store,
+        secret_scan_root=args.secret_scan_root,
+    )
     failures = sum(1 for item in checks if item.failed)
     warnings = sum(1 for item in checks if item.warned)
     print(_render_json(checks) if args.json else _render_text(checks))

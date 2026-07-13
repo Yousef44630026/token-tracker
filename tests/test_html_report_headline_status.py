@@ -49,15 +49,16 @@ def q(tt, qty, prec, src, add=Additivity.TOTAL_CONTRIBUTING):
 
 def trace_summary_section(html: str) -> str:
     """Return only the Trace Summary <section> markup (not the whole document)."""
-    start = html.find("<h2>Trace Summary</h2>")
-    assert start != -1, "Trace Summary heading present"
+    heading = re.search(r"<h2[^>]*>Trace Summary</h2>", html)
+    assert heading is not None, "Trace Summary heading present"
+    start = heading.start()
     end = html.find("</section>", start)
     return html[start:end]
 
 
 def cell(section: str, key: str) -> str | None:
     """Return the rendered value for a metric row ``key`` inside a section, or None."""
-    match = re.search(rf"<tr><th>{re.escape(key)}</th><td>(.*?)</td></tr>", section)
+    match = re.search(rf"<tr><th[^>]*>{re.escape(key)}</th><td>(.*?)</td></tr>", section)
     return match.group(1) if match else None
 
 

@@ -271,6 +271,11 @@ try:
     threading.Thread(target=anthropic_proxy.serve_forever, daemon=True).start()
     anthropic_url = f"http://127.0.0.1:{anthropic_proxy.server_address[1]}"
     secret_prompt = "SENSITIVE_PROMPT_MARKER"
+    probe_authorization = "Bearer " + "SECRET_" + "PROBE_TOKEN"
+    error_authorization = "Bearer " + "SECRET_" + "ERROR_TOKEN"
+    claude_authorization = "Bearer " + "SECRET_" + "CLAUDE_OAUTH"
+    openai_authorization = "Bearer " + "SECRET_" + "OPENAI_TOKEN"
+
     status, body, _ = post(
         anthropic_url + "/v1/messages?beta=true",
         {
@@ -334,7 +339,7 @@ try:
             "model": "startup-probe",
             "messages": [{"role": "user", "content": "probe"}],
         },
-        {"Authorization": "Bearer SECRET_PROBE_TOKEN"},
+        {"Authorization": probe_authorization},
     )
     check(status == 200 and json.loads(body)["id"] == "probe_test", "successful no-usage probe passes through")
     check(len(anthropic_repo.read_all()) == 1, "successful startup/no-usage traffic is not persisted")
@@ -346,7 +351,7 @@ try:
                 "model": "error-test",
                 "messages": [{"role": "user", "content": "ERROR_SECRET_PROMPT"}],
             },
-            {"Authorization": "Bearer SECRET_ERROR_TOKEN"},
+            {"Authorization": error_authorization},
         )
     except HTTPError as exc:
         check(exc.code == 429, "provider HTTP error passes through with its status")
@@ -371,7 +376,7 @@ try:
             "messages": [{"role": "user", "content": "STREAM_SECRET_PROMPT"}],
             "stream": True,
         },
-        {"Authorization": "Bearer SECRET_CLAUDE_OAUTH"},
+        {"Authorization": claude_authorization},
     )
     check(status == 200 and b"message_delta" in body, "Anthropic SSE passes through")
     check(headers.get_content_type() == "text/event-stream", "Anthropic SSE content type is preserved")
@@ -418,11 +423,11 @@ try:
     status, body, headers = post(
         openai_url + "/v1/responses",
         {"model": "gpt-test", "input": "SENSITIVE_OPENAI_PROMPT", "stream": True},
-        {"Authorization": "Bearer SECRET_OPENAI_TOKEN"},
+        {"Authorization": openai_authorization},
     )
     check(status == 200 and b"response.completed" in body, "OpenAI SSE passes through")
     check(headers.get_content_type() == "text/event-stream", "SSE content type is preserved")
-    check(received[-1]["authorization"] == "Bearer SECRET_OPENAI_TOKEN", "OpenAI auth reaches fake upstream")
+    check(received[-1]["authorization"] == openai_authorization, "OpenAI auth reaches fake upstream")
 
     events = openai_repo.read_all()
     check(len(events) == 1, "OpenAI stream persists one final event")

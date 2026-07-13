@@ -1,8 +1,7 @@
 @echo off
 setlocal enabledelayedexpansion
 
-set "PY=C:\Users\yerabhaoui\python-portable\python.exe"
-if not exist "%PY%" set "PY=python"
+set "PY=%~dp0_python.cmd"
 
 set "ROOT=%~dp0.."
 pushd "%ROOT%" >nul
@@ -21,7 +20,7 @@ call :run tests\test_bedrock_converse_adapter.py
 
 echo.
 echo Provider validation matrix:
-"%PY%" -m tracker.proxy.cli provider-matrix
+call "%PY%" -m tracker.proxy.cli provider-matrix
 if errorlevel 1 set FAIL=1
 
 popd >nul
@@ -38,6 +37,6 @@ exit /b 1
 :run
 echo.
 echo === %~1 ===
-"%PY%" "%~1"
+call "%PY%" "%~1"
 if errorlevel 1 set FAIL=1
 exit /b 0

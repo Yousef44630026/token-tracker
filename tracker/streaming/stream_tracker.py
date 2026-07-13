@@ -22,7 +22,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable
 
 from tracker.context.propagation import TraceContext, current, current_flags
-from tracker.estimation.local_tokenizer import estimate_tokens
+from tracker.estimation.local_tokenizer import estimate_tokens, estimator_backend
 from tracker.models.enums import (
     DataQualityFlag,
     PrecisionLevel,
@@ -52,6 +52,7 @@ class StreamTracker:
         api_surface: str | None = None,
         model: str | None = None,
         estimator: Callable[[str], int] = estimate_tokens,
+        estimator_name: str | None = None,
     ) -> StreamTracker:
         """Create a tracker without manually copying propagated identity fields."""
         return cls(
@@ -66,6 +67,7 @@ class StreamTracker:
             workflow=context.workflow,
             environment=context.environment,
             estimator=estimator,
+            estimator_name=estimator_name,
             context_flags=current_flags() if current() is context else (),
         )
 
@@ -83,6 +85,7 @@ class StreamTracker:
         workflow: str | None = None,
         environment: str | None = None,
         estimator: Callable[[str], int] = estimate_tokens,
+        estimator_name: str | None = None,
         context_flags: Iterable[str] = (),
     ) -> None:
         self.request_correlation_id = request_correlation_id
@@ -97,6 +100,9 @@ class StreamTracker:
         self.environment = environment
         self._context_flags = tuple(context_flags)
         self._estimator = estimator
+        self._estimator_name = estimator_name or (
+            estimator_backend() if estimator is estimate_tokens else getattr(estimator, "__name__", "injected_estimator")
+        )
         self._chunks: list[str] = []
         self._partial: TokenEvent | None = None
         # Latest CUMULATIVE usage the provider reported mid-stream (a floor if interrupted).
@@ -147,7 +153,7 @@ class StreamTracker:
             leading_flags=[*self._context_flags, *flags],
         )
 
-    def _quantity(self, token_type, quantity, precision, source, unknown_reason=None):
+    def _quantity(self, token_type, quantity, precision, source, unknown_reason=None, metadata=None):
         additivity, subtotal_of = assign_additivity(self.provider or "", self.api_surface or "", token_type)
         return TokenQuantity(
             token_type=token_type,
@@ -157,6 +163,7 @@ class StreamTracker:
             additivity=additivity,
             subtotal_of=subtotal_of,
             unknown_reason=unknown_reason,
+            metadata=metadata or {},
         )
 
     def _usage_quantities(self, output_tokens, input_tokens, source, precision):
@@ -224,12 +231,18 @@ class StreamTracker:
         if output_tokens_seen is None:
             output_tokens_seen = self._observed_output
         estimated = self._estimator(self.accumulated_text)
+        estimate_metadata = {
+            "estimator": self._estimator_name,
+            "text_characters": len(self.accumulated_text),
+            "text_estimate_tokens": estimated,
+        }
         if output_tokens_seen is not None and output_tokens_seen > estimated:
             output_q = self._quantity(
                 TokenType.OUTPUT,
                 output_tokens_seen,
                 PrecisionLevel.ESTIMATE,
                 UsageSource.PROVIDER_STREAM_PARTIAL,
+                metadata={**estimate_metadata, "provider_partial_floor_tokens": output_tokens_seen},
             )
         else:
             output_q = self._quantity(
@@ -237,6 +250,7 @@ class StreamTracker:
                 estimated,
                 PrecisionLevel.ESTIMATE,
                 UsageSource.PARTIAL_STREAM_TOKENIZER,
+                metadata=estimate_metadata,
             )
         quantities = [output_q]
         if input_tokens is not None:

@@ -96,6 +96,30 @@ tr2.add_event(
 repo.save(tr2)
 check(len(repo.load().events) == 2, "save overwrites with the latest snapshot")
 
+# --- failed atomic replace preserves the previous valid snapshot ---
+before_failed_replace = repo.load()
+replacement = build_trace()
+replacement.events[0].provider_total_tokens = 999
+original_replace = TraceFileRepository._replace_with_retries
+
+
+def fail_replace(_source, _destination):
+    raise PermissionError("injected replace failure")
+
+
+replace_failed = False
+TraceFileRepository._replace_with_retries = staticmethod(fail_replace)
+try:
+    repo.save(replacement)
+except PermissionError:
+    replace_failed = True
+finally:
+    TraceFileRepository._replace_with_retries = staticmethod(original_replace)
+
+check(replace_failed, "atomic replace failure is surfaced")
+check(repo.load() == before_failed_replace, "failed replace preserves the previous valid snapshot")
+check(glob.glob(os.path.join(work, ".trace-*")) == [], "failed replace cleans its temporary file")
+
 # --- unsupported schema_version -> ValueError ---
 bad_path = os.path.join(work, "bad.json")
 with open(bad_path, "w", encoding="utf-8") as f:

@@ -20,17 +20,12 @@ ai-token-tracker-azure-smoke = "tracker.ops.azure_smoke:main"
 
 [project.optional-dependencies]
 # Dev toolchain. Tests are plain runnable scripts under tests/ (no pytest required
-# for the local gate); ruff + black are the lint gate run by tests/run_all.py.
-dev = ["pytest>=8", "ruff>=0.5", "black>=24"]
+# for the local gate); Ruff is the lint gate run by tests/run_all.py.
+dev = ["pytest>=8", "ruff>=0.5"]
 proxy = ["tiktoken>=0.7"]
 
 [tool.setuptools.packages.find]
 include = ["tracker*", "api*"]
-
-# black must match ruff's line-length or the two tools fight; run_all.py runs both.
-[tool.black]
-line-length = 140
-target-version = ["py311"]
 
 [tool.ruff]
 line-length = 140

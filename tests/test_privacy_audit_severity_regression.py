@@ -63,12 +63,14 @@ check(
     "azure_key_shaped finding has secret severity",
 )
 
-r4 = audit_payload({"debug_note": "AKIAIOSFODNN7EXAMPLE"})
+fake_aws_access_key_id = "AKIA" + "IOSFODNN7EXAMPLE"
+r4 = audit_payload({"debug_note": fake_aws_access_key_id})
 check(r4["passed"] is False, f"FIXED: an AWS access key ID is now detected (got passed={r4['passed']})")
 check(any(f["detail"] == "aws_access_key_id" for f in r4["findings"]), "aws_access_key_id finding is present")
 
 # --- a genuine secret must still fail (unchanged behavior) ---
-r5 = audit_payload({"authorization": "Bearer abc123.def456~ghi789"})
+fake_bearer_token = "Bearer " + "abc123." + "def456~ghi789"
+r5 = audit_payload({"authorization": fake_bearer_token})
 check(r5["passed"] is False, "a real bearer-token-shaped value still fails the audit")
 
 print("\nRESULT:", "all checks passed" if _failures == 0 else f"{_failures} FAILURE(S)")

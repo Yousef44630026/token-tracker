@@ -7,8 +7,9 @@ Ce fichier est notre **canal de communication** (il n'y a pas de chat direct ent
 ## Règles dures (NE PAS violer)
 1. **La suite doit rester 100 % verte.** Lancer après chaque tâche :
    `& "C:\Users\yerabhaoui\python-portable\python.exe" tests\test_*.py` (chaque test imprime `[PASS]/[FAIL]`, exit≠0 si échec).
-2. **Pas de vraies credentials, pas de vrais appels payants.** Tout en **fixtures SIMULÉES**,
-   marquées `_SIMULATED: true` + `_warning`, fidèles aux **formats documentés** du provider.
+2. **Aucun credential réel dans le dépôt.** Les appels payants exigent une demande utilisateur
+   explicite et passent par un harness live budgété. Les captures qui deviennent des fixtures
+   sont redacted, marquées `REAL`, et ne contiennent ni prompt brut ni identifiant secret.
 3. **Fail-closed.** Tout nouveau couple `(provider, token_type)` non enregistré dans
    `tracker/normalization/additivity.py` doit rester `unverified` (contribue 0 + flag) tant
    qu'il n'est pas vérifié. Enregistrer explicitement avant de compter.
@@ -19,6 +20,8 @@ Ce fichier est notre **canal de communication** (il n'y a pas de chat direct ent
    `event_contributing_tokens` et (si un total provider existe) `event_total_mismatch == 0`.
 6. **Une zone à la fois** pour éviter les collisions Claude↔Codex. Si tu touches un fichier
    « cœur » (normalizer, additivity, models), note-le dans la section JOURNAL ci-dessous.
+7. **Ruff est l’unique gate lint/style actuelle.** Les mentions de Black dans l’ancien journal
+   décrivent l’historique du projet et ne sont plus des instructions actives.
 
 ## Protocole
 - Codex : prends la 1ʳᵉ tâche `[ ]`, implémente, lance la suite, passe-la à `[x]` avec une

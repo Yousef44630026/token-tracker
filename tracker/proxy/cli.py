@@ -8,7 +8,7 @@ import os
 import subprocess
 import sys
 import threading
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 from tracker.analytics.provider_validation import (
@@ -79,7 +79,20 @@ def _print_event(event: TokenEvent) -> None:
     )
 
 
-def _parser() -> argparse.ArgumentParser:
+def _environment_flag(environment: Mapping[str, str], name: str, *, default: bool) -> bool:
+    raw = environment.get(name)
+    if raw is None or not raw.strip():
+        return default
+    normalized = raw.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    raise ValueError(f"{name} must be one of: true, false, 1, 0, yes, no, on, off")
+
+
+def _parser(environment: Mapping[str, str] | None = None) -> argparse.ArgumentParser:
+    env = os.environ if environment is None else environment
     parser = argparse.ArgumentParser(description="Compare TokenTap-style prompt estimates with exact provider usage")
     subcommands = parser.add_subparsers(dest="mode", required=True)
 
@@ -98,9 +111,15 @@ def _parser() -> argparse.ArgumentParser:
                 "fallback adapter (real counts kept, unverified, contributing 0 until verified)"
             ),
         )
-        command_parser.add_argument("--store", default="real_call_events.jsonl")
-        command_parser.add_argument("--host", default="127.0.0.1")
-        command_parser.add_argument("--port", type=int, default=default_port)
+        command_parser.add_argument("--store", default=env.get("TRACKER_PROXY_STORE", "real_call_events.jsonl"))
+        command_parser.add_argument("--host", default=env.get("TRACKER_PROXY_HOST", "127.0.0.1"))
+        command_parser.add_argument("--port", type=int, default=env.get("TRACKER_PROXY_PORT", str(default_port)))
+        command_parser.add_argument(
+            "--durable",
+            action=argparse.BooleanOptionalAction,
+            default=_environment_flag(env, "TRACKER_PROXY_DURABLE", default=True),
+            help="fsync recorded events before acknowledging persistence (default: enabled)",
+        )
         command_parser.add_argument("--upstream")
         command_parser.add_argument("--timeout", type=float, default=300.0)
         command_parser.add_argument(
@@ -806,7 +825,7 @@ def _run_prompt_suite(args: argparse.Namespace) -> int:
     if not args.dry_run and not command:
         raise SystemExit("prompt-suite requires a command after '--'")
 
-    repository = FileRepository(args.store)
+    repository = FileRepository(args.store, durable=args.durable)
     live_usage = _live_usage_tracker(args, repository)
     if live_usage is not None:
         print(live_usage.render(), flush=True)
@@ -957,7 +976,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.mode == "codex-suite":
         return _run_codex_suite(args)
 
-    repository = FileRepository(args.store)
+    repository = FileRepository(args.store, durable=args.durable)
     live_usage = _live_usage_tracker(args, repository)
     if live_usage is not None:
         print(live_usage.render(), flush=True)

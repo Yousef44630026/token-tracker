@@ -64,11 +64,12 @@ clean_result = audit_store(clean_path, prompts_path="SCENARIO_PROMPTS.md")
 check(clean_result["passed"] is True, "clean event store passes privacy audit")
 check(clean_result["prompt_count"] == 12, "privacy audit checks all scenario prompts")
 
+fake_authorization = "Bearer " + "SECRET_TOKEN_" + "SHOULD_NOT_BE_STORED"
 with open(bad_path, "w", encoding="utf-8") as handle:
     handle.write(
         json.dumps(
             {
-                "authorization": "Bearer SECRET_TOKEN_SHOULD_NOT_BE_STORED",
+                "authorization": fake_authorization,
                 "raw_prompt": prompt.prompt,
             }
         )

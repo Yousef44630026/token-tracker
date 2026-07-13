@@ -1,5 +1,16 @@
 # Claude Code Deployment Prompt — AI Token Tracker (Architecture v8)
 
+## Current repository decisions
+
+The embedded bootstrap prompt below remains the architectural origin, with these binding
+updates for the current repository:
+
+- Ruff is the only lint/style gate. Black is intentionally not a dependency or CI gate.
+- JSONL remains the sole event source of truth. A disposable SQLite event-id index is
+  permitted only as a reconstructible acceleration structure and never stores accounting
+  totals or replaces the JSONL ledger.
+- Current CI must run the six named falsifying invariants plus the complete non-live suite.
+
 ## How to use
 1. Create an empty (or to-be-replaced) folder for the project.
 2. Optional but recommended: drop `ai_token_tracker_architecture_v8.md` into it as the source of truth.
@@ -28,9 +39,10 @@ PRE-FLIGHT — do this first, then STOP and wait for me to type "go"
 =====================================================================
 HARD CONSTRAINTS (never violate)
 =====================================================================
-- Language: Python 3.11+. Use dataclasses, full type hints, pytest, ruff, black. Excel via openpyxl.
-- FROM SCRATCH: no OpenTelemetry, Langfuse, Datadog, LangSmith, Helicone, or any observability SDK. Standard library + pytest/ruff/black + provider SDKs (for capturing test fixtures only).
-- NO SQL / no database / no ORM. Storage is JSONL + CSV files, exported to Excel.
+- Language: Python 3.11+. Use dataclasses, full type hints, pytest, and Ruff. Excel via openpyxl.
+- FROM SCRATCH: no OpenTelemetry, Langfuse, Datadog, LangSmith, Helicone, or any observability SDK. Standard library + pytest/Ruff + provider SDKs (for capturing test fixtures only).
+- Event storage is JSONL, exported to CSV/Excel. SQL/ORM accounting storage is forbidden;
+  a disposable, reconstructible SQLite event-id index is allowed for partition lookup only.
 - NO pricing logic anywhere.
 - No localStorage/sessionStorage-style hacks, no fabricated provider fields, no invented token counts.
 
@@ -116,7 +128,7 @@ DATA-QUALITY FLAGS — each has exactly ONE producer:
 WORKING METHOD (strict)
 =====================================================================
 - Test-first, red-green. Each phase: write the failing test(s) FIRST, run them (must fail for the right reason),
-  implement to green, then run ruff + black.
+  implement to green, then run Ruff.
 - Build strictly in phase order. Do NOT start a phase until the previous phase's tests are green.
 - At the END of each phase: run the full suite, print a short summary (built / passing / failing), and STOP.
   Wait for me to type "next" before the following phase. Do not run multiple phases without stopping.
@@ -152,7 +164,7 @@ ai-token-tracker/
 =====================================================================
 PHASES — each ends with a STOP-and-report gate
 =====================================================================
-PHASE 0 — Scaffold: the structure above, pyproject.toml (pytest/ruff/black config), empty modules,
+PHASE 0 — Scaffold: the structure above, pyproject.toml (pytest/Ruff config), empty modules,
   README stub. No logic. STOP.
 
 PHASE 1 — Context propagation (HIGHEST RISK). Implement async/thread-safe propagation + cross-service headers
@@ -234,7 +246,7 @@ ANTI-PATTERNS — if you catch yourself doing any of these, stop and fix
 =====================================================================
 DEFINITION OF DONE
 =====================================================================
-All tests green; ruff + black clean; README documents how to run the suite, the storage/derived boundary,
+All tests green; Ruff clean; README documents how to run the suite, the storage/derived boundary,
 and the six core falsifying tests (additivity_no_double_count, event_grain_no_double_count,
 storage_no_stored_derived_fields, stream_supersession_no_double_count, export_totals_match_model,
 plus the context-propagation harness). Print a final per-phase coverage summary.

@@ -1,8 +1,7 @@
 """Persistence for a complete Trace, including spans and events.
 
-Uses atomic replace where the filesystem allows it. Some managed Windows/OneDrive folders let
-Python write files but deny rename/delete of temporary files; those environments fall back to a
-single durable write so trace snapshots remain usable instead of failing mid-observation.
+Every platform writes and fsyncs a same-directory temporary file before an atomic replace.
+If replacement fails, the previous snapshot remains untouched and valid.
 """
 
 from __future__ import annotations
@@ -34,11 +33,6 @@ class TraceFileRepository:
             "trace": trace.to_dict(),
         }
         with self._lock:
-            if os.name == "nt":
-                self._write_payload(self.path, payload)
-                self._sync_parent_directory()
-                return
-
             temporary_path: str | None = None
             try:
                 temporary_path = os.path.join(self._parent, f".trace-{os.getpid()}-{uuid.uuid4().hex}.tmp")

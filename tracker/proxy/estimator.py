@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any
 
-from tracker.estimation.local_tokenizer import estimate_tokens
+from tracker.estimation.local_tokenizer import estimate_tokens, estimate_with_metadata
 
 TokenCounter = Callable[[str], int]
 
@@ -159,14 +159,8 @@ def extract_latest_user_text(
 
 @lru_cache(maxsize=1)
 def _tokentap_counter() -> tuple[TokenCounter, str]:
-    try:
-        import tiktoken
-
-        encoding = tiktoken.get_encoding("cl100k_base")
-    except Exception:  # noqa: BLE001 - estimation must never block the provider call
-        return estimate_tokens, "tracker_char4_fallback"
-
-    return lambda text: len(encoding.encode(text)), "tokentap_cl100k_base"
+    estimate = estimate_with_metadata("")
+    return estimate_tokens, estimate.estimator
 
 
 def estimate_prompt(

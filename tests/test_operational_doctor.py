@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import sys
 import uuid
 from contextlib import redirect_stdout
@@ -18,8 +19,14 @@ from tests._harness import make_checker  # noqa: E402
 from tracker.models.enums import Additivity, PrecisionLevel, TokenType, UsageSource  # noqa: E402
 from tracker.models.token_event import TokenEvent  # noqa: E402
 from tracker.models.token_quantity import TokenQuantity  # noqa: E402
+from tracker.ops.doctor import (  # noqa: E402
+    _durability_check,
+    _python_check,
+    _storage_substrate_check,
+    _tokenizer_check,
+    run_checks,
+)
 from tracker.ops.doctor import main as doctor_main  # noqa: E402
-from tracker.ops.doctor import run_checks  # noqa: E402
 from tracker.storage.file_repository import FileRepository, PartitionedFileRepository  # noqa: E402
 
 check = make_checker()
@@ -51,10 +58,30 @@ missing_store = os.path.join(root, "missing.jsonl")
 missing = run_checks(store=missing_store)
 by_name = {item.name: item for item in missing}
 check(by_name["python"].status == "pass", "doctor checks supported Python")
+check(_python_check((3, 10, 99)).status == "fail", "doctor rejects Python below the declared 3.11 minimum")
+check(_python_check((3, 11, 0)).status == "pass", "doctor accepts the minimum supported Python")
 check(by_name["storage-contract"].status == "pass", "doctor verifies source/derived storage contract")
 check(by_name["store-writable"].status == "pass", "doctor verifies store directory writability")
 check(by_name["store-read"].status == "warn", "missing store is a warning, not a failure")
 check(by_name["azure-openai-env"].status == "info", "missing Azure/Foundry env is informational")
+check(by_name["durable-persistence"].status == "pass", "durable persistence is the operational default")
+check(_tokenizer_check().status in {"pass", "warn"}, "doctor discloses the active tokenizer backend")
+check(
+    _storage_substrate_check(r"C:\Users\operator\OneDrive\tracker\events.jsonl").status == "warn",
+    "doctor warns when the append-only store is inside OneDrive",
+)
+check(
+    _storage_substrate_check(r"D:\tracker-data\events.jsonl").status == "pass",
+    "doctor accepts a non-synced local store path",
+)
+check(
+    _durability_check({"TRACKER_DURABLE": "false"}).status == "warn",
+    "doctor warns when collector durability is explicitly disabled",
+)
+check(
+    _durability_check({"TRACKER_PROXY_DURABLE": "sometimes"}).status == "fail",
+    "doctor fails invalid durability configuration",
+)
 
 foundry_checks = run_checks(
     store=missing_store,
@@ -129,15 +156,18 @@ corrupt_checks = run_checks(store=corrupt)
 check({item.name: item for item in corrupt_checks}["store-read"].status == "fail", "corrupt JSONL store fails readiness")
 
 buffer = StringIO()
+clean_scan_root = os.path.join(root, "clean-scan")
+os.makedirs(clean_scan_root, exist_ok=True)
 with redirect_stdout(buffer):
-    exit_code = doctor_main(["--store", store, "--json"])
+    exit_code = doctor_main(["--store", store, "--secret-scan-root", clean_scan_root, "--json"])
 payload = json.loads(buffer.getvalue())
 check(exit_code == 0, "doctor CLI exits 0 for ready store")
 check(payload["passed"] is True and payload["failure_count"] == 0, "doctor JSON reports passed")
 
 buffer = StringIO()
 with redirect_stdout(buffer):
-    exit_code = doctor_main(["--store", corrupt])
+    exit_code = doctor_main(["--store", corrupt, "--secret-scan-root", clean_scan_root])
 check(exit_code == 1, "doctor CLI exits non-zero for corrupt store")
 
+shutil.rmtree(root, ignore_errors=True)
 sys.exit(check.report("RESULT test_operational_doctor"))

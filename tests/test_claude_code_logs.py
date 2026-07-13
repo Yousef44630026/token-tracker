@@ -11,6 +11,7 @@ lines, and supports incremental (snapshot-based) import.
 
 import json
 import os
+import shutil
 import sys
 import uuid
 
@@ -18,6 +19,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from tracker.proxy.claude_code_logs import (  # noqa: E402
     import_new_claude_code_events,
+    import_new_claude_code_events_with_report,
     snapshot_sessions,
 )
 
@@ -78,7 +80,7 @@ lines = [
 with open(session_path, "w", encoding="utf-8") as f:
     f.write("\n".join(lines) + "\n")
 
-events = import_new_claude_code_events(claude_home=home)
+events, report = import_new_claude_code_events_with_report(claude_home=home)
 
 # --- THE core guarantee: one requestId (3 duplicated lines) -> exactly ONE event ---
 check(len(events) == 2, f"3 duplicated req-1 lines + 1 req-2 line -> exactly 2 events (got {len(events)})")
@@ -103,6 +105,11 @@ check(turn2.event_contributing_tokens == 70, "req-2 contributes 50 + 0 + 0 + 20 
 
 total = sum(e.event_contributing_tokens for e in events)
 check(total == 2370, f"grand total is 2300 + 70 == 2370, not inflated by duplicate lines (got {total})")
+check(report.session_files_discovered == 1 and report.files_scanned == 1, "import report counts discovered and scanned sessions")
+check(report.usage_objects == 5 and report.duplicate_request_ids == 2, "import report quantifies repeated usage objects")
+check(report.missing_request_ids == 1 and report.events_imported == 2, "import report quantifies excluded and imported usage")
+check(report.malformed_json_lines == 1, "import report exposes malformed transcript lines")
+check(report.format_drift_suspected is False, "healthy transcript does not trip the format-drift canary")
 
 # --- non-assistant / malformed / no-usage / no-requestId lines never produce an event ---
 check(all(e.span_id not in ("claude-code-req-3", "claude-code-req-4") for e in events), "user/no-usage lines produce no event")
@@ -116,5 +123,19 @@ with open(session_path, "a", encoding="utf-8") as f:
 incremental = import_new_claude_code_events(before=before, claude_home=home)
 check(len(incremental) == 1 and incremental[0].event_contributing_tokens == 15, "incremental import returns only the newly appended turn")
 
+drift_home = os.path.join(home, "drift")
+drift_project = os.path.join(drift_home, "projects", "project")
+os.makedirs(drift_project, exist_ok=True)
+with open(os.path.join(drift_project, "session.jsonl"), "w", encoding="utf-8") as handle:
+    handle.write(usage_line("req-drift", None) + "\n")
+drift_events, drift_report = import_new_claude_code_events_with_report(claude_home=drift_home)
+check(drift_events == [], "assistant records without usage do not fabricate events")
+check(
+    drift_report.format_drift_suspected
+    and "assistant_records_without_usage_objects" in drift_report.warnings,
+    "import canary surfaces a likely Claude transcript format drift",
+)
+
 print("\nRESULT:", "all checks passed" if _failures == 0 else f"{_failures} FAILURE(S)")
+shutil.rmtree(home, ignore_errors=True)
 sys.exit(1 if _failures else 0)

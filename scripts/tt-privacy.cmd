@@ -1,17 +1,17 @@
 @echo off
 setlocal
 
-set "PROXY=C:\Users\yerabhaoui\python-portable\Scripts\ai-token-tracker-proxy.exe"
+set "PY=%~dp0_python.cmd"
+set "ROOT=%~dp0.."
 set "STORE=%~1"
 set "PROMPTS=%~2"
 
 if "%STORE%"=="" set "STORE=codex_live.jsonl"
-if "%PROMPTS%"=="" set "PROMPTS=CODEX_VARIED_TESTS.md"
+if "%PROMPTS%"=="" set "PROMPTS=SCENARIO_PROMPTS.md"
 
-if not exist "%PROXY%" (
-  echo ai-token-tracker-proxy.exe not found at:
-  echo %PROXY%
-  exit /b 1
-)
+pushd "%ROOT%" >nul
+"%PY%" -m tracker.proxy.cli privacy-audit --store "%STORE%" --prompts "%PROMPTS%"
+set "CODE=%ERRORLEVEL%"
 
-"%PROXY%" privacy-audit --store "%STORE%" --prompts "%PROMPTS%"
+popd >nul
+exit /b %CODE%

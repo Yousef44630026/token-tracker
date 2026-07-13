@@ -30,6 +30,18 @@
       box-sizing: border-box;
     }
 
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+
     body {
       margin: 0;
       min-height: 100vh;
@@ -6716,6 +6728,7 @@ fallback_identity = provider_request_id + trace_id + span_id + api_surface</div>
         <button type="button" id="printBtn">Print</button>
       </div>
     </footer>
+    <p id="slideAnnouncement" class="sr-only" aria-live="polite" aria-atomic="true"></p>
   </div>
 
   <script>
@@ -6736,6 +6749,7 @@ fallback_identity = provider_request_id + trace_id + span_id + api_surface</div>
     const tocSearch = document.getElementById("tocSearch");
     const tocSlideCount = document.getElementById("tocSlideCount");
     const tocMatchCount = document.getElementById("tocMatchCount");
+    const slideAnnouncement = document.getElementById("slideAnnouncement");
     const sectionDefinitions = [
       {
         marker: "Architecture Presentation",
@@ -6861,6 +6875,41 @@ fallback_identity = provider_request_id + trace_id + span_id + api_surface</div>
       return heading ? heading.textContent.trim() : "";
     }
 
+    function focusSlideHeading(slide) {
+      const focusTarget = slide.querySelector("h1, h2") || slide;
+      focusTarget.setAttribute("tabindex", "-1");
+      try {
+        focusTarget.focus({ preventScroll: true });
+      } catch (error) {
+        focusTarget.focus();
+      }
+    }
+
+    function isInteractiveOrEditable(target) {
+      if (!(target instanceof Element)) {
+        return false;
+      }
+      return Boolean(target.closest([
+        "a[href]",
+        "button",
+        "input",
+        "select",
+        "textarea",
+        "summary",
+        "[contenteditable]:not([contenteditable='false'])",
+        "[role='button']",
+        "[role='combobox']",
+        "[role='link']",
+        "[role='listbox']",
+        "[role='menuitem']",
+        "[role='slider']",
+        "[role='spinbutton']",
+        "[role='switch']",
+        "[role='tab']",
+        "[role='textbox']"
+      ].join(", ")));
+    }
+
     function textNode(tag, className, text) {
       const element = document.createElement(tag);
       if (className) {
@@ -6974,7 +7023,9 @@ fallback_identity = provider_request_id + trace_id + span_id + api_surface</div>
     function showSlide(nextIndex, options = {}) {
       index = Math.max(0, Math.min(slides.length - 1, nextIndex));
       slides.forEach((slide, i) => {
-        slide.classList.toggle("active", i === index);
+        const isActive = i === index;
+        slide.classList.toggle("active", isActive);
+        slide.setAttribute("aria-hidden", String(!isActive));
       });
       current.textContent = String(index + 1);
       progress.style.width = `${((index + 1) / slides.length) * 100}%`;
@@ -6986,6 +7037,12 @@ fallback_identity = provider_request_id + trace_id + span_id + api_surface</div>
         if (window.location.hash !== nextHash) {
           window.history.replaceState(null, "", nextHash);
         }
+      }
+      const activeSlide = slides[index];
+      const announcementLabel = slideHeading(activeSlide) || slideEyebrow(activeSlide);
+      slideAnnouncement.textContent = `Slide ${index + 1} of ${slides.length}: ${announcementLabel}`;
+      if (options.focusHeading) {
+        focusSlideHeading(activeSlide);
       }
     }
 
@@ -7012,7 +7069,7 @@ fallback_identity = provider_request_id + trace_id + span_id + api_surface</div>
           button.appendChild(textNode("span", "section-card-title", group.shortName));
           button.appendChild(textNode("span", "section-card-desc", group.description));
           button.appendChild(textNode("span", "section-card-meta", `${group.items.length} slides - starts at slide ${group.items[0].index + 1}`));
-          button.addEventListener("click", () => showSlide(group.items[0].index));
+          button.addEventListener("click", () => showSlide(group.items[0].index, { focusHeading: true }));
           sectionMap.appendChild(button);
         });
       }
@@ -7050,7 +7107,7 @@ fallback_identity = provider_request_id + trace_id + span_id + api_surface</div>
 
           link.addEventListener("click", (event) => {
             event.preventDefault();
-            showSlide(item.index);
+            showSlide(item.index, { focusHeading: true });
           });
 
           groupElement.appendChild(link);
@@ -7091,14 +7148,14 @@ fallback_identity = provider_request_id + trace_id + span_id + api_surface</div>
       }
     }
 
-    prevBtn.addEventListener("click", () => showSlide(index - 1));
-    nextBtn.addEventListener("click", () => showSlide(index + 1));
+    prevBtn.addEventListener("click", () => showSlide(index - 1, { focusHeading: true }));
+    nextBtn.addEventListener("click", () => showSlide(index + 1, { focusHeading: true }));
     printBtn.addEventListener("click", () => window.print());
     if (tocBtn) {
       tocBtn.addEventListener("click", () => {
         const tocIndex = slides.findIndex((slide) => slide.dataset.nav === "toc");
         if (tocIndex >= 0) {
-          showSlide(tocIndex);
+          showSlide(tocIndex, { focusHeading: true });
         }
       });
     }
@@ -7109,7 +7166,7 @@ fallback_identity = provider_request_id + trace_id + span_id + api_surface</div>
       sectionSelect.addEventListener("change", () => {
         const group = sectionGroups.find((candidate) => candidate.name === sectionSelect.value);
         if (group && group.items.length > 0) {
-          showSlide(group.items[0].index);
+          showSlide(group.items[0].index, { focusHeading: true });
         }
       });
     }
@@ -7118,7 +7175,7 @@ fallback_identity = provider_request_id + trace_id + span_id + api_surface</div>
         const groupIndex = currentSectionIndex();
         const previousGroup = sectionGroups[groupIndex - 1];
         if (previousGroup) {
-          showSlide(previousGroup.items[0].index);
+          showSlide(previousGroup.items[0].index, { focusHeading: true });
         }
       });
     }
@@ -7127,7 +7184,7 @@ fallback_identity = provider_request_id + trace_id + span_id + api_surface</div>
         const groupIndex = currentSectionIndex();
         const nextGroup = sectionGroups[groupIndex + 1];
         if (nextGroup) {
-          showSlide(nextGroup.items[0].index);
+          showSlide(nextGroup.items[0].index, { focusHeading: true });
         }
       });
     }
@@ -7138,27 +7195,36 @@ fallback_identity = provider_request_id + trace_id + span_id + api_surface</div>
           return slideEyebrow(slide) === target;
         });
         if (targetIndex >= 0) {
-          showSlide(targetIndex);
+          showSlide(targetIndex, { focusHeading: true });
         }
       });
     });
 
     window.addEventListener("keydown", (event) => {
+      if (
+        event.defaultPrevented ||
+        event.altKey ||
+        event.ctrlKey ||
+        event.metaKey ||
+        isInteractiveOrEditable(event.target)
+      ) {
+        return;
+      }
       if (event.key === "ArrowRight" || event.key === "PageDown" || event.key === " ") {
         event.preventDefault();
-        showSlide(index + 1);
+        showSlide(index + 1, { focusHeading: true });
       }
       if (event.key === "ArrowLeft" || event.key === "PageUp") {
         event.preventDefault();
-        showSlide(index - 1);
+        showSlide(index - 1, { focusHeading: true });
       }
       if (event.key === "Home") {
         event.preventDefault();
-        showSlide(0);
+        showSlide(0, { focusHeading: true });
       }
       if (event.key === "End") {
         event.preventDefault();
-        showSlide(slides.length - 1);
+        showSlide(slides.length - 1, { focusHeading: true });
       }
     });
 

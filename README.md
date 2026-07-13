@@ -158,15 +158,14 @@ scripts\tt-azure-smoke.cmd --dry-run --json
 
 ### Local check suite
 
-Run the no-Black local gate with:
+Run the local gate with:
 
 ```console
 scripts\tt-check.cmd
 ```
 
 It runs Ruff plus the core storage/accounting, Azure adapter, smoke harness, proxy, API,
-Power BI, collector rejection, invalid-row tolerance, and deep fuzz regressions. It
-intentionally does not run Black.
+Power BI, collector rejection, invalid-row tolerance, and deep fuzz regressions.
 
 ### Thread pools
 
@@ -244,6 +243,11 @@ Install the optional tokenizer to reproduce TokenTap's `cl100k_base` measurement
 ```console
 pip install -e ".[proxy]"
 ```
+
+Keep the live append-only event store on a non-synced local volume. OneDrive, Dropbox, and
+Google Drive can hold exported copies, but should not own the JSONL ledger or its lock/index
+sidecars. `tt-doctor` reports the active tokenizer backend and warns when the configured
+store resolves inside a recognized sync folder.
 
 Run Claude Code through the proxy and save events to JSONL:
 
@@ -385,8 +389,7 @@ For Codex/Claude smoke suites used during live testing, see `CODEX_VARIED_TESTS.
 
 ## Running tests (this environment)
 
-`pytest`/`ruff`/`black` are not installed and installs are disabled, so tests run as
-plain scripts with the portable Python:
+Tests run as plain scripts with the configured Python:
 
 ```
 & "C:\Users\yerabhaoui\python-portable\python.exe" tests\run_all.py

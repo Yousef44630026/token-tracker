@@ -610,7 +610,7 @@ For the strictest local release, run:
 %PY% tests\run_all.py
 ```
 
-The strictest run may report skipped lint tooling if `ruff` or `black` are not installed in the current interpreter.
+The strictest run reports a visible lint skip if Ruff is not installed in the current interpreter.
 
 ## Current Known Validation Gaps
 

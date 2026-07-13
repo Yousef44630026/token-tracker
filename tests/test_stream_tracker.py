@@ -61,6 +61,11 @@ check(pq.token_type == TokenType.OUTPUT, "interrupted: token_type stays 'output'
 check(pq.precision_level == PrecisionLevel.ESTIMATE, "interrupted: output is ESTIMATE")
 check(pq.usage_source == UsageSource.PARTIAL_STREAM_TOKENIZER, "interrupted: source is partial_stream_tokenizer")
 check(pq.quantity is not None and pq.quantity > 0, "interrupted: a positive estimated quantity")
+check(
+    pq.metadata.get("estimator") in {"tokentap_cl100k_base", "tracker_char4_fallback"},
+    "interrupted: estimator backend is persisted",
+)
+check(pq.metadata.get("text_characters") == len("partial answer so far"), "interrupted: estimate input size is auditable")
 check("partial_stream_estimate" in partial.data_quality_flags, "interrupted: partial_stream_estimate flag")
 check("stream_interrupted" in partial.data_quality_flags, "interrupted: stream_interrupted flag")
 

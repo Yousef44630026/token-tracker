@@ -4,24 +4,20 @@ from __future__ import annotations
 
 import argparse
 import os
+import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 
 def _run_lint_gate(repo_root: Path, environment: dict) -> list[str]:
-    """Run ruff + black --check over the repo. Returns a list of failure labels.
+    """Run Ruff over the repository and return failure labels.
 
-    CLAUDE.md requires ruff+black clean after every phase, but nothing enforced that
-    automatically — it depended on remembering to run them by hand. If either tool isn't
-    installed in this interpreter, that is reported as a skip (not a silent pass), so the
-    gap stays visible instead of quietly not protecting anything.
+    A missing Ruff installation is reported as a visible skip instead of a silent pass.
     """
     failures: list[str] = []
-    for label, cmd in (
-        ("ruff", [sys.executable, "-m", "ruff", "check", "."]),
-        ("black --check", [sys.executable, "-m", "black", "--check", "."]),
-    ):
+    for label, cmd in (("ruff", [sys.executable, "-m", "ruff", "check", "."]),):
         print(f"\n=== lint: {label} ===")
         try:
             result = subprocess.run(cmd, cwd=repo_root, env=environment, check=False)
@@ -43,11 +39,38 @@ def _module_missing(python: str, module: str, environment: dict) -> bool:
     return probe.returncode != 0
 
 
+def _test_artifacts(repo_root: Path) -> set[Path]:
+    return {path.resolve() for path in repo_root.glob(".test_*")}
+
+
+def _cleanup_new_test_artifacts(repo_root: Path, baseline: set[Path]) -> list[str]:
+    """Remove only artifacts created after this run started."""
+    failures: list[str] = []
+    root = repo_root.resolve()
+    for path in sorted(_test_artifacts(repo_root) - baseline):
+        if path.parent != root:
+            failures.append(f"outside-root:{path}")
+            continue
+        for attempt in range(5):
+            try:
+                if path.is_dir():
+                    shutil.rmtree(path)
+                else:
+                    path.unlink(missing_ok=True)
+                break
+            except OSError:
+                if attempt == 4:
+                    failures.append(str(path.relative_to(root)))
+                else:
+                    time.sleep(0.05 * (attempt + 1))
+    return failures
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--pattern", default="test_*.py")
     parser.add_argument("--include-live", action="store_true")
-    parser.add_argument("--skip-lint", action="store_true", help="skip the ruff/black gate")
+    parser.add_argument("--skip-lint", action="store_true", help="skip the Ruff gate")
     args = parser.parse_args()
 
     tests_dir = Path(__file__).resolve().parent
@@ -58,6 +81,7 @@ def main() -> int:
 
     environment = dict(os.environ)
     environment["PYTHONDONTWRITEBYTECODE"] = "1"
+    artifact_baseline = _test_artifacts(repo_root)
     failures: list[str] = []
     if not args.skip_lint:
         failures.extend(_run_lint_gate(repo_root, environment))
@@ -66,6 +90,8 @@ def main() -> int:
         result = subprocess.run([sys.executable, str(test)], env=environment, check=False)
         if result.returncode:
             failures.append(str(test.relative_to(tests_dir)))
+        cleanup_failures = _cleanup_new_test_artifacts(repo_root, artifact_baseline)
+        failures.extend(f"cleanup:{test.name}:{path}" for path in cleanup_failures)
 
     print(f"\nExecuted {len(tests)} test scripts + lint gate; failures: {len(failures)}")
     if failures:
