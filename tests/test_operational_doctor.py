@@ -134,6 +134,14 @@ local_secret_checks = run_checks(store=missing_store, skip_store=True, environme
 local_secret_scan = {item.name: item for item in local_secret_checks}["secret-scan"]
 check(local_secret_scan.status == "warn", "doctor warns, not fails, for ignored local .env secrets")
 
+empty_store = os.path.join(root, "empty.jsonl")
+with open(empty_store, "w", encoding="utf-8"):
+    pass
+empty_checks = run_checks(store=empty_store)
+empty_store_read = {item.name: item for item in empty_checks}["store-read"]
+check(empty_store_read.status == "pass", "initialized empty JSONL store passes readiness")
+check(empty_store_read.data["event_count"] == 0, "doctor reports zero events for an empty store")
+
 store = os.path.join(root, "events.jsonl")
 FileRepository(store).append(event("evt-1"))
 valid = run_checks(store=store)

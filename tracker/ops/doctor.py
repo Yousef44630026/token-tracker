@@ -235,15 +235,14 @@ def _store_check(path: str, *, partitioned: bool) -> DoctorCheck:
     except Exception as exc:  # noqa: BLE001 - doctor should report readiness, not crash
         return _check("store-read", "fail", f"store cannot be read cleanly: {type(exc).__name__}: {exc}", path=str(target))
     count = coverage["event_count"] + coverage["excluded_event_count"]
-    status = "pass" if count else "warn"
     detail = (
         f"read {count} events; observed_total={coverage['observed_total_contributing_tokens']}"
         if count
-        else "store is readable but contains no events"
+        else "store is initialized, readable, and contains no events yet"
     )
     return _check(
         "store-read",
-        status,
+        "pass",
         detail,
         path=str(target),
         partitioned=partitioned,
