@@ -8,6 +8,7 @@ expects. Built on ``http.server`` only — per the hard constraint, no FastAPI/F
 Routes:
     GET  /healthz      -> {"status": "ok"}
     GET  /v1/stats     -> {"events": N, "total": T, "traces": {trace_id: total}}
+    GET  /v1/stats?summary=1 -> cached {"events": N, "total": T}
     POST /v1/events    -> body is one event dict or a list; returns
                           {"acked": [event_ids], "rejected": count}.
                           Malformed JSON -> 400; a malformed item inside a batch is skipped
@@ -32,7 +33,7 @@ from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 from urllib import request as urllib_request
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 # Direct-script compatibility only; installed/imported usage does not mutate sys.path.
 if __package__ in (None, ""):
@@ -69,6 +70,49 @@ def _make_handler(
     dead_letter_path: str | None,
 ) -> type[BaseHTTPRequestHandler]:
     dead_letter_lock = threading.Lock()
+    summary_lock = threading.Lock()
+    summary_cache: dict[str, int] | None = None
+    summary_signature: tuple[int, int] | None = None
+
+    def _store_signature() -> tuple[int, int]:
+        try:
+            stat = os.stat(repo.path)
+        except FileNotFoundError:
+            return (0, 0)
+        return (stat.st_size, stat.st_mtime_ns)
+
+    def _scan_summary() -> dict[str, int]:
+        count = 0
+        total = 0
+        source = repo.iter_events() if hasattr(repo, "iter_events") else repo.read_all()
+        for event in source:
+            count += 1
+            total += event_contributing_tokens(event)
+        return {"events": count, "total": total}
+
+    def _summary_stats() -> dict[str, int]:
+        nonlocal summary_cache, summary_signature
+        with summary_lock:
+            signature = _store_signature()
+            if summary_cache is None or signature != summary_signature:
+                summary_cache = _scan_summary()
+                summary_signature = _store_signature()
+            return dict(summary_cache)
+
+    def _append_unique(events: list[TokenEvent]) -> list[str]:
+        nonlocal summary_cache, summary_signature
+        with summary_lock:
+            appended_ids = repo.append_unique(events)
+            if summary_cache is not None and appended_ids:
+                first_by_id: dict[str, TokenEvent] = {}
+                for event in events:
+                    first_by_id.setdefault(event.event_id, event)
+                for event_id in appended_ids:
+                    event = first_by_id[event_id]
+                    summary_cache["events"] += 1
+                    summary_cache["total"] += event_contributing_tokens(event)
+                summary_signature = _store_signature()
+            return appended_ids
 
     def _write_dead_letters(items: list[dict[str, Any]]) -> None:
         if not dead_letter_path or not items:
@@ -108,7 +152,8 @@ def _make_handler(
 
         # --- reads ---
         def do_GET(self) -> None:  # noqa: N802 (http.server API)
-            path = urlsplit(self.path).path
+            parsed = urlsplit(self.path)
+            path = parsed.path
             if path == "/healthz":
                 self._send(200, {"status": "ok"})
             elif path == "/v1/stats":
@@ -116,7 +161,8 @@ def _make_handler(
                     self._send(401, {"error": "unauthorized"})
                     return
                 try:
-                    self._send(200, self._stats())
+                    summary_only = parse_qs(parsed.query).get("summary", [""])[0].lower() in {"1", "true", "yes"}
+                    self._send(200, _summary_stats() if summary_only else self._stats())
                 except (OSError, ValueError, UnicodeError, json.JSONDecodeError):
                     self._send(500, {"error": "storage_read_failed"})
             else:
@@ -209,7 +255,7 @@ def _make_handler(
                     return
             if events:
                 try:
-                    repo.append_unique(events)
+                    _append_unique(events)
                 except (OSError, ValueError, TypeError):
                     self._send(503, {"error": "storage_write_failed", "acked": [], "rejected": rejected})
                     return

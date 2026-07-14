@@ -232,6 +232,22 @@ The task starts at logon, supervises and restarts a failed collector child, keep
 the non-synced event store, and never serializes `TRACKER_AUTH_TOKEN`. Use `-Mode Stop` for maintenance and
 `-Mode Uninstall` to remove the task.
 
+Install the independent one-minute health monitor with:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\tt-collector-monitor-task.ps1 -Mode Plan
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\tt-collector-monitor-task.ps1 -Mode Install
+```
+
+Run a strict 72-hour availability and append-only integrity soak with:
+
+```powershell
+scripts\tt-collector-soak.cmd --duration-seconds 259200 --interval-seconds 60
+```
+
+The soak records samples, outages, latency aggregates, monotonic counter checks, and a SHA-256
+proof that the store prefix present at startup was not modified in place.
+
 `FileRepository` serializes concurrent same-process writers targeting the same path, supports
 idempotent `append_unique()`, and can recover a crash-truncated final JSONL line. Use
 `recover_truncated_tail=False` when strict corruption detection is preferred.

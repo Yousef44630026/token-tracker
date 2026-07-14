@@ -31,11 +31,32 @@ restart delay. Task Scheduler remains the outer layer for logon start and wrappe
 - task state after drill: `Running`
 
 The PID changed and the same configured store remained available. This demonstrates local
-restart-on-failure without claiming that a full Windows logon cycle or external downtime
-alert has been tested.
+restart-on-failure without claiming that a full Windows logon cycle has been tested.
+
+## Independent Monitor And Alert Drill
+
+An independent scheduled task, `AI Token Tracker Monitor`, now probes `/healthz` and
+`/v1/stats` every 60 seconds. It writes append-only, secret-free evidence to:
+
+- `C:\ai-token-tracker-data\health\collector-health.jsonl`
+- `C:\ai-token-tracker-data\health\collector-alerts.jsonl`
+
+The alert drill disabled automatic recovery temporarily, terminated collector PID `8276`,
+and guaranteed task re-enablement in a `finally` block.
+
+- offline observation: `URLError`, `healthy=false`
+- alert signal: `collector_unavailable`
+- alert timestamp: `2026-07-14T22:04:27Z`
+- post-recovery observation: `healthy=true`, `0` events, `0` contributing tokens
+- measured recovery: `2 seconds`
+- task state after drill: `Running`
+
+A three-sample recovery soak then reported `uptime_ratio=1.0`, no outage, no counter
+regression, and an unchanged SHA-256 store prefix. This proves the soak harness and short
+recovery window only; it does not replace the required 72-hour representative-load run.
 
 ## Remaining Evidence
 
 - perform a real sign-out/sign-in or reboot drill to prove the logon trigger
-- connect an external health monitor and verify a downtime notification
 - run the collector under representative load before and after an injected failure
+- run the strict 72-hour soak and archive its summary

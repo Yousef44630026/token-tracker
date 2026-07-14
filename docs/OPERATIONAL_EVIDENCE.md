@@ -9,8 +9,9 @@ A green unit-test suite must not promote an unobserved provider or workload to "
 | Provider payload semantics | Partial | Real redacted capture for every supported surface and usage mode | `fixtures/providers/manifest.json` entry |
 | Billing reconciliation | Not demonstrated | Tracker totals reconciled to a provider invoice for a fixed window | Signed reconciliation summary |
 | Proxy soak | Not demonstrated | 72 hours under representative streaming load with bounded memory/handles and zero silent loss | Soak report plus event store hash |
-| Collector supervision | Restart drill passed; logon/alert pending | Auto-start, restart-on-failure, and downtime alert verified | `docs/evidence/COLLECTOR_SUPERVISION_20260714.md` |
-| Storage substrate | Unsafe when under sync | Live ledger resides on a non-synced local volume; exports may be synced | `tt-doctor --strict-warnings` output |
+| Collector supervision | Restart and alert drills passed; logon pending | Auto-start, restart-on-failure, and downtime alert verified | `docs/evidence/COLLECTOR_SUPERVISION_20260714.md` |
+| Collector soak | Harness and three-sample recovery proof passed; 72 hours pending | 72 hours with 100% successful probes, monotonic counters, and unchanged starting store prefix | `collector_soak` summary JSON |
+| Storage substrate | Live ledger moved off sync | Live ledger resides on a non-synced local volume; exports may be synced | `tt-doctor --strict-warnings` output |
 | Claude transcript importer | Canary implemented | Import report has no format-drift warnings and expected extraction ratio | `ClaudeImportReport` JSON |
 | Estimator quality | Backend disclosed | `tiktoken` active or fallback explicitly accepted; error distribution measured by content class | Doctor output and estimate-vs-provider report |
 | Dashboard consumption | Not demonstrated | Scheduled export refreshes a connected dashboard and freshness is monitored | Refresh history and dashboard URL |
@@ -28,6 +29,7 @@ only when its real fixture, soak/reliability evidence, and storage path are all 
 scripts\tt-doctor.cmd --store C:\ai-token-tracker-data\collector_events.jsonl --strict-warnings
 scripts\tt-check.cmd
 scripts\tt-verify.cmd
+scripts\tt-collector-soak.cmd --duration-seconds 259200 --interval-seconds 60
 ```
 
 Do not store credentials, raw prompts, invoice line items, or unredacted provider responses
