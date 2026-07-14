@@ -129,6 +129,30 @@ required_summary = run_smoke(out_dir=str(root / "required"), environment={}, ope
 check(required_summary.passed is False, "require_live fails when nothing can run")
 check(required_summary.failure_count == 1, "require_live records a failure")
 
+
+def forbidden_opener(req, timeout):
+    raise AssertionError("invalid credential formats must fail before network I/O")
+
+
+connection_string_env = {
+    "AZURE_OPENAI_API_KEY": "InstrumentationKey=unit;IngestionEndpoint=https://unit.invalid/",
+    "AZURE_OPENAI_RESPONSES_ENDPOINT": "https://unit.services.ai.azure.com/api/projects/unit/openai/v1",
+    "AZURE_OPENAI_RESPONSES_DEPLOYMENT": "gpt-unit",
+}
+connection_string_summary = run_smoke(
+    out_dir=str(root / "connection-string"),
+    environment=connection_string_env,
+    opener=forbidden_opener,
+    require_live=True,
+)
+check(connection_string_summary.ran_count == 0, "connection string is rejected before a live call")
+check(connection_string_summary.failure_count == 1, "require_live fails an invalid credential format")
+connection_string_result = next(result for result in connection_string_summary.results if result.case == "responses")
+check(
+    "looks like a connection string" in connection_string_result.detail,
+    "credential format failure explains the operator mistake",
+)
+
 malformed_env = {
     "AZURE_OPENAI_API_KEY": "secret-unit-key",
     "AZURE_OPENAI_ENDPOINT": "https://unit.openai.azure.com/openai/v1",

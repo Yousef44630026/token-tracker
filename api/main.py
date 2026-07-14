@@ -285,25 +285,43 @@ def make_http_transport(
     return transport
 
 
-def main(argv: list[str] | None = None) -> None:
+def _environment_flag(environment: dict[str, str], name: str, *, default: bool) -> bool:
+    raw = environment.get(name)
+    if raw is None or not raw.strip():
+        return default
+    normalized = raw.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    raise ValueError(f"{name} must be one of: true, false, 1, 0, yes, no, on, off")
+
+
+def _parser(environment: dict[str, str] | None = None) -> argparse.ArgumentParser:
+    env = os.environ if environment is None else environment
     parser = argparse.ArgumentParser(description="Run the AI token tracker collector")
     parser.add_argument(
         "--store",
-        default=os.environ.get("TRACKER_STORE", "collector_events.jsonl"),
+        default=env.get("TRACKER_STORE", "collector_events.jsonl"),
     )
-    parser.add_argument("--host", default=os.environ.get("TRACKER_HOST", "127.0.0.1"))
+    parser.add_argument("--host", default=env.get("TRACKER_HOST", "127.0.0.1"))
     parser.add_argument(
         "--port",
         type=int,
-        default=int(os.environ.get("TRACKER_PORT", "8787")),
+        default=int(env.get("TRACKER_PORT", "8787")),
     )
     parser.add_argument(
         "--durable",
-        action="store_true",
-        default=os.environ.get("TRACKER_DURABLE", "").lower() in {"1", "true", "yes"},
+        action=argparse.BooleanOptionalAction,
+        default=_environment_flag(env, "TRACKER_DURABLE", default=True),
+        help="fsync acknowledged events before returning success (default: enabled)",
     )
-    parser.add_argument("--auth-token", default=os.environ.get("TRACKER_AUTH_TOKEN"))
-    args = parser.parse_args(argv)
+    parser.add_argument("--auth-token", default=env.get("TRACKER_AUTH_TOKEN"))
+    return parser
+
+
+def main(argv: list[str] | None = None) -> None:
+    args = _parser().parse_args(argv)
 
     repo = FileRepository(args.store, durable=args.durable)
     server = create_server(repo, args.host, args.port, auth_token=args.auth_token)

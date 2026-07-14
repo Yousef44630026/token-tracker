@@ -207,7 +207,8 @@ When installed, run the threaded collector with:
 ai-token-tracker-collector --store collector_events.jsonl --host 127.0.0.1 --port 8787
 ```
 
-Add `--durable` to `fsync` acknowledged batches. HTTP ingestion is idempotent by
+Durable `fsync` writes are enabled by default; `--no-durable` is an explicit operational
+opt-out. HTTP ingestion is idempotent by
 `event_id`, bounded by request and batch limits, and uses the same source-of-truth
 validation as local ingestion.
 
@@ -218,6 +219,18 @@ collector.
 Set `TRACKER_AUTH_TOKEN` (or pass `--auth-token`) to require bearer authentication for
 ingestion and stats. Keep the collector on loopback or behind TLS when used beyond the
 local machine.
+
+On Windows, inspect and install the per-user supervised task with:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\tt-collector-task.ps1 -Mode Plan
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\tt-collector-task.ps1 -Mode Install
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\tt-collector-task.ps1 -Mode Status
+```
+
+The task starts at logon, restarts after failures, keeps logs beside the non-synced event
+store, and never serializes `TRACKER_AUTH_TOKEN`. Use `-Mode Stop` for maintenance and
+`-Mode Uninstall` to remove the task.
 
 `FileRepository` serializes concurrent same-process writers targeting the same path, supports
 idempotent `append_unique()`, and can recover a crash-truncated final JSONL line. Use

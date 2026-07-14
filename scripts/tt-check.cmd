@@ -154,6 +154,16 @@ call "%PY%" tests\test_api_collector.py
 if errorlevel 1 set FAIL=1
 
 echo.
+echo === tests\test_collector_operational_config.py ===
+call "%PY%" tests\test_collector_operational_config.py
+if errorlevel 1 set FAIL=1
+
+echo.
+echo === tests\test_collector_task_plan.py ===
+call "%PY%" tests\test_collector_task_plan.py
+if errorlevel 1 set FAIL=1
+
+echo.
 echo === tests\test_api_server_errors.py ===
 call "%PY%" tests\test_api_server_errors.py
 if errorlevel 1 set FAIL=1

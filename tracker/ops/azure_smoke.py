@@ -130,6 +130,17 @@ def _deployment_error(value: str | None) -> str | None:
     return None
 
 
+def _api_key_format_error(value: str | None) -> str | None:
+    if not value:
+        return None
+    lowered = value.lower()
+    if lowered.startswith(("http://", "https://")):
+        return "credential_format_invalid: API key looks like an endpoint URL"
+    if ";" in value:
+        return "credential_format_invalid: API key looks like a connection string"
+    return None
+
+
 def _missing(environment: Mapping[str, str], keys: Sequence[str]) -> list[str]:
     return [key for key in keys if not _env(environment, key)]
 
@@ -164,6 +175,7 @@ def _configured_profiles(environment: Mapping[str, str]) -> list[str]:
 def planned_cases(environment: Mapping[str, str]) -> tuple[list[AzureSmokeCase], list[AzureSmokeResult]]:
     """Build runnable cases from env vars and skip records for missing optional surfaces."""
     api_key_missing = _missing(environment, ("AZURE_OPENAI_API_KEY",))
+    api_key_error = _api_key_format_error(_env(environment, "AZURE_OPENAI_API_KEY"))
     skips: list[AzureSmokeResult] = []
     cases: list[AzureSmokeCase] = []
     api_version = _env(environment, "AZURE_OPENAI_API_VERSION") or "2024-10-21"
@@ -171,6 +183,8 @@ def planned_cases(environment: Mapping[str, str]) -> tuple[list[AzureSmokeCase],
     chat_missing = api_key_missing + _missing(environment, ("AZURE_OPENAI_ENDPOINT", "AZURE_OPENAI_DEPLOYMENT"))
     if chat_missing:
         skips.append(_skip("chat", "chat_completions", chat_missing))
+    elif api_key_error:
+        skips.append(AzureSmokeResult("chat", "chat_completions", "skip", api_key_error))
     elif error := _deployment_error(_env(environment, "AZURE_OPENAI_DEPLOYMENT")):
         skips.append(AzureSmokeResult("chat", "chat_completions", "skip", error))
     else:
@@ -196,6 +210,8 @@ def planned_cases(environment: Mapping[str, str]) -> tuple[list[AzureSmokeCase],
     )
     if responses_missing:
         skips.append(_skip("responses", "responses", responses_missing))
+    elif api_key_error:
+        skips.append(AzureSmokeResult("responses", "responses", "skip", api_key_error))
     elif error := _deployment_error(_env(environment, "AZURE_OPENAI_RESPONSES_DEPLOYMENT")):
         skips.append(AzureSmokeResult("responses", "responses", "skip", error))
     else:
@@ -220,6 +236,8 @@ def planned_cases(environment: Mapping[str, str]) -> tuple[list[AzureSmokeCase],
     )
     if embeddings_missing:
         skips.append(_skip("embeddings", "embeddings", embeddings_missing))
+    elif api_key_error:
+        skips.append(AzureSmokeResult("embeddings", "embeddings", "skip", api_key_error))
     elif error := _deployment_error(_env(environment, "AZURE_OPENAI_EMBEDDINGS_DEPLOYMENT")):
         skips.append(AzureSmokeResult("embeddings", "embeddings", "skip", error))
     else:
