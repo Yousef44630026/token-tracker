@@ -53,11 +53,17 @@ check(plan["store"] == r"C:\tracker-test-data\collector.jsonl", "supervision pla
 check(plan["durable"] is True, "supervision plan keeps durable persistence enabled")
 check(plan["trigger"] == "at_logon", "supervision plan starts at user logon")
 check(plan["restart_count"] > 0, "supervision plan restarts after failures")
+check(plan["process_restart_delay_seconds"] == 10, "runner has a bounded child-process restart delay")
 check("must-not-appear" not in result.stdout, "supervision plan never serializes the auth token")
 
 runner_text = runner.read_text(encoding="utf-8")
 check("-m api.main" in runner_text, "runner starts the supported collector entry point")
 check("TRACKER_DURABLE=true" in runner_text, "runner explicitly defaults to durable writes")
+check(":supervise" in runner_text and "goto supervise" in runner_text, "runner restarts a failed collector child")
 check("TRACKER_AUTH_TOKEN" not in runner_text, "runner never embeds an authentication secret")
+
+task_script_text = script.read_text(encoding="utf-8")
+check("inspection_error" in task_script_text, "status distinguishes inaccessible state from not installed")
+check("Get-ScheduledTask -TaskName $TaskName -ErrorAction Stop" in task_script_text, "task inspection fails closed")
 
 sys.exit(check.report("RESULT test_collector_task_plan"))

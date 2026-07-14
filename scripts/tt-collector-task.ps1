@@ -32,6 +32,7 @@ $plan = [ordered]@{
     trigger = "at_logon"
     restart_interval_seconds = 60
     restart_count = 10
+    process_restart_delay_seconds = 10
 }
 
 function Get-CollectorHealth {
@@ -55,12 +56,23 @@ function Get-CollectorHealth {
 }
 
 function Write-TaskStatus {
-    $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+    $task = $null
+    $inspectionError = $null
+    try {
+        $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction Stop
+    } catch [Microsoft.Management.Infrastructure.CimException] {
+        $inspectionError = $_.Exception.GetType().Name
+    } catch {
+        if ($_.FullyQualifiedErrorId -notlike "*NoMatchingMSFT_ScheduledTask*") {
+            $inspectionError = $_.Exception.GetType().Name
+        }
+    }
     $taskInfo = if ($task) { Get-ScheduledTaskInfo -TaskName $TaskName } else { $null }
     [ordered]@{
         task_name = $TaskName
-        installed = [bool]$task
-        task_state = if ($task) { [string]$task.State } else { "NotInstalled" }
+        installed = if ($inspectionError) { $null } else { [bool]$task }
+        task_state = if ($task) { [string]$task.State } elseif ($inspectionError) { "Unknown" } else { "NotInstalled" }
+        inspection_error = $inspectionError
         last_run_time = if ($taskInfo) { $taskInfo.LastRunTime } else { $null }
         last_task_result = if ($taskInfo) { $taskInfo.LastTaskResult } else { $null }
         health = Get-CollectorHealth

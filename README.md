@@ -228,8 +228,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\tt-collector-task.ps
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\tt-collector-task.ps1 -Mode Status
 ```
 
-The task starts at logon, restarts after failures, keeps logs beside the non-synced event
-store, and never serializes `TRACKER_AUTH_TOKEN`. Use `-Mode Stop` for maintenance and
+The task starts at logon, supervises and restarts a failed collector child, keeps logs beside
+the non-synced event store, and never serializes `TRACKER_AUTH_TOKEN`. Use `-Mode Stop` for maintenance and
 `-Mode Uninstall` to remove the task.
 
 `FileRepository` serializes concurrent same-process writers targeting the same path, supports
