@@ -137,5 +137,22 @@ listener, collector `Running`, monitor result `0`, and `/healthz=ok`; no manual 
 used.
 
 This demonstrates monitor-driven self-healing after a real offline state. A second Windows
-reboot and a separate sleep/resume drill remain required before auto-start across daily
-laptop lifecycle events is marked as passed.
+reboot and a separate sleep/resume drill remained required before auto-start across daily
+laptop lifecycle events could be marked as passed.
+
+## Passing Reboot Verification - 2026-07-15
+
+The second real Windows reboot passed the corrected startup path:
+
+- Windows boot time: `2026-07-15 14:20:05` local time
+- collector task start: `2026-07-15 14:22:13` local time
+- collector state: `Running` (`267009` / `0x41301`, the Task Scheduler running status)
+- first recorded healthy post-boot probe: `2026-07-15T13:22:29Z`
+- monitor state: `Ready`, last result `0`
+- `/healthz`: `ok`
+- strict operational doctor: `15` checks, `0` failures, `0` warnings
+
+The collector and monitor started without an operator start command and remained healthy
+across subsequent one-minute probes. This passes reboot auto-start. The ledger still held
+zero events, so this result proves service availability and supervision, not representative
+load or event capture. Sleep/resume and loaded-soak evidence remain pending.

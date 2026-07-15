@@ -9,7 +9,7 @@ A green unit-test suite must not promote an unobserved provider or workload to "
 | Provider payload semantics | Partial | Real redacted capture for every supported surface and usage mode | `fixtures/providers/manifest.json` entry |
 | Billing reconciliation | Not demonstrated | Tracker totals reconciled to a provider invoice for a fixed window | Signed reconciliation summary |
 | Proxy soak | Not demonstrated | 72 hours under representative streaming load with bounded memory/handles and zero silent loss | Soak report plus event store hash |
-| Collector supervision | Crash recovery, alerting, stale-health dead-man, and watchdog self-heal passed; first reboot failed, second reboot/resume pending | Auto-start, restart-on-failure, downtime alert, and stale-monitor detection verified | `docs/evidence/COLLECTOR_SUPERVISION_20260714.md` |
+| Collector supervision | Crash recovery, alerting, stale-health dead-man, watchdog self-heal, and reboot auto-start passed; sleep/resume pending | Auto-start, restart-on-failure, downtime alert, and stale-monitor detection verified | `docs/evidence/COLLECTOR_SUPERVISION_20260714.md` |
 | Collector soak | Harness and three-sample recovery proof passed; 72 hours pending | 72 hours with 100% successful probes, monotonic counters, and unchanged starting store prefix | `collector_soak` summary JSON |
 | Storage substrate | Live ledger moved off sync | Live ledger resides on a non-synced local volume; exports may be synced | `tt-doctor --strict-warnings` output |
 | Claude transcript importer | Canary implemented | Import report has no format-drift warnings and expected extraction ratio | `ClaudeImportReport` JSON |
