@@ -52,6 +52,9 @@ check(
     "monitor covers startup, logon, and periodic catch-up",
 )
 check(plan["start_when_available"] is True, "monitor catches a missed scheduled probe")
+check(plan["dont_stop_on_idle_end"] is True, "monitor is not terminated when user activity resumes")
+check(plan["collector_task_name"] == "AI Token Tracker Collector", "monitor targets the supervised collector task")
+check(plan["recovery_delay_seconds"] == 15, "monitor recovery uses a bounded delay")
 check(plan["working_directory"] == r"C:\tracker-test-data", "monitor starts from the operational data directory")
 check(plan["health_log"].startswith(r"C:\tracker-test-data"), "health evidence stays beside the configured store")
 check(plan["alert_log"].startswith(r"C:\tracker-test-data"), "alert evidence stays beside the configured store")
@@ -86,6 +89,10 @@ runner_result = subprocess.run(
         str(alert_log),
         "-TaskLog",
         str(task_log),
+        "-CollectorTaskName",
+        f"AI Token Tracker Missing Test {uuid.uuid4().hex}",
+        "-RecoveryDelaySeconds",
+        "1",
     ],
     cwd=work,
     env=runner_environment,
@@ -97,6 +104,7 @@ runner_result = subprocess.run(
 check(runner_result.returncode == 1, "monitor task launcher preserves an offline probe exit code")
 check(health_log.is_file() and alert_log.is_file(), "launcher writes health and alert evidence while offline")
 check(task_log.is_file() and "offline" in task_log.read_text(encoding="utf-8-sig"), "launcher writes its task log")
+check("collector_recovery_failure" in task_log.read_text(encoding="utf-8-sig"), "failed recovery is explicit and bounded")
 shutil.rmtree(work, ignore_errors=True)
 
 sys.exit(check.report("RESULT test_collector_monitor_task_plan"))

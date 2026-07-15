@@ -53,6 +53,7 @@ check(plan["store"] == r"C:\tracker-test-data\collector.jsonl", "supervision pla
 check(plan["durable"] is True, "supervision plan keeps durable persistence enabled")
 check(plan["triggers"] == ["at_startup", "at_logon"], "supervision plan covers startup and user logon")
 check(plan["start_when_available"] is True, "supervision catches a missed startup trigger")
+check(plan["dont_stop_on_idle_end"] is True, "collector is not terminated when user activity resumes")
 check(plan["working_directory"] == r"C:\tracker-test-data", "task starts from the non-synced runtime directory")
 check(plan["restart_count"] > 0, "supervision plan restarts after failures")
 check(plan["process_restart_delay_seconds"] == 10, "runner has a bounded child-process restart delay")
@@ -69,5 +70,7 @@ check("inspection_error" in task_script_text, "status distinguishes inaccessible
 check("Get-ScheduledTask -TaskName $TaskName -ErrorAction Stop" in task_script_text, "task inspection fails closed")
 check("New-ScheduledTaskTrigger -AtStartup" in task_script_text, "collector has an at-startup trigger")
 check("tt-collector-task-run.ps1" in task_script_text, "collector action uses the dedicated PowerShell launcher")
+check("Stop-ManagedCollectorProcesses" in task_script_text, "install/stop paths clean verified orphan descendants")
+check("-m\\s+api\\.main" in task_script_text, "orphan cleanup is scoped to the collector module command line")
 
 sys.exit(check.report("RESULT test_collector_task_plan"))

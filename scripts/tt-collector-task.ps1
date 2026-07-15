@@ -35,6 +35,7 @@ $plan = [ordered]@{
     log = $logPath
     triggers = @("at_startup", "at_logon")
     start_when_available = $true
+    dont_stop_on_idle_end = $true
     restart_interval_seconds = 60
     restart_count = 10
     process_restart_delay_seconds = 10
@@ -57,6 +58,28 @@ function Get-CollectorHealth {
             status = "offline"
             error_type = $_.Exception.GetType().Name
         }
+    }
+}
+
+function Stop-ManagedCollectorProcesses {
+    # Task Scheduler can terminate the PowerShell action before its cmd/python descendants.
+    # Only stop a listener whose process chain proves it belongs to this tracker runner.
+    try {
+        $connections = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction Stop
+    } catch {
+        return
+    }
+    foreach ($processId in @($connections | Select-Object -ExpandProperty OwningProcess -Unique)) {
+        $child = Get-CimInstance Win32_Process -Filter "ProcessId=$processId" -ErrorAction SilentlyContinue
+        if (-not $child -or $child.CommandLine -notmatch "(?i)-m\s+api\.main(?:\s|$)") {
+            continue
+        }
+        $parent = Get-CimInstance Win32_Process -Filter "ProcessId=$($child.ParentProcessId)" -ErrorAction SilentlyContinue
+        if (-not $parent -or $parent.CommandLine -notlike "*tt-collector-run.cmd*") {
+            continue
+        }
+        Stop-Process -Id $parent.ProcessId -Force -ErrorAction SilentlyContinue
+        Stop-Process -Id $child.ProcessId -Force -ErrorAction SilentlyContinue
     }
 }
 
@@ -92,6 +115,9 @@ if ($Mode -eq "Plan") {
 }
 
 if ($Mode -eq "Install") {
+    Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+    Start-Sleep -Milliseconds 500
+    Stop-ManagedCollectorProcesses
     New-Item -ItemType Directory -Force -Path $logDir | Out-Null
     $powerShell = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
     $arguments = "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$taskRunner`" -LogPath `"$logPath`""
@@ -105,6 +131,7 @@ if ($Mode -eq "Install") {
     $settings = New-ScheduledTaskSettingsSet `
         -AllowStartIfOnBatteries `
         -DontStopIfGoingOnBatteries `
+        -DontStopOnIdleEnd `
         -StartWhenAvailable `
         -RestartCount 10 `
         -RestartInterval (New-TimeSpan -Minutes 1) `
@@ -134,12 +161,15 @@ if ($Mode -eq "Start") {
 if ($Mode -eq "Stop") {
     Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
     Start-Sleep -Milliseconds 500
+    Stop-ManagedCollectorProcesses
     Write-TaskStatus
     exit 0
 }
 
 if ($Mode -eq "Uninstall") {
     Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+    Start-Sleep -Milliseconds 500
+    Stop-ManagedCollectorProcesses
     Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue
     Write-TaskStatus
     exit 0

@@ -2,7 +2,8 @@
 param(
     [ValidateSet("Plan", "Install", "Status", "Run", "Uninstall")]
     [string]$Mode = "Status",
-    [string]$TaskName = "AI Token Tracker Monitor"
+    [string]$TaskName = "AI Token Tracker Monitor",
+    [string]$CollectorTaskName = "AI Token Tracker Collector"
 )
 
 $ErrorActionPreference = "Stop"
@@ -16,6 +17,7 @@ $healthLog = if ($env:TRACKER_HEALTH_LOG) { $env:TRACKER_HEALTH_LOG } else { Joi
 $alertLog = if ($env:TRACKER_ALERT_LOG) { $env:TRACKER_ALERT_LOG } else { Join-Path $healthDir "collector-alerts.jsonl" }
 $taskLog = Join-Path $healthDir "collector-monitor-launcher.log"
 $runtimeDir = Split-Path -Parent $store
+$recoveryDelaySeconds = 15
 
 $plan = [ordered]@{
     task_name = $TaskName
@@ -25,7 +27,10 @@ $plan = [ordered]@{
     working_directory = $runtimeDir
     triggers = @("at_startup", "at_logon", "every_minute")
     start_when_available = $true
+    dont_stop_on_idle_end = $true
     interval_seconds = 60
+    collector_task_name = $CollectorTaskName
+    recovery_delay_seconds = $recoveryDelaySeconds
     health_log = $healthLog
     alert_log = $alertLog
     task_log = $taskLog
@@ -68,7 +73,8 @@ if ($Mode -eq "Install") {
     $arguments = (
         "-NoProfile -NonInteractive -ExecutionPolicy Bypass " +
         "-File `"$taskRunner`" " +
-        "-HealthLog `"$healthLog`" -AlertLog `"$alertLog`" -TaskLog `"$taskLog`""
+        "-HealthLog `"$healthLog`" -AlertLog `"$alertLog`" -TaskLog `"$taskLog`" " +
+        "-CollectorTaskName `"$CollectorTaskName`" -RecoveryDelaySeconds $recoveryDelaySeconds"
     )
     $action = New-ScheduledTaskAction -Execute $powerShell -Argument $arguments -WorkingDirectory $runtimeDir
     $userId = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
@@ -84,6 +90,7 @@ if ($Mode -eq "Install") {
     $settings = New-ScheduledTaskSettingsSet `
         -AllowStartIfOnBatteries `
         -DontStopIfGoingOnBatteries `
+        -DontStopOnIdleEnd `
         -StartWhenAvailable `
         -ExecutionTimeLimit (New-TimeSpan -Minutes 1) `
         -MultipleInstances IgnoreNew

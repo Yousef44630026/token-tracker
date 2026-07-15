@@ -95,3 +95,47 @@ recovery it passed with a 29-second-old healthy sample.
 This proves scheduled periodic monitoring, stale-evidence detection, and the corrected task
 definitions. It does not yet prove execution across an actual reboot or sleep/resume cycle;
 that evidence remains pending.
+
+## First Reboot Attempt And Watchdog Recovery - 2026-07-15
+
+Windows restarted at `2026-07-15 13:47:58` local time. The collector task ran at
+`13:50:33`, then stopped with task result `3221225786` (`0xC000013A`). At the first
+post-reboot inspection the task was `Ready` and `/healthz` was offline. Task Scheduler
+operational history was unavailable, so the exact external interruption cannot be proven.
+The reboot criterion therefore failed; a startup trigger existing in the task definition
+was not treated as evidence of a successful startup.
+
+The correction added two independent safeguards:
+
+- both task definitions now set `DontStopOnIdleEnd`
+- the one-minute monitor starts the collector task after an unhealthy probe, waits a
+  bounded 15 seconds, probes again, and records the recovery result as structured JSON
+
+A live recovery drill then removed the collector listener and left recovery to the monitor:
+
+- offline probe: `2026-07-15T13:00:38Z`
+- autonomous `start_collector_task`: `2026-07-15T13:00:40Z`
+- healthy recovery probe: `2026-07-15T13:00:56Z`
+- measured observation-to-recovery interval: `18 seconds`
+- final collector task state: `Running`
+- final monitor task result: `0`
+- final `/healthz`: `ok`
+
+The drill also exposed a process-lifecycle edge case: stopping or replacing the scheduled
+task could leave its `cmd` and Python descendants listening after the task itself stopped.
+Install, stop, and uninstall now remove a listener only when its process chain proves both
+`python -m api.main` and the tracker `tt-collector-run.cmd` parent. This avoids mistaking an
+orphan listener for supervised health without terminating unrelated Python processes.
+
+A follow-up end-to-end stop drill exercised that cleanup and recovery together. Immediately
+after the controlled stop there were `0` listeners on port `8787` and `/healthz` was
+offline. The next monitor cycle recorded an offline probe at `2026-07-15T13:06:39Z`,
+started the collector task at `13:06:41Z`, and recorded a healthy recovery probe at
+`13:06:57Z`. Recovery took 45.3 seconds from the operator stop, including the wait for the
+next one-minute monitor cycle, and 18 seconds from monitor detection. Final state was one
+listener, collector `Running`, monitor result `0`, and `/healthz=ok`; no manual start was
+used.
+
+This demonstrates monitor-driven self-healing after a real offline state. A second Windows
+reboot and a separate sleep/resume drill remain required before auto-start across daily
+laptop lifecycle events is marked as passed.

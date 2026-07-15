@@ -5,7 +5,10 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$AlertLog,
     [Parameter(Mandatory = $true)]
-    [string]$TaskLog
+    [string]$TaskLog,
+    [string]$CollectorTaskName = "AI Token Tracker Collector",
+    [ValidateRange(1, 300)]
+    [int]$RecoveryDelaySeconds = 15
 )
 
 $ErrorActionPreference = "Stop"
@@ -15,16 +18,45 @@ $logDir = Split-Path -Parent $TaskLog
 
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 
-try {
+function Write-LauncherEvent {
+    param(
+        [Parameter(Mandatory = $true)]
+        [hashtable]$Payload
+    )
+    $Payload["timestamp"] = [DateTime]::UtcNow.ToString("o")
+    Add-Content -LiteralPath $TaskLog -Value ($Payload | ConvertTo-Json -Compress) -Encoding UTF8
+}
+
+function Invoke-CollectorProbe {
     & $runner --health-log $HealthLog --alert-log $AlertLog --json 2>&1 | ForEach-Object {
         Add-Content -LiteralPath $TaskLog -Value ([string]$_) -Encoding UTF8
     }
-    $exitCode = $LASTEXITCODE
+    return [int]$LASTEXITCODE
+}
+
+try {
+    $exitCode = Invoke-CollectorProbe
+    if ($exitCode -ne 0) {
+        Write-LauncherEvent @{
+            action = "start_collector_task"
+            collector_task_name = $CollectorTaskName
+            initial_probe_exit_code = $exitCode
+        }
+        Start-ScheduledTask -TaskName $CollectorTaskName -ErrorAction Stop
+        Start-Sleep -Seconds $RecoveryDelaySeconds
+        $exitCode = Invoke-CollectorProbe
+        Write-LauncherEvent @{
+            action = "collector_recovery_result"
+            collector_task_name = $CollectorTaskName
+            recovery_probe_exit_code = $exitCode
+        }
+    }
 } catch {
-    Add-Content `
-        -LiteralPath $TaskLog `
-        -Value ("collector monitor launcher failure: " + $_.Exception.GetType().Name) `
-        -Encoding UTF8
+    Write-LauncherEvent @{
+        action = "collector_recovery_failure"
+        collector_task_name = $CollectorTaskName
+        error_type = $_.Exception.GetType().Name
+    }
     $exitCode = 1
 }
 
