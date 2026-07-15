@@ -3,7 +3,9 @@
 import os
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+RELIABILITY_SUITE = os.path.join(PROJECT_ROOT, "RELIABILITY_TEST.md")
+sys.path.insert(0, PROJECT_ROOT)
 
 from tracker.models.enums import Additivity, PrecisionLevel, TokenType, UsageSource  # noqa: E402
 from tracker.models.token_event import TokenEvent  # noqa: E402
@@ -23,7 +25,7 @@ def check(condition, message):
         _failures += 1
 
 
-cases = parse_prompt_suite("RELIABILITY_TEST.md")
+cases = parse_prompt_suite(RELIABILITY_SUITE)
 check(len(cases) == 6, "Markdown suite exposes the six text prompts")
 check(cases[0].sequence == 1 and cases[0].label == "Minimal output", "first label parsed")
 check(cases[-1].label == "Multi-file reasoning", "last label parsed")
@@ -51,7 +53,7 @@ parsed = _parser().parse_args(
         "--provider",
         "anthropic",
         "--prompts",
-        "RELIABILITY_TEST.md",
+        RELIABILITY_SUITE,
         "--dry-run",
     ]
 )
@@ -63,7 +65,7 @@ resume_args = _parser().parse_args(
         "--provider",
         "anthropic",
         "--prompts",
-        "RELIABILITY_TEST.md",
+        RELIABILITY_SUITE,
         "--start",
         "3",
         "--limit",
@@ -78,7 +80,7 @@ resume_complete_args = _parser().parse_args(
         "--provider",
         "anthropic",
         "--prompts",
-        "RELIABILITY_TEST.md",
+        RELIABILITY_SUITE,
         "--resume-complete",
         "--dry-run",
     ]
@@ -90,7 +92,7 @@ quality_args = _parser().parse_args(
         "--provider",
         "anthropic",
         "--prompts",
-        "RELIABILITY_TEST.md",
+        RELIABILITY_SUITE,
         "--quality-checks",
         "--fail-on-quality",
         "--dry-run",
@@ -150,7 +152,7 @@ check(
             "--provider",
             "anthropic",
             "--prompts",
-            "RELIABILITY_TEST.md",
+            RELIABILITY_SUITE,
             "--limit",
             "1",
             "--dry-run",
@@ -186,7 +188,7 @@ check(
             "--store",
             quality_store,
             "--prompts",
-            "RELIABILITY_TEST.md",
+            RELIABILITY_SUITE,
             "--limit",
             "1",
             "--quality-checks",

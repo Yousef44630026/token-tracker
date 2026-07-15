@@ -7,8 +7,13 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
+
+CLEANUP_ATTEMPTS = 8
+CLEANUP_INITIAL_DELAY_SECONDS = 0.05
+TEST_WORKSPACE_PREFIX = "t"
 
 
 def _run_lint_gate(repo_root: Path, environment: dict) -> list[str]:
@@ -43,27 +48,51 @@ def _test_artifacts(repo_root: Path) -> set[Path]:
     return {path.resolve() for path in repo_root.glob(".test_*")}
 
 
-def _cleanup_new_test_artifacts(repo_root: Path, baseline: set[Path]) -> list[str]:
-    """Remove only artifacts created after this run started."""
+def _remove_path_with_retry(
+    path: Path,
+    *,
+    attempts: int = CLEANUP_ATTEMPTS,
+    initial_delay_seconds: float = CLEANUP_INITIAL_DELAY_SECONDS,
+) -> bool:
+    """Remove a path and confirm disappearance, tolerating short Windows handle delays."""
+    for attempt in range(attempts):
+        try:
+            if path.is_symlink() or not path.is_dir():
+                path.unlink(missing_ok=True)
+            else:
+                shutil.rmtree(path)
+        except OSError:
+            pass
+        if not path.exists():
+            return True
+        if attempt + 1 < attempts:
+            time.sleep(min(initial_delay_seconds * (2**attempt), 1.0))
+    return not path.exists()
+
+
+def _cleanup_new_test_artifacts(
+    repo_root: Path,
+    baseline: set[Path],
+    *,
+    attempts: int = CLEANUP_ATTEMPTS,
+) -> tuple[list[str], set[Path]]:
+    """Remove new repo debris and return the still-existing set for the next attribution pass."""
     failures: list[str] = []
     root = repo_root.resolve()
     for path in sorted(_test_artifacts(repo_root) - baseline):
         if path.parent != root:
             failures.append(f"outside-root:{path}")
             continue
-        for attempt in range(5):
-            try:
-                if path.is_dir():
-                    shutil.rmtree(path)
-                else:
-                    path.unlink(missing_ok=True)
-                break
-            except OSError:
-                if attempt == 4:
-                    failures.append(str(path.relative_to(root)))
-                else:
-                    time.sleep(0.05 * (attempt + 1))
-    return failures
+        if not _remove_path_with_retry(path, attempts=attempts):
+            failures.append(str(path.relative_to(root)))
+    return failures, _test_artifacts(repo_root)
+
+
+def _make_test_run_root() -> Path:
+    configured_root = os.environ.get("TRACKER_TEST_TMP_ROOT")
+    parent = Path(configured_root).expanduser().resolve() if configured_root else Path(tempfile.gettempdir()).resolve()
+    parent.mkdir(parents=True, exist_ok=True)
+    return Path(tempfile.mkdtemp(prefix="ai-token-tracker-tests-", dir=parent)).resolve()
 
 
 def main() -> int:
@@ -81,17 +110,41 @@ def main() -> int:
 
     environment = dict(os.environ)
     environment["PYTHONDONTWRITEBYTECODE"] = "1"
+    existing_pythonpath = environment.get("PYTHONPATH")
+    environment["PYTHONPATH"] = str(repo_root) + (os.pathsep + existing_pythonpath if existing_pythonpath else "")
+    environment["TRACKER_REPO_ROOT"] = str(repo_root)
     artifact_baseline = _test_artifacts(repo_root)
     failures: list[str] = []
+    run_root = _make_test_run_root()
+    workspace_cleanup_failed = False
     if not args.skip_lint:
         failures.extend(_run_lint_gate(repo_root, environment))
-    for test in tests:
-        print(f"\n=== {test.relative_to(tests_dir)} ===")
-        result = subprocess.run([sys.executable, str(test)], env=environment, check=False)
-        if result.returncode:
-            failures.append(str(test.relative_to(tests_dir)))
-        cleanup_failures = _cleanup_new_test_artifacts(repo_root, artifact_baseline)
-        failures.extend(f"cleanup:{test.name}:{path}" for path in cleanup_failures)
+    try:
+        for test_index, test in enumerate(tests):
+            print(f"\n=== {test.relative_to(tests_dir)} ===")
+            # Keep this deliberately short. Test scripts often create nested paths,
+            # and verbose workspace names can exceed the Windows MAX_PATH boundary.
+            test_workspace = run_root / f"{TEST_WORKSPACE_PREFIX}{test_index:03d}"
+            test_workspace.mkdir(parents=True, exist_ok=False)
+            test_environment = dict(environment)
+            test_environment["TRACKER_TEST_NAME"] = str(test.relative_to(tests_dir))
+            test_environment["TRACKER_TEST_WORKSPACE"] = str(test_workspace)
+            result = subprocess.run(
+                [sys.executable, str(test)],
+                cwd=test_workspace,
+                env=test_environment,
+                check=False,
+            )
+            if result.returncode:
+                failures.append(str(test.relative_to(tests_dir)))
+            if not _remove_path_with_retry(test_workspace):
+                workspace_cleanup_failed = True
+                failures.append(f"cleanup:{test.name}:workspace")
+            cleanup_failures, artifact_baseline = _cleanup_new_test_artifacts(repo_root, artifact_baseline)
+            failures.extend(f"cleanup:{test.name}:{path}" for path in cleanup_failures)
+    finally:
+        if not _remove_path_with_retry(run_root) and not workspace_cleanup_failed:
+            failures.append(f"cleanup:run-root:{run_root}")
 
     print(f"\nExecuted {len(tests)} test scripts + lint gate; failures: {len(failures)}")
     if failures:

@@ -43,7 +43,12 @@ HARD CONSTRAINTS (never violate)
 - FROM SCRATCH: no OpenTelemetry, Langfuse, Datadog, LangSmith, Helicone, or any observability SDK. Standard library + pytest/Ruff + provider SDKs (for capturing test fixtures only).
 - Event storage is JSONL, exported to CSV/Excel. SQL/ORM accounting storage is forbidden;
   a disposable, reconstructible SQLite event-id index is allowed for partition lookup only.
-- NO pricing logic anywhere.
+- NO pricing in capture, normalization, storage, canonical token metrics, or serialized events.
+  The optional reporting layer MAY derive cost from an external, effective-dated price table.
+  Reporting prices/costs are presentation-only, never written back to TokenEvent/JSONL, never
+  treated as source of truth, and missing prices or quantities remain unknown rather than zero.
+- Core/runtime dependencies remain standard library + openpyxl. Pandas is permitted only in the
+  optional `reporting` extra and must never be imported by capture, storage, proxy, or collector paths.
 - No localStorage/sessionStorage-style hacks, no fabricated provider fields, no invented token counts.
 
 =====================================================================

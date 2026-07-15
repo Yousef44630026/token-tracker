@@ -3,7 +3,9 @@
 import os
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+RELIABILITY_SUITE = os.path.join(PROJECT_ROOT, "RELIABILITY_TEST.md")
+sys.path.insert(0, PROJECT_ROOT)
 
 from tracker.models.enums import Additivity, PrecisionLevel, TokenType, UsageSource  # noqa: E402
 from tracker.models.token_event import TokenEvent  # noqa: E402
@@ -58,7 +60,7 @@ parsed = _parser().parse_args(
         "--provider",
         "anthropic",
         "--prompts",
-        "RELIABILITY_TEST.md",
+        RELIABILITY_SUITE,
         "--live-budget-tokens",
         "1000",
         "--live-bar-width",
@@ -79,7 +81,7 @@ check(
             "--store",
             ".test_live_usage_dry_run.jsonl",
             "--prompts",
-            "RELIABILITY_TEST.md",
+            RELIABILITY_SUITE,
             "--limit",
             "1",
             "--live-budget-tokens",

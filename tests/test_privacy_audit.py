@@ -4,7 +4,9 @@ import json
 import os
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SCENARIO_SUITE = os.path.join(PROJECT_ROOT, "SCENARIO_PROMPTS.md")
+sys.path.insert(0, PROJECT_ROOT)
 
 from tracker.models.enums import Additivity, PrecisionLevel, TokenType, UsageSource  # noqa: E402
 from tracker.models.token_event import TokenEvent  # noqa: E402
@@ -31,7 +33,7 @@ for scratch in (clean_path, bad_path):
     except OSError:
         pass
 
-prompt = parse_prompt_suite("SCENARIO_PROMPTS.md")[0]
+prompt = parse_prompt_suite(SCENARIO_SUITE)[0]
 repo = FileRepository(clean_path)
 repo.append(
     TokenEvent(
@@ -60,7 +62,7 @@ repo.append(
         },
     )
 )
-clean_result = audit_store(clean_path, prompts_path="SCENARIO_PROMPTS.md")
+clean_result = audit_store(clean_path, prompts_path=SCENARIO_SUITE)
 check(clean_result["passed"] is True, "clean event store passes privacy audit")
 check(clean_result["prompt_count"] == 12, "privacy audit checks all scenario prompts")
 
@@ -75,7 +77,7 @@ with open(bad_path, "w", encoding="utf-8") as handle:
         )
         + "\n"
     )
-bad_result = audit_store(bad_path, prompts_path="SCENARIO_PROMPTS.md")
+bad_result = audit_store(bad_path, prompts_path=SCENARIO_SUITE)
 finding_kinds = {finding["kind"] for finding in bad_result["findings"]}
 check(bad_result["passed"] is False, "leaky store fails privacy audit")
 check("secret_pattern" in finding_kinds, "secret-like text is detected")
