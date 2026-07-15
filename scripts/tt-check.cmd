@@ -144,6 +144,11 @@ call "%PY%" tests\test_powerbi_export.py
 if errorlevel 1 set FAIL=1
 
 echo.
+echo === tests\test_excel_dashboard_reporting.py ===
+call "%PY%" tests\test_excel_dashboard_reporting.py
+if errorlevel 1 set FAIL=1
+
+echo.
 echo === tests\test_powerbi_dedup_event_id.py ===
 call "%PY%" tests\test_powerbi_dedup_event_id.py
 if errorlevel 1 set FAIL=1

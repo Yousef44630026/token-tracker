@@ -248,6 +248,19 @@ scripts\tt-collector-soak.cmd --duration-seconds 259200 --interval-seconds 60
 The soak records samples, outages, latency aggregates, monotonic counter checks, and a SHA-256
 proof that the store prefix present at startup was not modified in place.
 
+## Excel dashboard reporting
+
+The optional pandas/openpyxl reporting layer generates a four-sheet native Excel dashboard
+without adding pricing fields to stored events:
+
+```powershell
+python -m pip install -e ".[reporting]"
+scripts\tt-dashboard.cmd --data-dir .\data --prices .\prices.csv --output .\dashboard.xlsx
+```
+
+See `docs/EXCEL_DASHBOARD.md` for the exact stored schema, the external price-table contract,
+supersession rules, cost allocation, and refresh limitations.
+
 `FileRepository` serializes concurrent same-process writers targeting the same path, supports
 idempotent `append_unique()`, and can recover a crash-truncated final JSONL line. Use
 `recover_truncated_tail=False` when strict corruption detection is preferred.
