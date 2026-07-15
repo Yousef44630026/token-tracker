@@ -307,11 +307,14 @@ def _is_authoritative_event(event: TokenEvent) -> bool:
     return not event.superseded and event.is_authoritative
 
 
-def _quantity_sum(event: TokenEvent, *token_types: TokenType) -> int:
+def _quantity_sum(event: TokenEvent, *token_types: TokenType) -> int | None:
     if not _is_authoritative_event(event):
         return 0
     wanted = set(token_types)
-    return sum(quantity.quantity or 0 for quantity in event.quantities if quantity.token_type in wanted)
+    matching = [quantity for quantity in event.quantities if quantity.token_type in wanted]
+    if any(quantity.quantity is None for quantity in matching):
+        return None
+    return sum(quantity.quantity for quantity in matching if quantity.quantity is not None)
 
 
 def _safe_quantity_in_total(event: TokenEvent, quantity) -> int:

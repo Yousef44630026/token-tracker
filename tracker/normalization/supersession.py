@@ -87,15 +87,34 @@ def _is_final_usage(event: TokenEvent) -> bool:
     )
 
 
-def _can_supersede_partial(final: TokenEvent) -> bool:
-    """True if the final carries a provider-measured output quantity."""
+def _provider_contributing_types(event: TokenEvent) -> set[TokenType]:
+    """Provider-measured token types that would contribute on this event."""
+    provider_sources = {UsageSource.PROVIDER_RESPONSE, UsageSource.PROVIDER_STREAM_FINAL}
+    return {
+        quantity.token_type
+        for quantity in event.quantities
+        if quantity.included_in_total and quantity.usage_source in provider_sources
+    }
+
+
+def _can_supersede_partial(final: TokenEvent, partial: TokenEvent) -> bool:
+    """Return whether keeping both events could duplicate usage or retain a stale output.
+
+    An input-only final remains additive with an output-only partial. An enriched partial,
+    however, may already carry the same exact provider input as that final; keeping both
+    would count one request's input twice, so the final conservatively supersedes the whole
+    partial event.
+    """
     output_types = {TokenType.OUTPUT, TokenType.AUDIO_OUTPUT, TokenType.RERANK_OUTPUT}
-    return any(
+    has_measured_output = any(
         q.quantity is not None
         and q.token_type in output_types
         and q.usage_source in (UsageSource.PROVIDER_RESPONSE, UsageSource.PROVIDER_STREAM_FINAL)
         for q in final.quantities
     )
+    if has_measured_output:
+        return True
+    return bool(_provider_contributing_types(final) & _provider_contributing_types(partial))
 
 
 def _pick_authoritative_final(finals: list[TokenEvent]) -> TokenEvent:
@@ -158,7 +177,7 @@ def reconcile_supersession(events: list[TokenEvent]) -> list[TokenEvent]:
             if event is final:
                 continue
             is_duplicate_final = event.event_id in duplicate_final_ids
-            if is_duplicate_final or (_is_partial_estimate(event) and _can_supersede_partial(final)):
+            if is_duplicate_final or (_is_partial_estimate(event) and _can_supersede_partial(final, event)):
                 event.superseded = True
                 event.superseded_by = final.event_id
                 if SUPERSEDED_FLAG not in event.data_quality_flags:

@@ -66,6 +66,10 @@ check(
 check(sub.quantity_in_total == 0 and sub.trust == Trust.VERIFIED, "subtotal excluded for OVERLAP, though it is trusted")
 check(unv.quantity_in_total == 0 and unv.overlap == Overlap.INDEPENDENT, "unverified excluded for TRUST, though it is independent")
 check(unv_sub.quantity_in_total == 0, "unverified subtotal is excluded while preserving both reasons")
+check(
+    unv_sub.export_warning == "unverified_additivity_excluded_from_total",
+    "unverified subtotal warning prioritizes trust while subtotal_of preserves overlap",
+)
 check(tc.quantity_in_total == 100, "only an (independent, verified, known) count is summed")
 
 # --- behaviour preserved: included_in_total still matches the old flat rule exactly ---

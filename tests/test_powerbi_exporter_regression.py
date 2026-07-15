@@ -1,4 +1,4 @@
-"""Regression — 4 bugs found in powerbi_exporter.py, all duplicates of bugs already fixed in
+"""Regression coverage for Power BI exporter bugs, including duplicated analytics mistakes
 the Python analytics layer, reintroduced here because this exporter reimplements its own
 copies of _cloud_provider/_is_error/cache-rate logic instead of reusing the fixed modules.
 
@@ -14,6 +14,8 @@ Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_powerbi_
 4. `Cache Hit Rate` DAX divided by (raw input_tokens + cached_input_tokens): for OpenAI-style
    providers, raw input_tokens already includes the cached portion, double-counting it in the
    denominator. Fixed with a new provider-consistent `fresh_input_tokens` column.
+5. Event breakdown columns rendered an unknown quantity as numeric zero, erasing INV-6's
+   distinction between unknown and a provider-reported zero.
 """
 
 import os
@@ -37,7 +39,7 @@ def check(cond, msg):
 
 
 # --- 1. Gemini vs Vertex AI cloud attribution ---
-from tracker.models.enums import Additivity, PrecisionLevel, TokenType, UsageSource  # noqa: E402
+from tracker.models.enums import Additivity, PrecisionLevel, TokenType, UnknownReason, UsageSource  # noqa: E402
 from tracker.models.token_event import TokenEvent  # noqa: E402
 from tracker.models.token_quantity import TokenQuantity  # noqa: E402
 
@@ -99,6 +101,34 @@ check(
     "Fresh Input Tokens" in dax and "[Fresh Input Tokens] + [Cached Input Tokens]" in dax,
     "4. Cache Hit Rate DAX now divides by fresh+cached, not raw-input+cached",
 )
+
+# --- 5. unknown event breakdown stays blank while a real zero stays numeric zero ---
+unknown_input = TokenEvent(
+    event_id="unknown-input",
+    request_correlation_id="r-unknown-input",
+    trace_id="t",
+    span_id="s",
+    quantities=[
+        TokenQuantity(
+            TokenType.INPUT,
+            None,
+            PrecisionLevel.UNKNOWN,
+            UsageSource.NONE,
+            Additivity.TOTAL_CONTRIBUTING,
+            unknown_reason=UnknownReason.PROVIDER_OMITTED,
+        )
+    ],
+)
+zero_input = TokenEvent(
+    event_id="zero-input",
+    request_correlation_id="r-zero-input",
+    trace_id="t",
+    span_id="s",
+    quantities=[q(0)],
+)
+breakdown_rows = {row["event_id"]: row for row in fact_token_event_rows([unknown_input, zero_input])}
+check(breakdown_rows["unknown-input"]["input_tokens"] is None, "5. unknown input exports as blank, never zero")
+check(breakdown_rows["zero-input"]["input_tokens"] == 0, "5. provider-reported zero remains numeric zero")
 
 print("\nRESULT:", "all checks passed" if _failures == 0 else f"{_failures} FAILURE(S)")
 sys.exit(1 if _failures else 0)

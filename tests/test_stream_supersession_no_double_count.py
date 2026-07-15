@@ -75,5 +75,53 @@ total = sum(e.event_contributing_tokens for e in events)
 check(total == 210, f"contributing total == final usage only (got {total})")
 check(total != 40 + 210, "total is NOT partial + final (no double count)")
 
+# An interrupted stream can retain exact provider input alongside its output estimate.
+# If a later incomplete final reports input only, the shared input must still be counted once.
+enriched_partial = TokenEvent(
+    event_id="evt-enriched-partial",
+    request_correlation_id="rcid-enriched",
+    trace_id="t-2",
+    span_id="s-2",
+    quantities=[
+        TokenQuantity(
+            TokenType.INPUT,
+            100,
+            PrecisionLevel.EXACT,
+            UsageSource.PROVIDER_RESPONSE,
+            Additivity.TOTAL_CONTRIBUTING,
+        ),
+        TokenQuantity(
+            TokenType.OUTPUT,
+            40,
+            PrecisionLevel.ESTIMATE,
+            UsageSource.PARTIAL_STREAM_TOKENIZER,
+            Additivity.TOTAL_CONTRIBUTING,
+        ),
+    ],
+    data_quality_flags=["partial_stream_estimate", "stream_interrupted"],
+)
+input_only_final = TokenEvent(
+    event_id="evt-input-only-final",
+    request_correlation_id="rcid-enriched",
+    trace_id="t-2",
+    span_id="s-2",
+    quantities=[
+        TokenQuantity(
+            TokenType.INPUT,
+            100,
+            PrecisionLevel.EXACT,
+            UsageSource.PROVIDER_STREAM_FINAL,
+            Additivity.TOTAL_CONTRIBUTING,
+        )
+    ],
+    provider_total_tokens=100,
+)
+enriched_events = [enriched_partial, input_only_final]
+reconcile_supersession(enriched_events)
+enriched_total = sum(event.event_contributing_tokens for event in enriched_events)
+check(enriched_partial.superseded is True, "input-only final supersedes an enriched partial with overlapping provider input")
+check(enriched_total == 100, f"enriched partial and input-only final count shared input once (got {enriched_total})")
+check(enriched_total != 240, "enriched partial input is never added to the same final input")
+
 print("\nRESULT:", "all checks passed" if _failures == 0 else f"{_failures} FAILURE(S)")
 sys.exit(1 if _failures else 0)

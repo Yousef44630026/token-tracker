@@ -66,12 +66,15 @@ INV-2 (Derived, never stored, never serialized into JSONL).
     included_in_total, quantity_in_total, export_warning,
     event_contributing_tokens, event_total_mismatch, all trace totals.
   Derivation:
-    included_in_total = (additivity == "total_contributing") and (quantity is not None)
+    included_in_total = (overlap == "independent") and (trust == "verified") and (quantity is not None)
     quantity_in_total = quantity if included_in_total else 0
-    export_warning    = "subtotal_excluded_from_total"              if additivity == "subtotal_of"
-                        "unverified_additivity_excluded_from_total"  if additivity == "unverified"
+    export_warning    = "unverified_additivity_excluded_from_total"  if trust == "unverified"
+                        "subtotal_excluded_from_total"              if overlap == "subtotal_of"
                         "unknown_quantity_excluded_from_total"       if quantity is None and precision_level == "unknown"
                         else None
+  Warning precedence is trust, then overlap, then unknown quantity. Therefore an unverified
+  subtotal reports `unverified_additivity_excluded_from_total`: lack of trust is the sharper
+  exclusion reason, while `subtotal_of` still preserves the overlap relationship in storage.
     event_contributing_tokens = 0 if event.superseded or observation.authoritative == false
                                 else sum(q.quantity_in_total for q in event.quantities)
     event_total_mismatch      = provider_total_tokens - sum(q.quantity_in_total)  # if provider_total_tokens is not None
