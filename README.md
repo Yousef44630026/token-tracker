@@ -250,8 +250,8 @@ proof that the store prefix present at startup was not modified in place.
 
 ## Excel dashboard reporting
 
-The optional pandas/openpyxl reporting layer generates a four-sheet native Excel dashboard
-without adding pricing fields to stored events:
+The optional pandas/openpyxl reporting layer generates an interactive native Excel dashboard
+plus four audit sheets without adding pricing or KPI fields to stored events:
 
 ```powershell
 python -m pip install -e ".[reporting]"
@@ -259,7 +259,7 @@ scripts\tt-dashboard.cmd --data-dir .\data --prices .\prices.csv --output .\dash
 ```
 
 See `docs/EXCEL_DASHBOARD.md` for the exact stored schema, the external price-table contract,
-supersession rules, cost allocation, and refresh limitations.
+supersession rules, cost allocation, interactive filters, KPI definitions, and refresh limitations.
 
 `FileRepository` serializes concurrent same-process writers targeting the same path, supports
 idempotent `append_unique()`, and can recover a crash-truncated final JSONL line. Use

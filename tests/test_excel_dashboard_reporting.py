@@ -132,20 +132,61 @@ check(next(item.event for item in events if item.event.event_id == "partial").su
 data = build_data_frame(events, load_prices(prices_path))
 summaries = build_summary_frames(data)
 check(data["event_contributing_tokens_once"].sum() == 450, "event-grain safe total is never repeated at quantity grain")
+check(data["event_count_once"].sum() == 3, "event count appears exactly once at quantity grain")
+check(data["event_authoritative_once"].sum() == 3, "authoritative event count appears exactly once")
+check(data["superseded_event_once"].sum() == 1, "superseded event KPI is additive and event-grain safe")
+check(data["active_quality_flagged_event_once"].sum() == 0, "superseded quality flags do not pollute active anomalies")
+check(data["mismatch_event_once"].sum() == 0, "active mismatch event KPI is additive")
 check(data["request_count_once"].sum() == 2, "request count appears exactly once per correlation id")
+check(data["request_latency_observation_once"].sum() == 2, "latency denominator counts requests, not quantities")
 check(data.loc[data["request_count_once"] == 1, "request_latency_ms"].mean() == 200, "latency average uses one row per request")
 
 model_a = data[(data["model"] == "model-a") & ~data["event_superseded"]]
 check(model_a.loc[model_a["token_type"] == "input", "billing_tokens"].iloc[0] == 80, "input billing removes cached subtotal")
 check(model_a.loc[model_a["token_type"] == "cached_input", "billing_tokens"].iloc[0] == 20, "cache subtotal has its own billing rate")
 check(abs(float(data["derived_cost"].sum()) - 0.000434) < 1e-12, "derived cost uses allocated tokens without double counting")
+check(data["billable_tokens_for_coverage"].sum() == 450, "pricing coverage denominator excludes superseded usage")
+check(data["priced_billing_tokens"].sum() == 450, "pricing coverage numerator carries priced token magnitude")
+check(data["cache_read_tokens_active"].sum() == 20, "cache KPI is additive without event-level boolean criteria")
+check(data["unknown_quantity_active"].sum() == 0, "unknown quantity KPI excludes superseded estimates")
 check(abs(float(summaries["pricing_coverage"]) - 1.0) < 1e-12, "pricing coverage is complete")
 
 output = root / "dashboard.xlsx"
 write_dashboard(data, summaries, report, output)
 workbook = load_workbook(output, data_only=False)
-check(workbook.sheetnames == ["Data", "Coûts", "Tokens & Latence", "Use cases"], "workbook has exactly the four requested sheets")
+visible_sheets = [sheet.title for sheet in workbook.worksheets if sheet.sheet_state == "visible"]
+check(
+    visible_sheets == ["Data", "Dashboard", "Coûts", "Tokens & Latence", "Use cases"],
+    "workbook keeps the four audit sheets and adds one interactive dashboard",
+)
+check(workbook["_Lists"].sheet_state == "veryHidden", "filter support lists are not exposed as a reporting sheet")
 check("DataTable" in workbook["Data"].tables, "Data is an Excel table suitable for pivots")
+dashboard = workbook["Dashboard"]
+check(workbook.active.title == "Dashboard", "interactive dashboard opens first")
+check(len(dashboard.data_validations.dataValidation) == 7, "dashboard has five dimension and two date selectors")
+check(
+    {"DashboardProviders", "DashboardModels", "DashboardDeployments", "DashboardEnvironments", "DashboardUseCases"}
+    <= set(workbook.defined_names),
+    "filter dropdowns use workbook ranges instead of the 255-character inline-list limit",
+)
+check(dashboard["B5"].value == "All" and dashboard["L5"].value is not None, "dashboard filters have safe defaults")
+check(
+    isinstance(dashboard["A8"].value, str) and "DataTable[derived_cost]" in dashboard["A8"].value,
+    "cost KPI is an Excel formula over the Data table",
+)
+check(
+    dashboard["B51"].value == "2026-07-01"
+    and isinstance(dashboard["C51"].value, str)
+    and "AND(" in dashboard["C51"].value,
+    "daily chart series honor the selected date range",
+)
+check(len(dashboard._charts) == 4, "dashboard has four filter-driven native charts")
+check(
+    [series.tx.v for series in dashboard._charts[2].series] == ["Average latency"],
+    "latency chart explicitly names the observed average series",
+)
+check(dashboard._charts[2].display_blanks == "gap", "unknown P95 values are gaps, never fabricated zeros")
+check({"DashboardDaily", "DashboardModelSummary"} <= set(dashboard.tables), "chart helper ranges remain auditable")
 check(len(workbook["Coûts"]._charts) == 2, "cost sheet has two native charts")
 check(len(workbook["Tokens & Latence"]._charts) == 2, "tokens and latency sheet has two native charts")
 check(len(workbook["Use cases"]._charts) == 1, "use-case sheet has a native pie chart")

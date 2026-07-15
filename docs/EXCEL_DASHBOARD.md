@@ -4,6 +4,11 @@ The Excel dashboard is an optional presentation layer. JSONL remains the source 
 cost, safe totals, request counts, latency statistics, and chart tables are derived only in
 memory and in the generated workbook.
 
+The workbook opens on an interactive Azure/Foundry-style `Dashboard`. Provider, model,
+deployment, environment, use case, and date selectors recalculate the KPI cards and four native
+charts without macros. `Data`, `Coûts`, `Tokens & Latence`, and `Use cases` remain deterministic
+audit views. A `veryHidden` `_Lists` sheet holds bounded dropdown sources; it is not reporting data.
+
 ## Stored v8 event schema
 
 `TokenEvent.to_dict()` writes these fields and no derived totals:
@@ -57,6 +62,12 @@ validated metadata remains inside the same object.
   not repeated.
 - `request_count_once` and `request_latency_ms` appear on one latest authoritative row per
   `request_correlation_id`. Average and p95 latency therefore weight requests equally.
+- `event_count_once`, latency observation counters, cache-read tokens, and pricing-coverage
+  numerators/denominators are workbook-only additive measures. They simplify Excel formulas and
+  are never written back to `TokenEvent`.
+- Superseded events have their own additive KPI. Unknown, mismatch, and flagged-event KPI count
+  only active authoritative observations, so an expected partial-stream replacement is visible
+  without being misclassified as a current data-quality failure.
 - Cost is never stored. For a subtotal such as `cached_input` inside `input`, billing tokens
   are allocated as `(input - cached_input)` at the input price plus `cached_input` at its own
   price. This avoids charging the same token twice.
@@ -88,8 +99,14 @@ scripts\tt-dashboard.cmd --data-dir .\data --prices .\prices.csv --output .\dash
 Add `--recursive` only for a partitioned event store. Malformed and schema-invalid JSONL rows
 are logged by path and line number, without logging their potentially sensitive content.
 
-The workbook is regenerated from scratch and contains exactly `Data`, `Coûts`,
-`Tokens & Latence`, and `Use cases`. Charts are native Excel objects. Their helper tables are
-rebuilt by the script; rerun the command after changing JSONL or prices. Replacing the `Data`
-sheet manually does not discover new dates/models/use cases because openpyxl cannot create and
-refresh native PivotCaches from scratch.
+The workbook is regenerated from scratch and contains five visible sheets: `Data`, `Dashboard`,
+`Coûts`, `Tokens & Latence`, and `Use cases`. Dashboard formulas use the `DataTable` Excel table,
+so dropdown and date changes update KPI and chart values. Exact interactive P95 uses the Microsoft
+365 `FILTER` function; other KPI formulas use broadly supported `SUMIFS` arithmetic.
+
+The interactive chart layer is bounded to the latest 730 observed dates and the 20 leading models
+to cap workbook size and recalculation cost. KPI cards cover the full selected in-workbook range.
+Rerun the command after changing JSONL or prices so categories and dropdown values are rebuilt.
+Replacing `Data` manually does not discover new categories, and pure openpyxl cannot create native
+PivotTable slicers or timelines. Those controls require a prebuilt Excel template, Excel COM, or an
+Office Script; the generated dropdown controls remain macro-free and portable.

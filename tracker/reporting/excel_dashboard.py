@@ -23,6 +23,8 @@ from openpyxl.formatting.rule import FormulaRule
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.utils.dataframe import dataframe_to_rows
+from openpyxl.workbook.defined_name import DefinedName
+from openpyxl.worksheet.datavalidation import DataValidation
 from openpyxl.worksheet.table import Table, TableStyleInfo
 
 from tracker.models.token_event import TokenEvent
@@ -73,18 +75,30 @@ DATA_COLUMNS = (
     "subtotal_of",
     "quantity_in_total",
     "event_contributing_tokens_once",
+    "event_count_once",
+    "event_authoritative_once",
+    "quality_flagged_event_once",
+    "active_quality_flagged_event_once",
+    "superseded_event_once",
+    "mismatch_event_once",
     "provider_total_tokens_once",
     "event_total_mismatch_once",
     "under_attributed_tokens_once",
     "over_attributed_tokens_once",
     "billing_tokens",
+    "billable_tokens_for_coverage",
+    "priced_billing_tokens",
+    "cache_read_tokens_active",
+    "unknown_quantity_active",
     "unit_price_per_million",
     "currency",
     "derived_cost",
     "cost_quality",
     "request_count_once",
     "request_latency_ms",
+    "request_latency_observation_once",
     "request_ttft_ms",
+    "request_ttft_observation_once",
     "quantity_metadata_json",
     "observation_json",
 )
@@ -98,6 +112,26 @@ LIGHT = "F3F4F6"
 WHITE = "FFFFFF"
 MUTED = "6B7280"
 GRID = "D1D5DB"
+AZURE_BLUE = "0078D4"
+FOUNDRY_TEAL = "008272"
+SUCCESS = "107C10"
+WARNING = "D83B01"
+SOFT_BLUE = "E8F3FC"
+MAX_DASHBOARD_DATES = 730
+MAX_DASHBOARD_MODELS = 20
+
+DASHBOARD_FILTERS = (
+    ("Provider", "provider", "B5", "DashboardProviders"),
+    ("Model", "model", "D5", "DashboardModels"),
+    ("Deployment", "deployment", "F5", "DashboardDeployments"),
+    ("Environment", "environment", "H5", "DashboardEnvironments"),
+    ("Use case", "use_case", "J5", "DashboardUseCases"),
+)
+DASHBOARD_FILTER_REFS = {
+    column: f"'Dashboard'!${cell[0]}${cell[1:]}" for _, column, cell, _ in DASHBOARD_FILTERS
+}
+DASHBOARD_DATE_FROM = "'Dashboard'!$L$5"
+DASHBOARD_DATE_TO = "'Dashboard'!$N$5"
 
 
 @dataclass(frozen=True)
@@ -354,6 +388,15 @@ def build_data_frame(events: list[LoadedEvent], prices: pd.DataFrame) -> pd.Data
                 uncertain = quantity.precision_level.value != "exact" or quantity.trust.value != "verified"
                 cost_quality = allocation_issue or ("estimated" if uncertain else "exact")
 
+            active_event = event.is_authoritative and not event.superseded
+            billable_for_coverage = billing_tokens if active_event and billing_tokens is not None and billing_tokens > 0 else 0
+            priced_billing_tokens = billable_for_coverage if derived_cost is not None else 0
+            cache_read_tokens = (
+                raw_tokens
+                if active_event and token_type == "cached_input" and raw_tokens is not None
+                else 0
+            )
+
             rows.append(
                 {
                     "source_file": item.source_file,
@@ -390,18 +433,42 @@ def build_data_frame(events: list[LoadedEvent], prices: pd.DataFrame) -> pd.Data
                         quantity.quantity_in_total if quantity and event.is_authoritative and not event.superseded else 0
                     ),
                     "event_contributing_tokens_once": event.event_contributing_tokens if first_quantity else 0,
+                    "event_count_once": 1 if first_quantity else 0,
+                    "event_authoritative_once": 1 if first_quantity and event.is_authoritative else 0,
+                    "quality_flagged_event_once": 1 if first_quantity and event.data_quality_flags else 0,
+                    "active_quality_flagged_event_once": (
+                        1 if first_quantity and active_event and event.data_quality_flags else 0
+                    ),
+                    "superseded_event_once": 1 if first_quantity and event.superseded else 0,
+                    "mismatch_event_once": (
+                        1
+                        if first_quantity
+                        and active_event
+                        and event.event_total_mismatch not in (None, 0)
+                        else 0
+                    ),
                     "provider_total_tokens_once": event.provider_total_tokens if first_quantity else None,
                     "event_total_mismatch_once": event.event_total_mismatch if first_quantity else None,
                     "under_attributed_tokens_once": event.under_attributed_tokens if first_quantity else 0,
                     "over_attributed_tokens_once": event.over_attributed_tokens if first_quantity else 0,
                     "billing_tokens": billing_tokens,
+                    "billable_tokens_for_coverage": billable_for_coverage,
+                    "priced_billing_tokens": priced_billing_tokens,
+                    "cache_read_tokens_active": cache_read_tokens,
+                    "unknown_quantity_active": (
+                        1
+                        if active_event and (quantity is None or quantity.precision_level.value == "unknown")
+                        else 0
+                    ),
                     "unit_price_per_million": unit_price,
                     "currency": currency,
                     "derived_cost": derived_cost,
                     "cost_quality": cost_quality,
                     "request_count_once": 0,
                     "request_latency_ms": None,
+                    "request_latency_observation_once": 0,
                     "request_ttft_ms": None,
+                    "request_ttft_observation_once": 0,
                     "quantity_metadata_json": json.dumps(quantity.metadata, ensure_ascii=True, sort_keys=True) if quantity else "{}",
                     "observation_json": json.dumps(observation, ensure_ascii=True, sort_keys=True),
                 }
@@ -413,7 +480,11 @@ def build_data_frame(events: list[LoadedEvent], prices: pd.DataFrame) -> pd.Data
         rows[row_index]["request_count_once"] = 1
         # Latency rule: one duration per request_correlation_id, never one per quantity/event row.
         rows[row_index]["request_latency_ms"] = event.observation.get("duration_ms")
+        rows[row_index]["request_latency_observation_once"] = int(event.observation.get("duration_ms") is not None)
         rows[row_index]["request_ttft_ms"] = event.observation.get("time_to_first_token_ms")
+        rows[row_index]["request_ttft_observation_once"] = int(
+            event.observation.get("time_to_first_token_ms") is not None
+        )
 
     return pd.DataFrame(rows, columns=DATA_COLUMNS)
 
@@ -525,15 +596,16 @@ def _write_frame(ws, frame: pd.DataFrame, *, start_row: int, start_col: int, tab
     return end_row, end_col
 
 
-def _style_dashboard(ws, title: str, subtitle: str) -> None:
+def _style_dashboard(ws, title: str, subtitle: str, *, end_col: int = 8) -> None:
     ws.sheet_view.showGridLines = False
-    ws.merge_cells("A1:H1")
+    end_letter = get_column_letter(end_col)
+    ws.merge_cells(f"A1:{end_letter}1")
     ws["A1"] = title
     ws["A1"].font = Font(size=20, bold=True, color=WHITE)
     ws["A1"].fill = PatternFill("solid", fgColor=NAVY)
     ws["A1"].alignment = Alignment(vertical="center")
     ws.row_dimensions[1].height = 30
-    ws.merge_cells("A2:H2")
+    ws.merge_cells(f"A2:{end_letter}2")
     ws["A2"] = subtitle
     ws["A2"].font = Font(size=10, color=MUTED)
     ws.row_dimensions[2].height = 24
@@ -548,6 +620,454 @@ def _write_kpi(ws, label_cell: str, value_cell: str, label: str, value: Any, num
     for cell in (ws[label_cell], ws[value_cell]):
         cell.fill = PatternFill("solid", fgColor=LIGHT)
         cell.border = Border(bottom=Side(style="thin", color=GRID))
+
+
+def _criteria_arguments(
+    *,
+    overrides: dict[str, str] | None = None,
+    extra: tuple[tuple[str, str], ...] = (),
+    include_dates: bool = True,
+) -> str:
+    overrides = overrides or {}
+    arguments: list[str] = []
+    for column, reference in DASHBOARD_FILTER_REFS.items():
+        criterion = overrides.get(column, f'IF({reference}="All","*",{reference})')
+        arguments.extend((f"DataTable[{column}]", criterion))
+    if "date" in overrides:
+        arguments.extend(("DataTable[date]", overrides["date"]))
+    elif include_dates:
+        arguments.extend(
+            (
+                "DataTable[date]",
+                f'">="&{DASHBOARD_DATE_FROM}',
+                "DataTable[date]",
+                f'"<="&{DASHBOARD_DATE_TO}',
+            )
+        )
+    for column, criterion in extra:
+        arguments.extend((f"DataTable[{column}]", criterion))
+    return ",".join(arguments)
+
+
+def _sumifs_formula(
+    column: str,
+    *,
+    overrides: dict[str, str] | None = None,
+    extra: tuple[tuple[str, str], ...] = (),
+    include_dates: bool = True,
+) -> str:
+    criteria = _criteria_arguments(overrides=overrides, extra=extra, include_dates=include_dates)
+    return f"IFERROR(SUMIFS(DataTable[{column}],{criteria}),0)"
+
+
+def _ratio_sumifs_formula(
+    numerator_column: str,
+    denominator_column: str,
+    *,
+    overrides: dict[str, str] | None = None,
+    include_dates: bool = True,
+) -> str:
+    numerator = _sumifs_formula(numerator_column, overrides=overrides, include_dates=include_dates)
+    denominator = _sumifs_formula(denominator_column, overrides=overrides, include_dates=include_dates)
+    return f'IFERROR(({numerator})/({denominator}),"")'
+
+
+def _filter_mask(
+    *,
+    overrides: dict[str, str] | None = None,
+    extra: tuple[tuple[str, str], ...] = (),
+    include_dates: bool = True,
+) -> str:
+    overrides = overrides or {}
+    conditions: list[str] = []
+    for column, reference in DASHBOARD_FILTER_REFS.items():
+        if column in overrides:
+            conditions.append(f"(DataTable[{column}]={overrides[column]})")
+        else:
+            conditions.append(f'(((DataTable[{column}]={reference})+({reference}="All"))>0)')
+    if "date" in overrides:
+        conditions.append(f"(DataTable[date]={overrides['date']})")
+    elif include_dates:
+        conditions.extend(
+            (
+                f"(DataTable[date]>={DASHBOARD_DATE_FROM})",
+                f"(DataTable[date]<={DASHBOARD_DATE_TO})",
+            )
+        )
+    conditions.extend(f"(DataTable[{column}]={criterion})" for column, criterion in extra)
+    return "*".join(conditions)
+
+
+def _p95_formula(
+    column: str,
+    *,
+    overrides: dict[str, str] | None = None,
+    include_dates: bool = True,
+) -> str:
+    mask = _filter_mask(
+        overrides=overrides,
+        extra=(("request_count_once", "1"),),
+        include_dates=include_dates,
+    )
+    return (
+        f'IFERROR(PERCENTILE.INC(_xlfn._xlws.FILTER(DataTable[{column}],'
+        f'{mask}*ISNUMBER(DataTable[{column}])),0.95),"")'
+    )
+
+
+def _write_dashboard_lists(workbook: Workbook, ws_lists, data: pd.DataFrame) -> tuple[dt.date, dt.date]:
+    ws_lists.sheet_state = "veryHidden"
+    for column_index, (label, data_column, _, range_name) in enumerate(DASHBOARD_FILTERS, start=1):
+        values = ["All"]
+        if not data.empty:
+            values.extend(sorted({str(value) for value in data[data_column].dropna() if str(value)}))
+        ws_lists.cell(1, column_index, label)
+        for row_index, value in enumerate(values, start=2):
+            ws_lists.cell(row_index, column_index, value)
+        column_letter = get_column_letter(column_index)
+        workbook.defined_names.add(
+            DefinedName(
+                range_name,
+                attr_text=f"'{ws_lists.title}'!${column_letter}$2:${column_letter}${len(values) + 1}",
+            )
+        )
+
+    dates = sorted(value for value in data["date"].dropna().unique()) if not data.empty else []
+    if not dates:
+        today = dt.datetime.now(dt.UTC).date()
+        return today, today
+    chart_dates = dates[-MAX_DASHBOARD_DATES:]
+    return chart_dates[0], chart_dates[-1]
+
+
+def _style_filter_cell(ws, cell: str) -> None:
+    ws[cell].fill = PatternFill("solid", fgColor=SOFT_BLUE)
+    ws[cell].font = Font(color=NAVY, bold=True)
+    ws[cell].alignment = Alignment(horizontal="center")
+    ws[cell].border = Border(bottom=Side(style="medium", color=AZURE_BLUE))
+
+
+def _write_dashboard_filters(
+    ws,
+    *,
+    minimum_date: dt.date,
+    maximum_date: dt.date,
+) -> None:
+    for label, _, cell, range_name in DASHBOARD_FILTERS:
+        label_cell = f"{cell[0]}4"
+        ws[label_cell] = label
+        ws[label_cell].font = Font(size=9, bold=True, color=MUTED)
+        ws[cell] = "All"
+        _style_filter_cell(ws, cell)
+        validation = DataValidation(type="list", formula1=f"={range_name}", allow_blank=False)
+        validation.error = "Choose a value from the tracker dimensions."
+        validation.errorTitle = "Invalid filter"
+        ws.add_data_validation(validation)
+        validation.add(ws[cell])
+
+    for label, cell, value in (("From", "L5", minimum_date), ("To", "N5", maximum_date)):
+        ws[f"{cell[0]}4"] = label
+        ws[f"{cell[0]}4"].font = Font(size=9, bold=True, color=MUTED)
+        ws[cell] = value
+        ws[cell].number_format = "yyyy-mm-dd"
+        _style_filter_cell(ws, cell)
+        validation = DataValidation(
+            type="date",
+            operator="between",
+            formula1=f"DATE({minimum_date.year},{minimum_date.month},{minimum_date.day})",
+            formula2=f"DATE({maximum_date.year},{maximum_date.month},{maximum_date.day})",
+            allow_blank=False,
+        )
+        ws.add_data_validation(validation)
+        validation.add(ws[cell])
+
+
+def _write_dashboard_kpi(
+    ws,
+    *,
+    start_col: int,
+    start_row: int,
+    label: str,
+    formula: str,
+    number_format: str,
+    accent: str,
+) -> None:
+    ws.merge_cells(start_row=start_row, start_column=start_col, end_row=start_row, end_column=start_col + 1)
+    ws.merge_cells(start_row=start_row + 1, start_column=start_col, end_row=start_row + 2, end_column=start_col + 1)
+    label_cell = ws.cell(start_row, start_col)
+    value_cell = ws.cell(start_row + 1, start_col)
+    label_cell.value = label
+    label_cell.font = Font(size=9, bold=True, color=MUTED)
+    label_cell.fill = PatternFill("solid", fgColor=LIGHT)
+    label_cell.alignment = Alignment(horizontal="left", vertical="center")
+    value_cell.value = f"={formula}"
+    value_cell.font = Font(size=18, bold=True, color=NAVY)
+    value_cell.fill = PatternFill("solid", fgColor=WHITE)
+    value_cell.alignment = Alignment(horizontal="left", vertical="center")
+    value_cell.number_format = number_format
+    edge = Side(style="medium", color=accent)
+    label_cell.border = Border(left=edge, top=Side(style="thin", color=GRID), right=Side(style="thin", color=GRID))
+    value_cell.border = Border(left=edge, bottom=Side(style="thin", color=GRID), right=Side(style="thin", color=GRID))
+
+
+def _write_dashboard_kpis(ws, *, has_data: bool) -> None:
+    cost = _sumifs_formula("derived_cost")
+    tokens = _sumifs_formula("event_contributing_tokens_once")
+    requests = _sumifs_formula("request_count_once")
+    average_latency = _ratio_sumifs_formula("request_latency_ms", "request_latency_observation_once")
+    p95_latency = _p95_formula("request_latency_ms")
+    cache_tokens = _sumifs_formula("cache_read_tokens_active")
+    priced = _sumifs_formula("priced_billing_tokens")
+    billable = _sumifs_formula("billable_tokens_for_coverage")
+    authoritative = _sumifs_formula("event_authoritative_once")
+    events = _sumifs_formula("event_count_once")
+    unknown = _sumifs_formula("unknown_quantity_active")
+    mismatch = _sumifs_formula("mismatch_event_once")
+    superseded = _sumifs_formula("superseded_event_once")
+    flagged = _sumifs_formula("active_quality_flagged_event_once")
+    ttft = _ratio_sumifs_formula("request_ttft_ms", "request_ttft_observation_once")
+
+    primary = (
+        ("Known cost", cost, "0.000000", AZURE_BLUE),
+        ("Contributing tokens", tokens, "#,##0", AZURE_BLUE),
+        ("Requests", requests, "#,##0", FOUNDRY_TEAL),
+        ("Average latency", average_latency, '0.0 "ms"', FOUNDRY_TEAL),
+        ("P95 latency", p95_latency, '0.0 "ms"', WARNING),
+        ("Cache read", cache_tokens, "#,##0", SUCCESS),
+        ("Pricing coverage", f"IFERROR(({priced})/({billable}),0)", "0.0%", SUCCESS),
+    )
+    quality = (
+        ("Authoritative rate", f"IFERROR(({authoritative})/({events}),0)", "0.0%", SUCCESS),
+        ("Unknown quantities", unknown, "#,##0", WARNING),
+        ("Mismatch events", mismatch, "#,##0", WARNING),
+        ("Superseded events", superseded, "#,##0", AZURE_BLUE),
+        ("Flagged events", flagged, "#,##0", WARNING),
+        ("Tokens / request", f"IFERROR(({tokens})/({requests}),0)", "#,##0.0", FOUNDRY_TEAL),
+        ("Average TTFT", ttft, '0.0 "ms"', FOUNDRY_TEAL),
+    )
+    for index, (label, formula, number_format, accent) in enumerate(primary):
+        _write_dashboard_kpi(
+            ws,
+            start_col=1 + index * 2,
+            start_row=7,
+            label=label,
+            formula=formula if has_data else "0",
+            number_format=number_format,
+            accent=accent,
+        )
+    for index, (label, formula, number_format, accent) in enumerate(quality):
+        _write_dashboard_kpi(
+            ws,
+            start_col=1 + index * 2,
+            start_row=11,
+            label=label,
+            formula=formula if has_data else "0",
+            number_format=number_format,
+            accent=accent,
+        )
+
+
+def _write_dashboard_helper_tables(ws, data: pd.DataFrame) -> tuple[int, int]:
+    dates = sorted(value for value in data["date"].dropna().unique())[-MAX_DASHBOARD_DATES:]
+    model_order = (
+        data.groupby("model", as_index=False)
+        .agg(tokens=("event_contributing_tokens_once", "sum"), cost=("derived_cost", "sum"))
+        .sort_values(["cost", "tokens"], ascending=False)["model"]
+        .head(MAX_DASHBOARD_MODELS)
+        .tolist()
+    )
+    start_row = 50
+    ws.cell(start_row - 2, 1, "Calculated chart tables")
+    ws.cell(start_row - 2, 1).font = Font(size=11, bold=True, color=NAVY)
+    daily_headers = ("Date", "Date label", "Cost", "Tokens", "Requests", "Average latency", "P95 latency")
+    for column, header in enumerate(daily_headers, start=1):
+        ws.cell(start_row, column, header)
+    for offset, date_value in enumerate(dates, start=1):
+        row = start_row + offset
+        date_ref = f"$A{row}"
+        visibility = f"AND({date_ref}>={DASHBOARD_DATE_FROM},{date_ref}<={DASHBOARD_DATE_TO})"
+        ws.cell(row, 1, date_value)
+        ws.cell(row, 1).number_format = "yyyy-mm-dd"
+        ws.cell(row, 2, date_value.strftime("%Y-%m-%d"))
+        ws.cell(
+            row,
+            3,
+            f'=IF({visibility},{_sumifs_formula("derived_cost", overrides={"date": date_ref}, include_dates=False)},NA())',
+        )
+        ws.cell(
+            row,
+            4,
+            "=IF("
+            + visibility
+            + ","
+            + _sumifs_formula("event_contributing_tokens_once", overrides={"date": date_ref}, include_dates=False)
+            + ",NA())",
+        )
+        ws.cell(
+            row,
+            5,
+            f'=IF({visibility},{_sumifs_formula("request_count_once", overrides={"date": date_ref}, include_dates=False)},NA())',
+        )
+        ws.cell(
+            row,
+            6,
+            "=IF("
+            + visibility
+            + ","
+            + _ratio_sumifs_formula(
+                "request_latency_ms",
+                "request_latency_observation_once",
+                overrides={"date": date_ref},
+                include_dates=False,
+            )
+            + ",NA())",
+        )
+        ws.cell(
+            row,
+            7,
+            f'=IF({visibility},{_p95_formula("request_latency_ms", overrides={"date": date_ref}, include_dates=False)},NA())',
+        )
+
+    model_start_col = 9
+    model_headers = ("Model", "Cost", "Tokens", "Requests", "Average latency")
+    for offset, header in enumerate(model_headers):
+        ws.cell(start_row, model_start_col + offset, header)
+    model_filter = DASHBOARD_FILTER_REFS["model"]
+    for offset, model in enumerate(model_order, start=1):
+        row = start_row + offset
+        model_ref = f"$I{row}"
+        visibility = f'OR({model_filter}="All",{model_filter}={model_ref})'
+        ws.cell(row, model_start_col, model)
+        metrics = (
+            _sumifs_formula("derived_cost", overrides={"model": model_ref}),
+            _sumifs_formula("event_contributing_tokens_once", overrides={"model": model_ref}),
+            _sumifs_formula("request_count_once", overrides={"model": model_ref}),
+            _ratio_sumifs_formula(
+                "request_latency_ms",
+                "request_latency_observation_once",
+                overrides={"model": model_ref},
+            ),
+        )
+        for metric_offset, formula in enumerate(metrics, start=1):
+            ws.cell(row, model_start_col + metric_offset, f'=IF({visibility},{formula},NA())')
+
+    for start_col, end_col, rows, name in (
+        (1, len(daily_headers), len(dates), "DashboardDaily"),
+        (model_start_col, model_start_col + len(model_headers) - 1, len(model_order), "DashboardModelSummary"),
+    ):
+        if not rows:
+            continue
+        for column in range(start_col, end_col + 1):
+            cell = ws.cell(start_row, column)
+            cell.fill = PatternFill("solid", fgColor=NAVY)
+            cell.font = Font(color=WHITE, bold=True)
+        table = Table(
+            displayName=name,
+            ref=f"{get_column_letter(start_col)}{start_row}:{get_column_letter(end_col)}{start_row + rows}",
+        )
+        table.tableStyleInfo = TableStyleInfo(name="TableStyleMedium2", showRowStripes=True, showColumnStripes=False)
+        ws.add_table(table)
+    return len(dates), len(model_order)
+
+
+def _add_interactive_dashboard_charts(ws, daily_rows: int, model_rows: int) -> None:
+    if daily_rows:
+        cost = AreaChart()
+        cost.title = "Cost by day"
+        cost.y_axis.title = "Cost"
+        cost.add_data(Reference(ws, min_col=3, min_row=50, max_row=50 + daily_rows), titles_from_data=True)
+        cost.set_categories(Reference(ws, min_col=2, min_row=51, max_row=50 + daily_rows))
+        cost.height = 7
+        cost.width = 13
+        cost.legend = None
+        cost.style = 13
+        cost.series[0].graphicalProperties.solidFill = AZURE_BLUE
+        ws.add_chart(cost, "A16")
+
+        tokens = BarChart()
+        tokens.type = "col"
+        tokens.title = "Tokens by day"
+        tokens.y_axis.title = "Tokens"
+        tokens.add_data(Reference(ws, min_col=4, min_row=50, max_row=50 + daily_rows), titles_from_data=True)
+        tokens.set_categories(Reference(ws, min_col=2, min_row=51, max_row=50 + daily_rows))
+        tokens.height = 7
+        tokens.width = 13
+        tokens.legend = None
+        tokens.style = 10
+        tokens.series[0].graphicalProperties.solidFill = FOUNDRY_TEAL
+        ws.add_chart(tokens, "H16")
+
+        latency = LineChart()
+        latency.title = "Request latency by day"
+        latency.y_axis.title = "Milliseconds"
+        latency.add_data(Reference(ws, min_col=6, min_row=50, max_row=50 + daily_rows), titles_from_data=True)
+        latency.set_categories(Reference(ws, min_col=2, min_row=51, max_row=50 + daily_rows))
+        latency.height = 7
+        latency.width = 13
+        latency.style = 13
+        latency.display_blanks = "gap"
+        latency.legend = None
+        latency.series[0].graphicalProperties.line.solidFill = FOUNDRY_TEAL
+        latency.series[0].marker.symbol = "circle"
+        latency.series[0].tx.strRef = None
+        latency.series[0].tx.v = "Average latency"
+        ws.add_chart(latency, "A32")
+
+    if model_rows:
+        models = BarChart()
+        models.type = "bar"
+        models.title = "Cost by model"
+        models.x_axis.title = "Cost"
+        models.add_data(Reference(ws, min_col=10, min_row=50, max_row=50 + model_rows), titles_from_data=True)
+        models.set_categories(Reference(ws, min_col=9, min_row=51, max_row=50 + model_rows))
+        models.height = 7
+        models.width = 13
+        models.legend = None
+        models.style = 10
+        models.series[0].graphicalProperties.solidFill = AZURE_BLUE
+        ws.add_chart(models, "H32")
+
+
+def _write_interactive_dashboard(
+    workbook: Workbook,
+    data: pd.DataFrame,
+    *,
+    minimum_date: dt.date,
+    maximum_date: dt.date,
+    currency: str,
+) -> None:
+    ws = workbook.create_sheet("Dashboard", 1)
+    _style_dashboard(
+        ws,
+        "Azure & Foundry token observability",
+        f"Interactive derived view in {currency}; JSONL remains the only source of truth.",
+        end_col=14,
+    )
+    ws.freeze_panes = "A4"
+    ws.sheet_view.zoomScale = 85
+    _write_dashboard_filters(ws, minimum_date=minimum_date, maximum_date=maximum_date)
+    _write_dashboard_kpis(ws, has_data=not data.empty)
+    for cell, formula, color in (
+        ("M8", "M8<1", "FFF4CE"),
+        ("A12", "A12<1", "FFF4CE"),
+        ("C12", "C12>0", "FFF4CE"),
+        ("E12", "E12>0", "FDE7E9"),
+        ("I12", "I12>0", "FFF4CE"),
+    ):
+        ws.conditional_formatting.add(cell, FormulaRule(formula=[formula], fill=PatternFill("solid", fgColor=color)))
+    daily_rows, model_rows = _write_dashboard_helper_tables(ws, data)
+    _add_interactive_dashboard_charts(ws, daily_rows, model_rows)
+    for column in range(1, 15):
+        ws.column_dimensions[get_column_letter(column)].width = 12
+    ws.row_dimensions[8].height = 25
+    ws.row_dimensions[12].height = 25
+    ws.print_area = "A1:N46"
+    ws.sheet_properties.pageSetUpPr.fitToPage = True
+    ws.page_setup.fitToWidth = 1
+    ws.page_setup.fitToHeight = 1
+    ws.sheet_view.selection[0].activeCell = "B5"
+    ws.sheet_view.selection[0].sqref = "B5"
+    workbook.active = workbook.index(ws)
 
 
 def _add_cost_charts(ws, day_rows: int, model_rows: int) -> None:
@@ -645,7 +1165,7 @@ def write_dashboard(
     report: LoadReport,
     output_path: str | os.PathLike[str],
 ) -> str:
-    """Create the four requested sheets and native Excel chart objects from scratch."""
+    """Create five visible reporting sheets and native Excel chart objects from scratch."""
     if len(data) > 1_048_575:
         raise ValueError("Data exceeds the Excel worksheet row limit")
     workbook = Workbook()
@@ -759,6 +1279,16 @@ def write_dashboard(
         chart.style = 10
         ws_use.add_chart(chart, "F5")
     _autosize(ws_use)
+
+    ws_lists = workbook.create_sheet("_Lists")
+    minimum_date, maximum_date = _write_dashboard_lists(workbook, ws_lists, data)
+    _write_interactive_dashboard(
+        workbook,
+        data,
+        minimum_date=minimum_date,
+        maximum_date=maximum_date,
+        currency=currency,
+    )
 
     target = Path(output_path).resolve()
     target.parent.mkdir(parents=True, exist_ok=True)
