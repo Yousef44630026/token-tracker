@@ -15,7 +15,7 @@ A green unit-test suite must not promote an unobserved provider or workload to "
 | Claude transcript importer | Canary implemented | Import report has no format-drift warnings and expected extraction ratio | `ClaudeImportReport` JSON |
 | Estimator quality | Backend disclosed | `tiktoken` active or fallback explicitly accepted; error distribution measured by content class | Doctor output and estimate-vs-provider report |
 | Dashboard consumption | Not demonstrated | Scheduled export refreshes a connected dashboard and freshness is monitored | Refresh history and dashboard URL |
-| Retention and recovery | Not demonstrated | Rotation, backup, restore, and duplicate-recovery drill pass | Recovery drill report |
+| Retention and recovery | Drill passed on real ledger (2026-07-15, 3364 events); offsite backup rotation still an operator task | Rotation, backup, restore, and duplicate-recovery drill pass | `docs/evidence/RECOVERY_DRILL_20260715.md` |
 
 ## Release Rule
 
