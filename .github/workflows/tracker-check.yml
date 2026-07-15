@@ -50,6 +50,17 @@ jobs:
       - name: Full non-live suite
         run: python tests/run_all.py --skip-lint
 
+      - name: Pin interpreter for cmd wrapper scripts
+        shell: pwsh
+        run: |
+          # tt-verify.cmd resolves Python through scripts/_python.cmd, which prefers the Windows
+          # `py` launcher over PATH `python`. On the runner `py` points at an interpreter WITHOUT
+          # the editable install and its deps, so tt-verify ran different code than the steps above
+          # (which call `python` directly) and failed. Pin the override _python.cmd honors first to
+          # the interpreter that ran `pip install -e`. Locally the `py` launcher is absent, so
+          # _python.cmd already resolves the portable/venv Python and this override never applies.
+          "AI_TOKEN_TRACKER_PYTHON=$((Get-Command python).Source)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
       - name: Provider and export verification
         shell: cmd
         run: scripts\tt-verify.cmd

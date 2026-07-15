@@ -5,7 +5,7 @@ A green unit-test suite must not promote an unobserved provider or workload to "
 
 | Evidence | Current state | Pass criterion | Artifact |
 |---|---|---|---|
-| Permanent accounting falsifiers | Passing on clean CI (2026-07-15, `369e02c`) | Six named invariant tests pass in GitHub Actions | https://github.com/Yousef44630026/token-tracker/actions/runs/29034278607 |
+| Permanent accounting falsifiers | Falsifiers + full suite green on clean CI (runs #3/#4, `369e02c`/`0544b28`); overall workflow was red on the `tt-verify` interpreter-resolution bug, fixed — awaiting a fully green run | Whole `tracker-check` workflow (all steps) green in GitHub Actions | (pending green run URL) |
 | Provider payload semantics | Partial | Real redacted capture for every supported surface and usage mode | `fixtures/providers/manifest.json` entry |
 | Billing reconciliation | Not demonstrated | Tracker totals reconciled to a provider invoice for a fixed window | Signed reconciliation summary |
 | Proxy soak | Not demonstrated | 72 hours under representative streaming load with bounded memory/handles and zero silent loss | Soak report plus event store hash |
