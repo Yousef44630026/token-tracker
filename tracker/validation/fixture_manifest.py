@@ -26,6 +26,7 @@ from tracker.analytics.provider_validation import (
 )
 
 REALISTIC_FIXTURE_ADAPTERS: dict[str, type[BaseAPISurfaceAdapter]] = {
+    "anthropic_messages_cache.REAL.json": AnthropicMessagesAdapter,
     "anthropic_messages_full.SIMULATED.json": AnthropicMessagesAdapter,
     "azure_chat_content_filter.SIMULATED.json": AzureOpenAIChatCompletionsAdapter,
     "azure_openai_embeddings.SIMULATED.json": AzureOpenAIEmbeddingsAdapter,

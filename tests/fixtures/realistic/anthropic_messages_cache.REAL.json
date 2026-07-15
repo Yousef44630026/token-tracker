@@ -1,0 +1,46 @@
+{
+  "_REAL": true,
+  "_provider": "anthropic",
+  "_api_surface": "messages",
+  "_source": "Real Anthropic Messages response captured from a local Claude Code session transcript.",
+  "_redaction": "The usage object is VERBATIM from the real API response. Prompt/response `content` was dropped entirely and the message id replaced with a placeholder — the tracker never stores raw text. No token count was altered.",
+  "_proves": "input_tokens (2) < cache_read_input_tokens (18023): cache_read cannot be contained inside input_tokens, so Anthropic cache buckets are SEPARATE additive inputs (INV-4 total_contributing), not subtotal_of input. Anthropic reports no total_tokens, so provider_total_tokens is None and reconciliation is by bucket semantics, not a total.",
+  "response": {
+    "id": "msg_REAL_REDACTED_0001",
+    "type": "message",
+    "role": "assistant",
+    "model": "claude-sonnet-5",
+    "stop_reason": "tool_use",
+    "stop_sequence": null,
+    "usage": {
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 866255,
+      "cache_read_input_tokens": 18023,
+      "output_tokens": 2318,
+      "server_tool_use": {
+        "web_search_requests": 0,
+        "web_fetch_requests": 0
+      },
+      "service_tier": "standard",
+      "cache_creation": {
+        "ephemeral_1h_input_tokens": 866255,
+        "ephemeral_5m_input_tokens": 0
+      },
+      "inference_geo": "not_available",
+      "iterations": [
+        {
+          "input_tokens": 2,
+          "output_tokens": 2318,
+          "cache_read_input_tokens": 18023,
+          "cache_creation_input_tokens": 866255,
+          "cache_creation": {
+            "ephemeral_5m_input_tokens": 0,
+            "ephemeral_1h_input_tokens": 866255
+          },
+          "type": "message"
+        }
+      ],
+      "speed": "standard"
+    }
+  }
+}
