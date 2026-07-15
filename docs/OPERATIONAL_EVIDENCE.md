@@ -29,7 +29,20 @@ the label on the fixture:
 | **OpenAI (direct)** | The **same code path**: `AzureOpenAI*Adapter` subclasses `OpenAI*Adapter` and calls `super().extract_usage_from_response()`; the INV-4 table aliases `azure_openai` → `openai`. The real Azure captures therefore exercise OpenAI's extraction and its exact additivity rules (input/output contributing, `cached_input` subtotal_of input, `reasoning` subtotal_of output). | Rules verified via the shared path; only OpenAI-direct-specific wire drift (fields Azure has not shipped yet) remains unverified |
 | **Anthropic Messages** | A recorded REAL capture (`anthropic_messages_cache.REAL.json`, usage verbatim, content stripped). The real turn reports `input_tokens=2` with `cache_creation_input_tokens=866255` — cache tokens cannot be contained in input, so the buckets are provably SEPARATE additive inputs. Pinned by `tests/test_real_payload_anthropic.py`. | Verified (structurally falsified, not assumed) |
 | Gemini / Bedrock Converse | 1 recorded REAL capture each | Verified for the captured mode |
-| Mistral, Cohere, Voyage, Vertex AI, OpenAI/Bedrock embeddings variants | SIMULATED fixtures only (documented shape) | **Assumed** — a wrong rule would surface as `provider_total_mismatch` wherever a provider total exists, but is not proven |
+| **Vertex AI** | The **same code path**: `VertexAIGenerateContentAdapter` is a pure subclass of `GeminiGenerateContentAdapter` (no overrides) and the table aliases `vertex_ai` → `gemini`. The real Gemini capture exercises it. | Rules verified via the shared path |
+| **Mistral** | The **same code path**: `MistralChatAdapter` is a pure subclass of `OpenAIChatCompletionsAdapter` (no overrides); its registered rules (input/output = total_contributing) are a strict subset of OpenAI's, verified by the real Azure captures. | Rules verified via the shared path; Mistral's wire format being OpenAI-compatible is assumed |
+| Cohere, Voyage, embeddings variants | SIMULATED fixtures only. These have their **own** extraction (Cohere reads native `usage.tokens` / `billed_units`; Voyage reads rerank `usage.total_tokens`), so no Azure/OpenAI capture exercises them. | **Assumed** — but low-risk: they have no cache/reasoning sub-buckets, so input+output is the only coherent assignment, and a wire mismatch yields no quantities → `raw_usage_missing` (fails loud, never silent) |
+
+Note on capturing "provider X through Azure": a capture verifies an adapter only if the payload
+actually flows through THAT adapter's extraction code AND is that provider's real wire format.
+Azure AI Foundry serves Mistral/Cohere on an OpenAI-compatible endpoint, so such a capture
+exercises `AzureOpenAIChatCompletionsAdapter` — not `CohereChatAdapter` — and proves nothing about
+the native adapter. Conversely, if a provider is consumed ONLY through Azure, its native adapter is
+not on the deployment's path at all and should be marked experimental rather than "verified".
+
+The two genuinely hazardous rules were the cache-containment ones, which disagree between vendors
+and could each have been silently wrong: OpenAI's `cached_input` IS contained in input (subtotal),
+Anthropic's cache buckets are NOT (separate additive). Both are now proven against real payloads.
 
 Reconciliation identity: across every fixture that carries a provider total,
 `sum(quantity_in_total) == provider_total_tokens` holds exactly (no mismatch, no silent hole).
