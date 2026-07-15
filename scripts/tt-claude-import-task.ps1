@@ -54,8 +54,12 @@ if ($Mode -eq "Install") {
     $arguments = "/c `"`"$runner`" >> `"$taskLog`" 2>&1`""
     $action = New-ScheduledTaskAction -Execute $cmd -Argument $arguments -WorkingDirectory $runtimeDir
     $userId = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+    # No AtStartup trigger: it runs in the pre-logon system context and a standard (non-admin)
+    # user is denied registering it. This task only makes sense while the user is logged in
+    # (it reads ~/.claude and posts to the loopback collector), so at-logon plus an interval
+    # repetition, with StartWhenAvailable to catch missed runs, is sufficient and installs
+    # without elevation.
     $triggers = @(
-        (New-ScheduledTaskTrigger -AtStartup),
         (New-ScheduledTaskTrigger -AtLogOn -User $userId),
         (New-ScheduledTaskTrigger `
             -Once `
