@@ -9,16 +9,22 @@ $ErrorActionPreference = "Stop"
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $root = (Resolve-Path (Join-Path $scriptDir "..")).Path
 $runner = (Resolve-Path (Join-Path $scriptDir "tt-collector-monitor.cmd")).Path
+$taskRunner = (Resolve-Path (Join-Path $scriptDir "tt-collector-monitor-task-run.ps1")).Path
 $store = if ($env:TRACKER_STORE) { $env:TRACKER_STORE } else { "C:\ai-token-tracker-data\collector_events.jsonl" }
 $healthDir = Join-Path (Split-Path -Parent $store) "health"
 $healthLog = if ($env:TRACKER_HEALTH_LOG) { $env:TRACKER_HEALTH_LOG } else { Join-Path $healthDir "collector-health.jsonl" }
 $alertLog = if ($env:TRACKER_ALERT_LOG) { $env:TRACKER_ALERT_LOG } else { Join-Path $healthDir "collector-alerts.jsonl" }
-$taskLog = Join-Path $healthDir "collector-monitor-task.log"
+$taskLog = Join-Path $healthDir "collector-monitor-launcher.log"
+$runtimeDir = Split-Path -Parent $store
 
 $plan = [ordered]@{
     task_name = $TaskName
     runner = $runner
-    working_directory = $root
+    task_runner = $taskRunner
+    source_root = $root
+    working_directory = $runtimeDir
+    triggers = @("at_startup", "at_logon", "every_minute")
+    start_when_available = $true
     interval_seconds = 60
     health_log = $healthLog
     alert_log = $alertLog
@@ -58,14 +64,22 @@ if ($Mode -eq "Plan") {
 
 if ($Mode -eq "Install") {
     New-Item -ItemType Directory -Force -Path $healthDir | Out-Null
-    $taskCommand = "`"$runner`" >> `"$taskLog`" 2>&1"
-    $arguments = "/d /c `"$taskCommand`""
-    $action = New-ScheduledTaskAction -Execute "$env:SystemRoot\System32\cmd.exe" -Argument $arguments -WorkingDirectory $root
-    $trigger = New-ScheduledTaskTrigger `
+    $powerShell = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
+    $arguments = (
+        "-NoProfile -NonInteractive -ExecutionPolicy Bypass " +
+        "-File `"$taskRunner`" " +
+        "-HealthLog `"$healthLog`" -AlertLog `"$alertLog`" -TaskLog `"$taskLog`""
+    )
+    $action = New-ScheduledTaskAction -Execute $powerShell -Argument $arguments -WorkingDirectory $runtimeDir
+    $userId = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+    $triggers = @(
+        (New-ScheduledTaskTrigger -AtStartup),
+        (New-ScheduledTaskTrigger -AtLogOn -User $userId),
+        (New-ScheduledTaskTrigger `
         -Once `
         -At (Get-Date).AddMinutes(1) `
-        -RepetitionInterval (New-TimeSpan -Minutes 1)
-    $userId = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+        -RepetitionInterval (New-TimeSpan -Minutes 1))
+    )
     $principal = New-ScheduledTaskPrincipal -UserId $userId -LogonType Interactive -RunLevel Limited
     $settings = New-ScheduledTaskSettingsSet `
         -AllowStartIfOnBatteries `
@@ -76,7 +90,7 @@ if ($Mode -eq "Install") {
     Register-ScheduledTask `
         -TaskName $TaskName `
         -Action $action `
-        -Trigger $trigger `
+        -Trigger $triggers `
         -Principal $principal `
         -Settings $settings `
         -Description "Periodic health and downtime evidence for the AI token collector" `

@@ -9,11 +9,13 @@ $ErrorActionPreference = "Stop"
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $root = (Resolve-Path (Join-Path $scriptDir "..")).Path
 $runner = (Resolve-Path (Join-Path $scriptDir "tt-collector-run.cmd")).Path
+$taskRunner = (Resolve-Path (Join-Path $scriptDir "tt-collector-task-run.ps1")).Path
 $store = if ($env:TRACKER_STORE) { $env:TRACKER_STORE } else { "C:\ai-token-tracker-data\collector_events.jsonl" }
 $hostAddress = if ($env:TRACKER_HOST) { $env:TRACKER_HOST } else { "127.0.0.1" }
 $port = if ($env:TRACKER_PORT) { [int]$env:TRACKER_PORT } else { 8787 }
 $logDir = Join-Path (Split-Path -Parent $store) "logs"
 $logPath = Join-Path $logDir "collector-service.log"
+$runtimeDir = Split-Path -Parent $store
 $durable = if ($env:TRACKER_DURABLE) {
     $env:TRACKER_DURABLE.Trim().ToLowerInvariant() -in @("1", "true", "yes", "on")
 } else {
@@ -23,13 +25,16 @@ $durable = if ($env:TRACKER_DURABLE) {
 $plan = [ordered]@{
     task_name = $TaskName
     runner = $runner
-    working_directory = $root
+    task_runner = $taskRunner
+    source_root = $root
+    working_directory = $runtimeDir
     store = $store
     host = $hostAddress
     port = $port
     durable = $durable
     log = $logPath
-    trigger = "at_logon"
+    triggers = @("at_startup", "at_logon")
+    start_when_available = $true
     restart_interval_seconds = 60
     restart_count = 10
     process_restart_delay_seconds = 10
@@ -88,11 +93,14 @@ if ($Mode -eq "Plan") {
 
 if ($Mode -eq "Install") {
     New-Item -ItemType Directory -Force -Path $logDir | Out-Null
-    $taskCommand = "`"$runner`" >> `"$logPath`" 2>&1"
-    $arguments = "/d /c `"$taskCommand`""
-    $action = New-ScheduledTaskAction -Execute "$env:SystemRoot\System32\cmd.exe" -Argument $arguments -WorkingDirectory $root
+    $powerShell = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
+    $arguments = "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$taskRunner`" -LogPath `"$logPath`""
+    $action = New-ScheduledTaskAction -Execute $powerShell -Argument $arguments -WorkingDirectory $runtimeDir
     $userId = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
-    $trigger = New-ScheduledTaskTrigger -AtLogOn -User $userId
+    $triggers = @(
+        (New-ScheduledTaskTrigger -AtStartup),
+        (New-ScheduledTaskTrigger -AtLogOn -User $userId)
+    )
     $principal = New-ScheduledTaskPrincipal -UserId $userId -LogonType Interactive -RunLevel Limited
     $settings = New-ScheduledTaskSettingsSet `
         -AllowStartIfOnBatteries `
@@ -105,7 +113,7 @@ if ($Mode -eq "Install") {
     Register-ScheduledTask `
         -TaskName $TaskName `
         -Action $action `
-        -Trigger $trigger `
+        -Trigger $triggers `
         -Principal $principal `
         -Settings $settings `
         -Description "Loopback AI token collector with durable JSONL persistence" `

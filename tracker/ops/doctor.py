@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import importlib.util
 import ipaddress
 import json
+import math
 import os
 import re
 import sys
@@ -41,6 +43,8 @@ _SECRET_SCAN_ROOTS = ("tracker", "api", "scripts", "docs", "examples", "tests", 
 _SECRET_SCAN_FILES = ("README.md", "pyproject.toml", ".env.example")
 _LOCAL_SECRET_FILES = (".env",)
 _MAX_SECRET_SCAN_BYTES = 1_000_000
+_DEFAULT_MAX_HEALTH_AGE_SECONDS = 300.0
+_HEALTH_TAIL_BYTES = 65_536
 
 
 @dataclass(frozen=True)
@@ -158,6 +162,105 @@ def _storage_substrate_check(store: str) -> DoctorCheck:
             recommendation="move TRACKER_STORE to a non-synced local volume and export copies for sharing",
         )
     return _check("storage-substrate", "pass", "event store path is not inside a recognized sync folder", store=path)
+
+
+def _last_health_record(path: Path) -> dict[str, Any]:
+    with path.open("rb") as handle:
+        handle.seek(0, os.SEEK_END)
+        size = handle.tell()
+        handle.seek(max(0, size - _HEALTH_TAIL_BYTES))
+        tail = handle.read()
+    lines = [line.strip() for line in tail.splitlines() if line.strip()]
+    if not lines:
+        raise ValueError("health evidence is empty")
+    payload = json.loads(lines[-1].decode("utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("latest health evidence must be a JSON object")
+    return payload
+
+
+def _health_evidence_check(
+    health_log: str,
+    *,
+    max_age_seconds: float = _DEFAULT_MAX_HEALTH_AGE_SECONDS,
+    now: dt.datetime | None = None,
+) -> DoctorCheck:
+    path = Path(health_log).expanduser().resolve()
+    if (
+        isinstance(max_age_seconds, bool)
+        or not isinstance(max_age_seconds, (int, float))
+        or not math.isfinite(max_age_seconds)
+        or max_age_seconds <= 0
+    ):
+        return _check(
+            "collector-health-evidence",
+            "fail",
+            "maximum health evidence age must be a positive number",
+            path=str(path),
+        )
+    if not path.exists():
+        return _check(
+            "collector-health-evidence",
+            "warn",
+            "collector health evidence does not exist yet",
+            path=str(path),
+            max_age_seconds=max_age_seconds,
+        )
+    try:
+        sample = _last_health_record(path)
+        raw_timestamp = sample.get("timestamp")
+        if not isinstance(raw_timestamp, str) or not raw_timestamp.strip():
+            raise ValueError("latest health evidence has no timestamp")
+        observed_at = dt.datetime.fromisoformat(raw_timestamp.replace("Z", "+00:00"))
+        if observed_at.tzinfo is None:
+            raise ValueError("latest health evidence timestamp has no timezone")
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+        return _check(
+            "collector-health-evidence",
+            "fail",
+            f"latest collector health evidence is unreadable: {type(exc).__name__}: {exc}",
+            path=str(path),
+        )
+
+    current = now or dt.datetime.now(dt.UTC)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=dt.UTC)
+    age_seconds = (current.astimezone(dt.UTC) - observed_at.astimezone(dt.UTC)).total_seconds()
+    common = {
+        "path": str(path),
+        "timestamp": raw_timestamp,
+        "age_seconds": round(age_seconds, 3),
+        "max_age_seconds": max_age_seconds,
+        "healthy": sample.get("healthy"),
+        "collector_status": sample.get("status"),
+    }
+    if age_seconds < -60:
+        return _check(
+            "collector-health-evidence",
+            "fail",
+            "latest collector health evidence is timestamped in the future",
+            **common,
+        )
+    if age_seconds > max_age_seconds:
+        return _check(
+            "collector-health-evidence",
+            "fail",
+            f"latest collector health evidence is stale ({age_seconds:.0f}s old)",
+            **common,
+        )
+    if sample.get("healthy") is not True:
+        return _check(
+            "collector-health-evidence",
+            "fail",
+            "latest collector health probe reports the collector unavailable",
+            **common,
+        )
+    return _check(
+        "collector-health-evidence",
+        "pass",
+        f"latest collector health evidence is fresh ({max(0.0, age_seconds):.0f}s old)",
+        **common,
+    )
 
 
 def _import_check(module: str, *, required: bool) -> DoctorCheck:
@@ -379,9 +482,16 @@ def run_checks(
     skip_store: bool = False,
     environment: dict[str, str] | None = None,
     secret_scan_root: str | None = None,
+    health_log: str | None = None,
+    max_health_age_seconds: float = _DEFAULT_MAX_HEALTH_AGE_SECONDS,
 ) -> list[DoctorCheck]:
     """Run operational readiness checks."""
     env = dict(os.environ if environment is None else environment)
+    selected_health_log = health_log or env.get("TRACKER_HEALTH_LOG") or os.path.join(
+        os.path.dirname(os.path.abspath(os.path.expanduser(store))),
+        "health",
+        "collector-health.jsonl",
+    )
     checks = [
         _python_check(),
         _import_check("tracker", required=True),
@@ -393,6 +503,7 @@ def run_checks(
         _durability_check(env),
         _tokenizer_check(),
         _storage_substrate_check(store),
+        _health_evidence_check(selected_health_log, max_age_seconds=max_health_age_seconds),
         _secret_scan_check(secret_scan_root or os.getcwd()),
         _azure_env_check(env),
     ]
@@ -426,13 +537,27 @@ def _render_json(checks: Sequence[DoctorCheck]) -> str:
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Check AI Token Tracker operational readiness")
-    parser.add_argument("--store", default=os.environ.get("TRACKER_STORE", "collector_events.jsonl"))
+    default_store = os.environ.get("TRACKER_STORE") or (
+        r"C:\ai-token-tracker-data\collector_events.jsonl" if os.name == "nt" else "collector_events.jsonl"
+    )
+    parser.add_argument("--store", default=default_store)
     parser.add_argument("--partitioned-store", action="store_true", help="treat --store as a date/trace partitioned repository root")
     parser.add_argument("--skip-store", action="store_true", help="skip store write/read checks")
     parser.add_argument(
         "--secret-scan-root",
         default=os.getcwd(),
         help="project directory to scan for credential-shaped values (default: current directory)",
+    )
+    parser.add_argument(
+        "--health-log",
+        default=os.environ.get("TRACKER_HEALTH_LOG"),
+        help="collector health JSONL (default: beside the selected store)",
+    )
+    parser.add_argument(
+        "--max-health-age-seconds",
+        type=float,
+        default=os.environ.get("TRACKER_HEALTH_STALE_SECONDS", str(_DEFAULT_MAX_HEALTH_AGE_SECONDS)),
+        help="fail when the latest collector health evidence is older than this age",
     )
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--strict-warnings", action="store_true", help="return non-zero when warnings are present")
@@ -443,6 +568,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         partitioned_store=args.partitioned_store,
         skip_store=args.skip_store,
         secret_scan_root=args.secret_scan_root,
+        health_log=args.health_log,
+        max_health_age_seconds=args.max_health_age_seconds,
     )
     failures = sum(1 for item in checks if item.failed)
     warnings = sum(1 for item in checks if item.warned)

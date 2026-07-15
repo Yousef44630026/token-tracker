@@ -57,6 +57,41 @@ recovery window only; it does not replace the required 72-hour representative-lo
 
 ## Remaining Evidence
 
-- perform a real sign-out/sign-in or reboot drill to prove the logon trigger
+- perform a real reboot and sleep/resume drill to prove both recovery paths end to end
 - run the collector under representative load before and after an injected failure
 - run the strict 72-hour soak and archive its summary
+
+## Unplanned Daily-Cycle Failure - 2026-07-15
+
+The first unscheduled daily-cycle observation failed. Health evidence stopped at
+`2026-07-14T22:13:18Z`. The next morning the collector task was `Ready`, its last task
+result was `3221225786`, and `/healthz` was offline. The monitor still had a periodic
+schedule, but its action returned `1` without appending health evidence because the task
+action depended on a fragile `cmd /c` launch from the OneDrive source directory.
+
+The outage was detected from the append-only evidence, but no live dead-man consumed that
+evidence. This invalidated the previous assumption that logon-only collector startup plus
+the periodic monitor covered the normal laptop shutdown/startup cycle.
+
+## Daily-Cycle Correction And Proof
+
+Both tasks now use dedicated PowerShell launchers and start from the non-synced operational
+directory `C:\ai-token-tracker-data`. Their registered definitions were inspected after
+installation:
+
+- collector triggers: Windows startup and current-user logon
+- monitor triggers: Windows startup, current-user logon, and every 60 seconds
+- both tasks: `StartWhenAvailable=true`
+- collector state after installation: `Running`
+- post-install `/healthz`: `ok`
+- autonomous periodic samples: `2026-07-15T10:55:06Z` and `2026-07-15T10:56:06Z`
+- monitor launcher log: `C:\ai-token-tracker-data\health\collector-monitor-launcher.log`
+
+The operational doctor now reads the latest bounded health record and fails on missing
+timestamps, malformed records, unhealthy status, future clock skew, or evidence older than
+300 seconds. Before recovery it failed with a measured stale age of 572 seconds. After
+recovery it passed with a 29-second-old healthy sample.
+
+This proves scheduled periodic monitoring, stale-evidence detection, and the corrected task
+definitions. It does not yet prove execution across an actual reboot or sleep/resume cycle;
+that evidence remains pending.

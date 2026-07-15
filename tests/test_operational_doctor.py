@@ -5,6 +5,7 @@ Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_operatio
 
 from __future__ import annotations
 
+import datetime as dt
 import json
 import os
 import shutil
@@ -21,6 +22,7 @@ from tracker.models.token_event import TokenEvent  # noqa: E402
 from tracker.models.token_quantity import TokenQuantity  # noqa: E402
 from tracker.ops.doctor import (  # noqa: E402
     _durability_check,
+    _health_evidence_check,
     _python_check,
     _storage_substrate_check,
     _tokenizer_check,
@@ -81,6 +83,42 @@ check(
 check(
     _durability_check({"TRACKER_PROXY_DURABLE": "sometimes"}).status == "fail",
     "doctor fails invalid durability configuration",
+)
+
+health_now = dt.datetime(2026, 7, 15, 10, 0, tzinfo=dt.UTC)
+health_log = os.path.join(root, "collector-health.jsonl")
+check(
+    _health_evidence_check(health_log, now=health_now).status == "warn",
+    "doctor warns when health evidence has not started",
+)
+with open(health_log, "w", encoding="utf-8") as handle:
+    handle.write('{"timestamp":"2026-07-15T09:59:00Z","healthy":true,"status":"ok"}\n')
+check(
+    _health_evidence_check(health_log, max_age_seconds=300, now=health_now).status == "pass",
+    "doctor accepts fresh healthy collector evidence",
+)
+with open(health_log, "a", encoding="utf-8") as handle:
+    handle.write('{"timestamp":"2026-07-15T09:50:00Z","healthy":true,"status":"ok"}\n')
+stale_health = _health_evidence_check(health_log, max_age_seconds=300, now=health_now)
+check(stale_health.status == "fail", "doctor dead-man fails stale collector evidence")
+check(stale_health.data["age_seconds"] == 600, "dead-man reports the measured evidence age")
+with open(health_log, "a", encoding="utf-8") as handle:
+    handle.write('{"timestamp":"2026-07-15T10:00:00Z","healthy":false,"status":"offline"}\n')
+check(
+    _health_evidence_check(health_log, max_age_seconds=300, now=health_now).status == "fail",
+    "doctor fails a fresh probe that reports the collector offline",
+)
+with open(health_log, "a", encoding="utf-8") as handle:
+    handle.write("{malformed}\n")
+check(
+    _health_evidence_check(health_log, max_age_seconds=300, now=health_now).status == "fail",
+    "doctor fails malformed latest health evidence",
+)
+with open(health_log, "a", encoding="utf-8") as handle:
+    handle.write('{"timestamp":"2026-07-15T10:02:00Z","healthy":true,"status":"ok"}\n')
+check(
+    _health_evidence_check(health_log, max_age_seconds=300, now=health_now).status == "fail",
+    "doctor fails health evidence with material future clock skew",
 )
 
 foundry_checks = run_checks(
