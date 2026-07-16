@@ -98,8 +98,11 @@ check(
     f"4. FIXED: fresh_input_tokens correctly subtracts the cached 400 (got {cache_row['fresh_input_tokens']})",
 )
 check(
-    "Fresh Input Tokens" in dax and "[Fresh Input Tokens] + [Cached Input Tokens]" in dax,
-    "4. Cache Hit Rate DAX now divides by fresh+cached, not raw-input+cached",
+    "[Fresh Input Tokens] + [Cached Input Tokens] + [Cache Creation Tokens]" in dax,
+    "4. Cache Hit Rate DAX divides by the FULL prompt input (fresh+cached+cache_creation), "
+    "matching analytics/cache.py. Omitting cache_creation overstated the rate for Anthropic-style "
+    "providers (cache_creation is a separate additive prompt bucket, not inside input), making the "
+    "Power BI dashboard disagree with the analytics/HTML report for the same metric name.",
 )
 
 # --- 5. unknown event breakdown stays blank while a real zero stays numeric zero ---
