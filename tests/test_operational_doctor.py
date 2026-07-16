@@ -22,6 +22,7 @@ from tracker.models.token_event import TokenEvent  # noqa: E402
 from tracker.models.token_quantity import TokenQuantity  # noqa: E402
 from tracker.ops.doctor import (  # noqa: E402
     _claude_import_evidence_check,
+    _dashboard_evidence_check,
     _durability_check,
     _health_evidence_check,
     _python_check,
@@ -154,6 +155,57 @@ with open(claude_import_log, "a", encoding="utf-8") as handle:
 check(
     _claude_import_evidence_check(claude_import_log, max_age_seconds=7200, now=health_now).status == "fail",
     "doctor dead-man fails stale Claude import evidence",
+)
+
+dashboard_evidence = os.path.join(root, "dashboard-refresh.json")
+dashboard_output = os.path.join(root, "dashboard.xlsx")
+check(
+    _dashboard_evidence_check(dashboard_evidence, now=health_now).status == "warn",
+    "doctor warns before scheduled dashboard evidence exists",
+)
+with open(dashboard_output, "wb") as handle:
+    handle.write(b"test workbook")
+with open(dashboard_evidence, "w", encoding="utf-8") as handle:
+    json.dump(
+        {
+            "timestamp": "2026-07-15T09:30:00Z",
+            "status": "ok",
+            "output_file": dashboard_output,
+            "report": {"valid_events": 10, "skipped_lines": 0, "duplicate_event_ids": 0},
+        },
+        handle,
+    )
+check(
+    _dashboard_evidence_check(dashboard_evidence, max_age_seconds=7200, now=health_now).status == "pass",
+    "doctor accepts a fresh complete dashboard refresh",
+)
+with open(dashboard_evidence, "w", encoding="utf-8") as handle:
+    json.dump(
+        {
+            "timestamp": "2026-07-15T09:45:00Z",
+            "status": "ok",
+            "output_file": dashboard_output,
+            "report": {"valid_events": 9, "skipped_lines": 1, "duplicate_event_ids": 0},
+        },
+        handle,
+    )
+check(
+    _dashboard_evidence_check(dashboard_evidence, max_age_seconds=7200, now=health_now).status == "fail",
+    "doctor rejects a dashboard refresh that skipped source rows",
+)
+with open(dashboard_evidence, "w", encoding="utf-8") as handle:
+    json.dump(
+        {
+            "timestamp": "2026-07-15T06:00:00Z",
+            "status": "ok",
+            "output_file": dashboard_output,
+            "report": {"valid_events": 10, "skipped_lines": 0, "duplicate_event_ids": 0},
+        },
+        handle,
+    )
+check(
+    _dashboard_evidence_check(dashboard_evidence, max_age_seconds=7200, now=health_now).status == "fail",
+    "doctor dead-man fails stale dashboard refresh evidence",
 )
 
 foundry_checks = run_checks(

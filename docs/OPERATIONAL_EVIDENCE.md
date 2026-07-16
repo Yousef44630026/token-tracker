@@ -11,10 +11,10 @@ A green unit-test suite must not promote an unobserved provider or workload to "
 | Proxy soak | Not demonstrated | 72 hours under representative streaming load with bounded memory/handles and zero silent loss | Soak report plus event store hash |
 | Collector supervision | Crash recovery, alerting, stale-health dead-man, watchdog self-heal, and reboot auto-start passed; sleep/resume pending | Auto-start, restart-on-failure, downtime alert, and stale-monitor detection verified | `docs/evidence/COLLECTOR_SUPERVISION_20260714.md` |
 | Collector soak | Harness and three-sample recovery proof passed; 72 hours pending | 72 hours with 100% successful probes, monotonic counters, and unchanged starting store prefix | `collector_soak` summary JSON |
-| Storage substrate | Live ledger moved off sync; strict doctor passed 16 checks with zero warnings (2026-07-16, 3,670 readable events, observed total 1,010,251,911) | Live ledger resides on a non-synced local volume; exports may be synced | `tt-doctor --strict-warnings` output |
+| Storage substrate | Live ledger moved off sync; strict doctor passed 17 checks with zero warnings (2026-07-16, 3,672 readable events, observed total 1,010,711,836) | Live ledger resides on a non-synced local volume; exports may be synced | `tt-doctor --strict-warnings` output |
 | Claude transcript importer | Incremental authenticated task demonstrated (2026-07-16): checkpointed run scanned 16 appended lines, accepted 3 events, and newly persisted 3; format-drift and stale-task dead-men pass | Fresh scheduled JSON result, no format-drift/IO warnings, atomic checkpoint advances only after complete acknowledgement | `C:\ai-token-tracker-data\health\claude-import.log` + `tt-doctor --strict-warnings` |
 | Estimator quality | Backend disclosed | `tiktoken` active or fallback explicitly accepted; error distribution measured by content class | Doctor output and estimate-vs-provider report |
-| Dashboard consumption | Excel dashboard refreshed from the live ledger (2026-07-16, 3,670 events, 0 skipped/duplicate rows); absent prices report `total_cost=null`, never false zero; scheduled+monitored refresh remains pending | Scheduled export refreshes a connected dashboard and freshness is monitored | `C:\ai-token-tracker-data\dashboard.xlsx` + `tt-dashboard.cmd --json` |
+| Dashboard consumption | Hourly Windows task installed and first atomic refresh demonstrated (2026-07-16, 3,672 events, 0 skipped/duplicate rows, task result 0); doctor freshness dead-man passed; actual next-logon catch-up remains to be observed | Scheduled export refreshes a connected dashboard and freshness is monitored | `C:\ai-token-tracker-data\dashboard.xlsx` + `C:\ai-token-tracker-data\health\dashboard-refresh.json` + `tt-dashboard-task.ps1 -Mode Status` |
 | Retention and recovery | Strict drill passed on real ledger (2026-07-16, 3586 events); malformed/truncated/schema-invalid source rows now fail before backup claims; offsite rotation remains an operator task | Strict source validation, rotation, backup, restore, and duplicate-recovery drill pass | `docs/evidence/RECOVERY_DRILL_20260716.md` |
 
 ## Provider verification
@@ -61,6 +61,7 @@ scripts\tt-doctor.cmd --store C:\ai-token-tracker-data\collector_events.jsonl --
 scripts\tt-check.cmd
 scripts\tt-verify.cmd
 scripts\tt-claude-import-task.ps1 -Mode Status
+scripts\tt-dashboard-task.ps1 -Mode Status
 scripts\tt-collector-soak.cmd --duration-seconds 259200 --interval-seconds 60
 ```
 

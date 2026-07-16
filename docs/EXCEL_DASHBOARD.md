@@ -110,3 +110,20 @@ Rerun the command after changing JSONL or prices so categories and dropdown valu
 Replacing `Data` manually does not discover new categories, and pure openpyxl cannot create native
 PivotTable slicers or timelines. Those controls require a prebuilt Excel template, Excel COM, or an
 Office Script; the generated dropdown controls remain macro-free and portable.
+
+## Scheduled refresh on Windows
+
+The operational task refreshes at logon and every hour, catches missed runs after sleep or
+shutdown, and keeps all artifacts beside the non-synced ledger:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\tt-dashboard-task.ps1 -Mode Install
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\tt-dashboard-task.ps1 -Mode Status
+```
+
+The launcher generates a temporary `.xlsx` and replaces `dashboard.xlsx` only after the command
+returns success and a JSON report. It atomically writes `health\dashboard-refresh.json` with the
+timestamp, exit code, output path, and row-quality counters. `tt-doctor --strict-warnings` treats
+missing or stale evidence, a failed refresh, a missing workbook, skipped JSONL rows, and duplicate
+event ids as operational failures. The default freshness window is two hours and can be changed
+with `TRACKER_DASHBOARD_STALE_SECONDS`.

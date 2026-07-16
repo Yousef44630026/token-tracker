@@ -47,6 +47,7 @@ _LOCAL_SECRET_FILES = (".env",)
 _MAX_SECRET_SCAN_BYTES = 1_000_000
 _DEFAULT_MAX_HEALTH_AGE_SECONDS = 300.0
 _DEFAULT_MAX_CLAUDE_IMPORT_AGE_SECONDS = 7_200.0
+_DEFAULT_MAX_DASHBOARD_AGE_SECONDS = 7_200.0
 _HEALTH_TAIL_BYTES = 65_536
 
 
@@ -354,6 +355,121 @@ def _claude_import_evidence_check(
     )
 
 
+def _dashboard_evidence_check(
+    evidence_file: str,
+    *,
+    max_age_seconds: float = _DEFAULT_MAX_DASHBOARD_AGE_SECONDS,
+    now: dt.datetime | None = None,
+) -> DoctorCheck:
+    """Fail when the scheduled dashboard refresh is stale, incomplete, or unhealthy."""
+    path = Path(evidence_file).expanduser().resolve()
+    if (
+        isinstance(max_age_seconds, bool)
+        or not isinstance(max_age_seconds, (int, float))
+        or not math.isfinite(max_age_seconds)
+        or max_age_seconds <= 0
+    ):
+        return _check(
+            "dashboard-refresh-evidence",
+            "fail",
+            "maximum dashboard evidence age must be a positive number",
+            path=str(path),
+        )
+    if not path.exists():
+        return _check(
+            "dashboard-refresh-evidence",
+            "warn",
+            "dashboard refresh evidence does not exist yet",
+            path=str(path),
+            max_age_seconds=max_age_seconds,
+        )
+    try:
+        sample = _last_health_record(path)
+        raw_timestamp = sample.get("timestamp")
+        if not isinstance(raw_timestamp, str) or not raw_timestamp.strip():
+            raise ValueError("dashboard evidence has no timestamp")
+        observed_at = dt.datetime.fromisoformat(raw_timestamp.replace("Z", "+00:00"))
+        if observed_at.tzinfo is None:
+            raise ValueError("dashboard evidence timestamp has no timezone")
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+        return _check(
+            "dashboard-refresh-evidence",
+            "fail",
+            f"latest dashboard refresh evidence is unreadable: {type(exc).__name__}: {exc}",
+            path=str(path),
+        )
+
+    current = now or dt.datetime.now(dt.UTC)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=dt.UTC)
+    age_seconds = (current.astimezone(dt.UTC) - observed_at.astimezone(dt.UTC)).total_seconds()
+    status = sample.get("status")
+    report = sample.get("report")
+    output_file = sample.get("output_file")
+    skipped_lines = report.get("skipped_lines") if isinstance(report, dict) else None
+    duplicate_event_ids = report.get("duplicate_event_ids") if isinstance(report, dict) else None
+    valid_events = report.get("valid_events") if isinstance(report, dict) else None
+    common = {
+        "path": str(path),
+        "timestamp": raw_timestamp,
+        "age_seconds": round(age_seconds, 3),
+        "max_age_seconds": max_age_seconds,
+        "refresh_status": status,
+        "output_file": output_file,
+        "valid_events": valid_events,
+        "skipped_lines": skipped_lines,
+        "duplicate_event_ids": duplicate_event_ids,
+    }
+    if age_seconds < -60:
+        return _check(
+            "dashboard-refresh-evidence",
+            "fail",
+            "latest dashboard refresh evidence is timestamped in the future",
+            **common,
+        )
+    if age_seconds > max_age_seconds:
+        return _check(
+            "dashboard-refresh-evidence",
+            "fail",
+            f"latest dashboard refresh evidence is stale ({age_seconds:.0f}s old)",
+            **common,
+        )
+    if status != "ok":
+        return _check(
+            "dashboard-refresh-evidence",
+            "fail",
+            f"latest dashboard refresh is unhealthy ({status or 'missing_status'})",
+            **common,
+        )
+    if not isinstance(output_file, str) or not Path(output_file).expanduser().is_file():
+        return _check(
+            "dashboard-refresh-evidence",
+            "fail",
+            "latest dashboard refresh output is missing",
+            **common,
+        )
+    if isinstance(valid_events, bool) or not isinstance(valid_events, int) or valid_events < 0:
+        return _check(
+            "dashboard-refresh-evidence",
+            "fail",
+            "latest dashboard refresh report has an invalid event count",
+            **common,
+        )
+    if skipped_lines != 0 or duplicate_event_ids != 0:
+        return _check(
+            "dashboard-refresh-evidence",
+            "fail",
+            "latest dashboard refresh omitted or duplicated source rows",
+            **common,
+        )
+    return _check(
+        "dashboard-refresh-evidence",
+        "pass",
+        f"latest dashboard refresh is healthy and fresh ({max(0.0, age_seconds):.0f}s old)",
+        **common,
+    )
+
+
 def _import_check(module: str, *, required: bool) -> DoctorCheck:
     if importlib.util.find_spec(module) is not None:
         return _check(f"import:{module}", "pass", f"{module} is importable")
@@ -583,6 +699,8 @@ def run_checks(
     max_health_age_seconds: float = _DEFAULT_MAX_HEALTH_AGE_SECONDS,
     claude_import_log: str | None = None,
     max_claude_import_age_seconds: float = _DEFAULT_MAX_CLAUDE_IMPORT_AGE_SECONDS,
+    dashboard_evidence_file: str | None = None,
+    max_dashboard_age_seconds: float = _DEFAULT_MAX_DASHBOARD_AGE_SECONDS,
 ) -> list[DoctorCheck]:
     """Run operational readiness checks."""
     env = dict(os.environ if environment is None else environment)
@@ -595,6 +713,11 @@ def run_checks(
         os.path.dirname(os.path.abspath(os.path.expanduser(store))),
         "health",
         "claude-import.log",
+    )
+    selected_dashboard_evidence = dashboard_evidence_file or env.get("TRACKER_DASHBOARD_EVIDENCE") or os.path.join(
+        os.path.dirname(os.path.abspath(os.path.expanduser(store))),
+        "health",
+        "dashboard-refresh.json",
     )
     checks = [
         _python_check(),
@@ -611,6 +734,10 @@ def run_checks(
         _claude_import_evidence_check(
             selected_claude_import_log,
             max_age_seconds=max_claude_import_age_seconds,
+        ),
+        _dashboard_evidence_check(
+            selected_dashboard_evidence,
+            max_age_seconds=max_dashboard_age_seconds,
         ),
         _secret_scan_check(secret_scan_root or os.getcwd()),
         _azure_env_check(env),
@@ -681,6 +808,20 @@ def main(argv: Sequence[str] | None = None) -> int:
         ),
         help="fail when the latest Claude import evidence is older than this age",
     )
+    parser.add_argument(
+        "--dashboard-evidence-file",
+        default=os.environ.get("TRACKER_DASHBOARD_EVIDENCE"),
+        help="scheduled dashboard refresh JSON evidence (default: beside the selected store)",
+    )
+    parser.add_argument(
+        "--max-dashboard-age-seconds",
+        type=float,
+        default=os.environ.get(
+            "TRACKER_DASHBOARD_STALE_SECONDS",
+            str(_DEFAULT_MAX_DASHBOARD_AGE_SECONDS),
+        ),
+        help="fail when the latest dashboard refresh evidence is older than this age",
+    )
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--strict-warnings", action="store_true", help="return non-zero when warnings are present")
     args = parser.parse_args(argv)
@@ -694,6 +835,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         max_health_age_seconds=args.max_health_age_seconds,
         claude_import_log=args.claude_import_log,
         max_claude_import_age_seconds=args.max_claude_import_age_seconds,
+        dashboard_evidence_file=args.dashboard_evidence_file,
+        max_dashboard_age_seconds=args.max_dashboard_age_seconds,
     )
     failures = sum(1 for item in checks if item.failed)
     warnings = sum(1 for item in checks if item.warned)

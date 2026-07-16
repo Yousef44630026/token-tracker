@@ -260,6 +260,21 @@ python -m pip install -e ".[reporting]"
 scripts\tt-dashboard.cmd --data-dir .\data --prices .\prices.csv --output .\dashboard.xlsx
 ```
 
+On Windows, install the sleep/shutdown-tolerant hourly refresh task after the operational store
+has been configured. It publishes a completed workbook atomically and writes freshness evidence
+beside the store; a failed run keeps the previous known-good workbook:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\tt-dashboard-task.ps1 -Mode Plan
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\tt-dashboard-task.ps1 -Mode Install
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\tt-dashboard-task.ps1 -Mode Status
+scripts\tt-doctor.cmd --store C:\ai-token-tracker-data\collector_events.jsonl --strict-warnings
+```
+
+The task runs at logon and every hour with `StartWhenAvailable`. The doctor fails when the latest
+refresh is unhealthy, older than two hours, missing its workbook, or reports skipped/duplicate
+source rows. Missing prices remain `total_cost=null`; scheduling never invents a price.
+
 See `docs/EXCEL_DASHBOARD.md` for the exact stored schema, the external price-table contract,
 supersession rules, cost allocation, interactive filters, KPI definitions, and refresh limitations.
 
