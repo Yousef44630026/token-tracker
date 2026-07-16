@@ -42,6 +42,7 @@ def evt(eid, out_qty):
             TokenQuantity(TokenType.OUTPUT, out_qty, PrecisionLevel.EXACT, UsageSource.PROVIDER_RESPONSE, Additivity.TOTAL_CONTRIBUTING)
         ],
         provider_total_tokens=out_qty,
+        observation={"authoritative": True},
     )
 
 

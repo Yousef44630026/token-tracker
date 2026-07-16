@@ -54,6 +54,7 @@ e = TokenEvent(
         q(TokenType.INPUT, 100, PrecisionLevel.EXACT, UsageSource.PROVIDER_RESPONSE),
         q(TokenType.CACHED_INPUT, 900, PrecisionLevel.EXACT, UsageSource.PROVIDER_RESPONSE, add=Additivity.UNVERIFIED),
     ],
+    observation={"authoritative": True},
 )
 trace = Trace(trace_id="t")
 trace.add_event(e)
@@ -87,6 +88,7 @@ clean.add_event(
             q(TokenType.OUTPUT, 50, PrecisionLevel.EXACT, UsageSource.PROVIDER_RESPONSE),
         ],
         provider_total_tokens=150,
+        observation={"authoritative": True},
     )
 )
 cc = build_coverage_exactness(clean)
@@ -104,12 +106,13 @@ lost.add_event(
         trace_id="lost",
         span_id="s",
         quantities=[q(TokenType.OUTPUT, None, PrecisionLevel.UNKNOWN, UsageSource.NONE)],
+        observation={"authoritative": True},
     )
 )
 check(total_is_lower_bound(lost) is True, "a lost/unknown quantity makes the total a lower bound too")
 
 # --- a superseded event's imperfections must NOT taint the live total's status ---
-# The live event is clean; a superseded duplicate carrying an unverified quantity should not
+# The live event is clean; a correlated partial carrying an unverified quantity should not
 # flip the trace to lower-bound, because superseded events contribute 0 by design (not by loss).
 sup_trace = Trace(trace_id="sup")
 sup_trace.add_event(
@@ -118,19 +121,20 @@ sup_trace.add_event(
         request_correlation_id="rs",
         trace_id="sup",
         span_id="s",
-        quantities=[q(TokenType.INPUT, 100, PrecisionLevel.EXACT, UsageSource.PROVIDER_RESPONSE)],
+        quantities=[q(TokenType.OUTPUT, 100, PrecisionLevel.EXACT, UsageSource.PROVIDER_RESPONSE)],
         provider_total_tokens=100,
+        observation={"authoritative": True},
     )
 )
 sup_trace.add_event(
     TokenEvent(
         event_id="dead",
-        request_correlation_id="rs2",
+        request_correlation_id="rs",
         trace_id="sup",
         span_id="s",
-        quantities=[q(TokenType.CACHED_INPUT, 900, PrecisionLevel.EXACT, UsageSource.PROVIDER_RESPONSE, add=Additivity.UNVERIFIED)],
-        superseded=True,
-        superseded_by="live",
+        quantities=[q(TokenType.OUTPUT, 900, PrecisionLevel.EXACT, UsageSource.PARTIAL_STREAM_TOKENIZER, add=Additivity.UNVERIFIED)],
+        data_quality_flags=["partial_stream_estimate"],
+        observation={"authoritative": True},
     )
 )
 check(

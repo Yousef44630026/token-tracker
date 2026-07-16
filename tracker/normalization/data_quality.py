@@ -23,6 +23,17 @@ PROVIDER_TOTAL_MISMATCH = DataQualityFlag.PROVIDER_TOTAL_MISMATCH.value
 PROVIDER_TOTAL_UNDER_ATTRIBUTION = DataQualityFlag.PROVIDER_TOTAL_UNDER_ATTRIBUTION.value
 PROVIDER_TOTAL_OVER_ATTRIBUTION = DataQualityFlag.PROVIDER_TOTAL_OVER_ATTRIBUTION.value
 
+DERIVED_DATA_QUALITY_FLAGS = frozenset(
+    {
+        UNVERIFIED_ADDITIVITY,
+        UNKNOWN_QUANTITY_PRESENT,
+        PROVIDER_TOTAL_MISMATCH,
+        PROVIDER_TOTAL_UNDER_ATTRIBUTION,
+        PROVIDER_TOTAL_OVER_ATTRIBUTION,
+        DataQualityFlag.SUPERSEDED.value,
+    }
+)
+
 
 def normalizer_flags(quantities: list[TokenQuantity], provider_total_tokens: int | None) -> list[str]:
     """Return the normalizer-produced data-quality flags for one event's quantities."""
@@ -41,3 +52,20 @@ def normalizer_flags(quantities: list[TokenQuantity], provider_total_tokens: int
             else:
                 flags.append(PROVIDER_TOTAL_OVER_ATTRIBUTION)
     return flags
+
+
+def stored_quality_flags(flags: list[str]) -> list[str]:
+    """Return only observed/provenance flags suitable for source-of-truth storage."""
+    return [flag for flag in flags if flag not in DERIVED_DATA_QUALITY_FLAGS]
+
+
+__all__ = [
+    "DERIVED_DATA_QUALITY_FLAGS",
+    "PROVIDER_TOTAL_MISMATCH",
+    "PROVIDER_TOTAL_OVER_ATTRIBUTION",
+    "PROVIDER_TOTAL_UNDER_ATTRIBUTION",
+    "UNKNOWN_QUANTITY_PRESENT",
+    "UNVERIFIED_ADDITIVITY",
+    "normalizer_flags",
+    "stored_quality_flags",
+]

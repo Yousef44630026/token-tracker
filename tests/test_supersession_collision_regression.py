@@ -54,6 +54,7 @@ def final(eid, rcid, qty, *, request_hash=None, response_hash=None, ts=None):
         request_hash=request_hash,
         response_hash=response_hash,
         timestamp=ts,
+        observation={"authoritative": True},
     )
 
 
@@ -109,6 +110,7 @@ part = TokenEvent(
     ],
     request_hash="req-P",
     response_hash="resp-partial",
+    observation={"authoritative": True},
 )
 fin = final("f-part", "rc-part", 200, request_hash="req-P", response_hash="resp-final")
 part_events = [part, fin]

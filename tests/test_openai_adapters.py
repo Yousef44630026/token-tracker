@@ -80,6 +80,7 @@ def assert_surface(label, adapter, fixture_file):
         model=usage.model,
         quantities=usage.quantities,
         provider_total_tokens=usage.provider_total_tokens,
+        observation={"authoritative": True},
     )
     check(event.event_contributing_tokens == 1300, f"{label}: event_contributing_tokens == 1300")
     check(event.event_contributing_tokens == event.provider_total_tokens, f"{label}: contributing == provider_total (no double count)")

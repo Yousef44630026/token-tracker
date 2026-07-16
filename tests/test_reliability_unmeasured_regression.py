@@ -48,6 +48,7 @@ for i in range(5):
             trace_id=trace.trace_id,
             span_id="s",
             quantities=[q(10)],
+            observation={"authoritative": True},
         )
     )
 
@@ -84,6 +85,7 @@ for i in range(4):
             trace_id=trace2.trace_id,
             span_id="s",
             quantities=[q(10)],
+            observation={"authoritative": True},
         )
     )
 summary2 = build_reliability_summary(trace2)

@@ -61,6 +61,7 @@ event = TokenEvent(
     api_surface=usage.api_surface,
     quantities=usage.quantities,
     provider_total_tokens=usage.provider_total_tokens,
+    observation={"authoritative": True},
 )
 check(event.event_contributing_tokens == 1300, "contributing == input+output == 1300")
 check(event.event_total_mismatch is None, "no provider total -> mismatch None")
@@ -105,6 +106,7 @@ for case in variants:
             api_surface=usage.api_surface,
             quantities=usage.quantities,
             provider_total_tokens=usage.provider_total_tokens,
+            observation={"authoritative": True},
         ).event_contributing_tokens
         == expected_total,
         f"A2 {case['family']}: contributes header input+output only",

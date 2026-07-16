@@ -60,6 +60,7 @@ event = TokenEvent(
     api_surface="responses",
     quantities=[inp, out, cached, reasoning],
     provider_total_tokens=1300,  # input + output, NOT + cached + reasoning
+    observation={"authoritative": True},
 )
 
 # --- INV-4 assignment is per the OpenAI truth table ---

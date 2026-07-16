@@ -49,8 +49,9 @@ Status meanings:
 
 ## Observation Contract
 
-`TokenEvent.observation` remains an extensible dictionary, but operational metrics rely on a
-stable subset of fields:
+`TokenEvent.observation` is a typed `Observation` with a real `authoritative: bool` field.
+It retains a mapping interface and extensible provider metadata, while known operational
+fields are validated atomically:
 
 - `status`
 - `authoritative`
@@ -85,7 +86,16 @@ observation = build_observation(
 )
 ```
 
-The analytics layer validates the contract without rejecting legacy/custom metadata.
+Missing authority fails closed for legacy reads and is rejected by live v9 ingestion.
+Custom metadata remains accepted; known fields cannot be mutated into invalid values.
+
+## Canonical Trust Band
+
+Every trace reports `[headline_floor_tokens, headline_estimate_tokens,
+headline_ceiling_tokens]`. A `null` ceiling means the upper bound is open, never zero.
+Provider totals pin the event band when present; signed under/over attribution remains visible
+separately. `capture_completeness_ratio` is `null` when the ceiling is open or attribution is
+over/mixed, because a precise-looking percentage would be misleading.
 
 ## HTML Report
 

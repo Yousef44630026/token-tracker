@@ -39,6 +39,7 @@ partial = TokenEvent(
     span_id="s",
     quantities=[out(40, PrecisionLevel.ESTIMATE, UsageSource.PARTIAL_STREAM_TOKENIZER)],
     data_quality_flags=["partial_stream_estimate", "stream_interrupted"],
+    observation={"authoritative": True},
 )
 final = TokenEvent(
     event_id="f",
@@ -47,6 +48,7 @@ final = TokenEvent(
     span_id="s",
     quantities=[out(200, PrecisionLevel.EXACT, UsageSource.PROVIDER_STREAM_FINAL)],
     provider_total_tokens=200,
+    observation={"authoritative": True},
 )
 # an event carrying a now-STALE normalizer flag (no real mismatch: 100 == 100)
 stale = TokenEvent(
@@ -57,6 +59,7 @@ stale = TokenEvent(
     quantities=[out(100)],
     provider_total_tokens=100,
     data_quality_flags=["provider_total_mismatch"],
+    observation={"authoritative": True},
 )
 
 result = reconcile_events([partial, final, stale])
@@ -76,7 +79,15 @@ total = sum(e.event_contributing_tokens for e in result)
 check(total == 300, f"contributing total == 200 + 100 + 0 == 300 (got {total})")
 
 # refresh-to-ADD: when a source field changes to create a mismatch, reconcile flags it
-ev = TokenEvent(event_id="m", request_correlation_id="rm", trace_id="t", span_id="s", quantities=[out(100)], provider_total_tokens=100)
+ev = TokenEvent(
+    event_id="m",
+    request_correlation_id="rm",
+    trace_id="t",
+    span_id="s",
+    quantities=[out(100)],
+    provider_total_tokens=100,
+    observation={"authoritative": True},
+)
 ev.provider_total_tokens = 999
 reconcile_events([ev])
 check("provider_total_mismatch" in ev.data_quality_flags, "reconcile flags a newly-introduced mismatch")

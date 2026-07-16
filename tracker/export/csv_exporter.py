@@ -17,8 +17,10 @@ be summed across rows; sum ``quantity_in_total`` (quantity grain) or
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 import os
+from datetime import UTC, datetime
 from typing import Any
 
 from tracker.analytics.agent import build_agent_summary
@@ -30,6 +32,8 @@ from tracker.analytics.rag import build_rag_summary
 from tracker.analytics.reliability import build_reliability_summary
 from tracker.analytics.service_attribution import build_service_attribution
 from tracker.analytics.trust_report import build_trust_report
+from tracker.derive.effective_events import effective_events, effective_trace
+from tracker.models.token_event import CURRENT_EVENT_SCHEMA_VERSION
 from tracker.models.trace import Trace
 
 QUANTITY_HEADERS = [
@@ -114,7 +118,7 @@ SERVICE_ATTRIBUTION_HEADERS = [
 def quantity_rows(trace: Trace) -> list[dict[str, Any]]:
     """One materialized row per quantity (derived columns included)."""
     rows: list[dict[str, Any]] = []
-    for e in trace.events:
+    for e in effective_events(trace.events):
         for q in e.quantities:
             rows.append(
                 {
@@ -170,12 +174,12 @@ def event_rows(trace: Trace) -> list[dict[str, Any]]:
             "time_to_first_token_ms": e.observation.get("time_to_first_token_ms"),
             "timestamp": e.timestamp,
             "observation": json.dumps(
-                e.observation,
+                e.observation.to_dict(),
                 ensure_ascii=False,
                 sort_keys=True,
             ),
         }
-        for e in trace.events
+        for e in effective_events(trace.events)
     ]
 
 
@@ -240,24 +244,68 @@ def _write(path: str, headers: list[str], rows: list[dict[str, Any]]) -> None:
             writer.writerow({k: ("" if row[k] is None else row[k]) for k in headers})
 
 
+def _sha256(path: str) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def export_csv(
     trace: Trace,
     out_dir: str,
 ) -> dict[str, str]:
     """Write quantity, event, and span CSV files into ``out_dir``."""
     os.makedirs(out_dir, exist_ok=True)
+    projected_trace = effective_trace(trace)
     q_path = os.path.join(out_dir, "token_quantities.csv")
     e_path = os.path.join(out_dir, "token_events.csv")
     s_path = os.path.join(out_dir, "token_spans.csv")
-    _write(q_path, QUANTITY_HEADERS, quantity_rows(trace))
-    _write(e_path, EVENT_HEADERS, event_rows(trace))
-    _write(s_path, SPAN_HEADERS, span_rows(trace))
+    quantity_data = quantity_rows(projected_trace)
+    event_data = event_rows(projected_trace)
+    span_data = span_rows(projected_trace)
+    _write(q_path, QUANTITY_HEADERS, quantity_data)
+    _write(e_path, EVENT_HEADERS, event_data)
+    _write(s_path, SPAN_HEADERS, span_data)
     paths = {"token_quantities": q_path, "token_events": e_path, "token_spans": s_path}
-    metric_exports = build_metric_exports(trace)
+    row_counts = {
+        "token_quantities": len(quantity_data),
+        "token_events": len(event_data),
+        "token_spans": len(span_data),
+    }
+    metric_exports = build_metric_exports(projected_trace)
     for sheet_name, rows in metric_exports.items():
         filename = "".join(f"_{char.lower()}" if char.isupper() else char for char in sheet_name).lstrip("_")
         path = os.path.join(out_dir, f"{filename}.csv")
         headers = SERVICE_ATTRIBUTION_HEADERS if sheet_name == "ServiceAttribution" else METRIC_HEADERS
         _write(path, headers, rows)
         paths[filename] = path
+        row_counts[filename] = len(rows)
+    manifest_path = os.path.join(out_dir, "manifest.json")
+    manifest = {
+        "format": "ai-token-tracker-csv-bundle-v1",
+        "generated_at": datetime.now(UTC).isoformat(),
+        "event_schema_version": CURRENT_EVENT_SCHEMA_VERSION,
+        "trace_id": trace.trace_id,
+        "observed_total_contributing_tokens": sum(row["event_contributing_tokens"] for row in event_data),
+        "aggregation_contract": {
+            "event_grain_summable": "event_contributing_tokens",
+            "quantity_grain_summable": "quantity_in_total",
+            "never_sum": ["provider_total_tokens", "quantity"],
+            "derived_fields_are_export_only": True,
+        },
+        "files": {
+            name: {
+                "path": os.path.basename(path),
+                "rows": row_counts[name],
+                "sha256": _sha256(path),
+            }
+            for name, path in paths.items()
+        },
+    }
+    with open(manifest_path, "w", encoding="utf-8", newline="\n") as handle:
+        json.dump(manifest, handle, ensure_ascii=False, indent=2, sort_keys=True)
+        handle.write("\n")
+    paths["manifest"] = manifest_path
     return paths

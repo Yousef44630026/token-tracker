@@ -112,7 +112,7 @@ def normalize(
             request_hash=request_hash,
             response_hash=response_hash,
             timestamp=timestamp,
-            observation=observation,
+            observation=(observation if observation is not None else Observation(authoritative=True, status="complete")),
         )
     except Exception as exc:  # noqa: BLE001 — by design: turn it into a flagged event
         return _error_event(exc)

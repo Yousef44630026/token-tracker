@@ -103,6 +103,7 @@ event = TokenEvent(
     model=usage.model,
     quantities=usage.quantities,
     provider_total_tokens=usage.provider_total_tokens,
+    observation={"authoritative": True},
 )
 check(event.event_total_mismatch == 0, f"contributing reconcilie avec le total fournisseur (mismatch={event.event_total_mismatch})")
 print(f"--> Tokens reels: input={inp.quantity}, output={out.quantity}, total fournisseur={usage.provider_total_tokens}")

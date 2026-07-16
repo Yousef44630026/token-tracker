@@ -72,5 +72,8 @@ check("New-ScheduledTaskTrigger -AtStartup" in task_script_text, "collector has 
 check("tt-collector-task-run.ps1" in task_script_text, "collector action uses the dedicated PowerShell launcher")
 check("Stop-ManagedCollectorProcesses" in task_script_text, "install/stop paths clean verified orphan descendants")
 check("-m\\s+api\\.main" in task_script_text, "orphan cleanup is scoped to the collector module command line")
+check("$orphaned = -not $parent" in task_script_text, "cleanup handles a verified listener whose task parent already exited")
+check("-not $managedParent -and -not $orphaned" in task_script_text, "cleanup leaves listeners with an unrelated live parent untouched")
+check('Stop-Process -Id $child.ProcessId -Force -ErrorAction Stop' in task_script_text, "verified listener termination fails visibly")
 
 sys.exit(check.report("RESULT test_collector_task_plan"))

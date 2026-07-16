@@ -35,6 +35,7 @@ from tracker.models.token_quantity import TokenQuantity
 from tracker.normalization.additivity import assign_additivity
 from tracker.normalization.event_builder import build_event
 from tracker.normalization.supersession import reconcile_supersession
+from tracker.observability.observation import Observation
 
 PARTIAL_STREAM_ESTIMATE_FLAG = DataQualityFlag.PARTIAL_STREAM_ESTIMATE.value
 STREAM_INTERRUPTED_FLAG = DataQualityFlag.STREAM_INTERRUPTED.value
@@ -151,6 +152,10 @@ class StreamTracker:
             quantities=quantities,
             provider_total_tokens=provider_total,
             leading_flags=[*self._context_flags, *flags],
+            observation=Observation(
+                authoritative=True,
+                status="incomplete" if STREAM_INTERRUPTED_FLAG in flags else "complete",
+            ),
         )
 
     def _quantity(self, token_type, quantity, precision, source, unknown_reason=None, metadata=None):

@@ -8,6 +8,7 @@ from typing import Any
 
 from tracker.analytics.anomaly_signals import AnomalySignal, detect_anomalies, event_anomalies
 from tracker.analytics.coverage import CoverageExactnessAccumulator, build_coverage_exactness
+from tracker.derive.effective_events import iter_effective_events
 from tracker.derive.trace_rollup import roll_up
 from tracker.models.token_event import TokenEvent
 from tracker.models.trace import Trace
@@ -21,15 +22,21 @@ class TrustReport:
     observed_total_contributing_tokens: int
     headline_floor_tokens: int
     headline_estimate_tokens: int
-    headline_ceiling_tokens: int
-    capture_completeness_ratio: float
+    headline_ceiling_tokens: int | None
+    headline_upper_bound_status: str
+    headline_status: str
+    attribution_status: str
+    capture_completeness_ratio: float | None
     total_is_lower_bound: bool
+    total_is_upper_bound: bool
     unattributed_tokens: int
     over_attributed_tokens: int
     event_count: int
     excluded_event_count: int
     superseded_event_count: int
     flagged_event_count: int
+    open_upper_bound_event_count: int
+    provider_reconciled_event_count: int
     anomaly_count: int
     anomalies: list[AnomalySignal]
     coverage: dict[str, Any]
@@ -51,14 +58,20 @@ def build_trust_report(trace: Trace) -> TrustReport:
         headline_floor_tokens=rollup.headline_floor_tokens,
         headline_estimate_tokens=rollup.headline_estimate_tokens,
         headline_ceiling_tokens=rollup.headline_ceiling_tokens,
+        headline_upper_bound_status=rollup.headline_upper_bound_status,
+        headline_status=rollup.headline_status,
+        attribution_status=rollup.attribution_status,
         capture_completeness_ratio=rollup.capture_completeness_ratio,
         total_is_lower_bound=rollup.total_is_lower_bound,
+        total_is_upper_bound=rollup.total_is_upper_bound,
         unattributed_tokens=rollup.unattributed_tokens,
         over_attributed_tokens=rollup.over_attributed_tokens,
         event_count=rollup.event_count,
         excluded_event_count=coverage["excluded_event_count"],
         superseded_event_count=rollup.superseded_event_count,
         flagged_event_count=rollup.flagged_event_count,
+        open_upper_bound_event_count=rollup.open_upper_bound_event_count,
+        provider_reconciled_event_count=rollup.provider_reconciled_event_count,
         anomaly_count=len(anomalies),
         anomalies=anomalies,
         coverage=coverage,
@@ -84,7 +97,7 @@ def build_trust_report_from_events(
     first_trace_id: str | None = None
     mixed_trace_ids = False
 
-    for event in events:
+    for event in iter_effective_events(events):
         coverage_accumulator.add(event)
         signals = event_anomalies(event)
         anomaly_count += len(signals)
@@ -105,14 +118,20 @@ def build_trust_report_from_events(
         headline_floor_tokens=coverage["headline_floor_tokens"],
         headline_estimate_tokens=coverage["headline_estimate_tokens"],
         headline_ceiling_tokens=coverage["headline_ceiling_tokens"],
+        headline_upper_bound_status=coverage["headline_upper_bound_status"],
+        headline_status=coverage["headline_status"],
+        attribution_status=coverage["attribution_status"],
         capture_completeness_ratio=coverage["capture_completeness_ratio"],
         total_is_lower_bound=coverage["total_is_lower_bound"],
+        total_is_upper_bound=coverage["total_is_upper_bound"],
         unattributed_tokens=coverage["unattributed_tokens"],
         over_attributed_tokens=coverage["over_attributed_tokens"],
         event_count=coverage_accumulator.event_count,
         excluded_event_count=coverage["excluded_event_count"],
         superseded_event_count=coverage["superseded_event_count"],
         flagged_event_count=flagged_event_count,
+        open_upper_bound_event_count=coverage["open_upper_bound_event_count"],
+        provider_reconciled_event_count=coverage["provider_reconciled_event_count"],
         anomaly_count=anomaly_count,
         anomalies=anomalies,
         coverage=coverage,

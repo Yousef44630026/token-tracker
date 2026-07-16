@@ -1,143 +1,139 @@
-"""Derived trace totals (INV-2) — never stored. (Phase 3)
-
-A trace exposes no stored total. The contributing total is rolled up here from
-``event.event_contributing_tokens``, which is itself 0 for any superseded event (INV-5).
-So the rollup sums ``quantity_in_total`` (the only summable column) over live events only —
-never the raw ``quantity`` column and never ``provider_total_tokens`` across events.
-"""
+"""Derived trace totals over the canonical correlation-effective event view."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-from tracker.derive.derived_fields import event_contributing_tokens
+from tracker.derive.effective_events import effective_events
+from tracker.derive.headline import HeadlineBand, HeadlineBandAccumulator
 from tracker.models.enums import Overlap, PrecisionLevel, Trust
 from tracker.models.token_event import TokenEvent
 from tracker.models.trace import Trace
 
 
 def live_authoritative_events(trace: Trace) -> list[TokenEvent]:
-    """Events allowed to affect accounting quality metrics."""
-    return [event for event in trace.events if not event.superseded and event.is_authoritative]
+    """Events allowed to affect accounting and quality metrics."""
+    return [event for event in effective_events(trace.events) if not event.superseded and event.is_authoritative]
+
+
+def _band(events: list[TokenEvent]) -> HeadlineBand:
+    accumulator = HeadlineBandAccumulator()
+    for event in events:
+        accumulator.add(event)
+    return accumulator.to_band()
 
 
 def observed_total_contributing_tokens(trace: Trace) -> int:
-    """Sum of contributing tokens across the trace's events (superseded events count 0)."""
-    return sum(event_contributing_tokens(e) for e in trace.events)
+    return sum(event.event_contributing_tokens for event in effective_events(trace.events))
 
 
 def estimated_contributing_tokens(trace: Trace) -> int:
-    """Magnitude of estimated quantities currently included in the headline total."""
     return sum(
-        q.quantity_in_total
+        quantity.quantity_in_total
         for event in live_authoritative_events(trace)
-        for q in event.quantities
-        if q.precision_level == PrecisionLevel.ESTIMATE
+        for quantity in event.quantities
+        if quantity.precision_level == PrecisionLevel.ESTIMATE
     )
 
 
 def unattributed_tokens(trace: Trace) -> int:
-    """Provider-counted tokens not attributable to normalized quantities."""
     return sum(event.under_attributed_tokens for event in live_authoritative_events(trace))
 
 
 def over_attributed_tokens(trace: Trace) -> int:
-    """Tokens attributed above provider totals; high-severity overcount risk."""
     return sum(event.over_attributed_tokens for event in live_authoritative_events(trace))
 
 
 def unverified_independent_tokens(trace: Trace) -> int:
-    """Known independent quantities excluded only because additivity trust is missing."""
     return sum(
-        q.quantity or 0
+        quantity.quantity or 0
         for event in live_authoritative_events(trace)
-        for q in event.quantities
-        if q.trust == Trust.UNVERIFIED and q.overlap == Overlap.INDEPENDENT and q.quantity is not None
+        for quantity in event.quantities
+        if quantity.trust == Trust.UNVERIFIED
+        and quantity.overlap == Overlap.INDEPENDENT
+        and quantity.quantity is not None
     )
 
 
-def headline_band(trace: Trace) -> tuple[int, int, int]:
-    """Return ``(floor, estimate, ceiling)`` for the trace headline.
-
-    ``estimate`` is the best current total: observed contributing tokens plus provider-known
-    unattributed tokens. ``floor`` removes estimated contributing quantities. ``ceiling`` adds
-    known independent unverified quantities. Unknown quantities have no magnitude, so they are
-    surfaced through counts/reasons rather than invented as a number.
-    """
-    observed = observed_total_contributing_tokens(trace)
-    estimated = estimated_contributing_tokens(trace)
-    unattributed = unattributed_tokens(trace)
-    best = observed + unattributed
-    floor = max(best - estimated, 0)
-    ceiling = best + unverified_independent_tokens(trace)
-    return floor, best, ceiling
+def headline_band(trace: Trace) -> tuple[int, int, int | None]:
+    band = _band(effective_events(trace.events))
+    return band.floor_tokens, band.estimate_tokens, band.ceiling_tokens
 
 
-def capture_completeness_ratio(trace: Trace) -> float:
-    """Observed attributed total divided by the finite headline ceiling."""
-    _, _, ceiling = headline_band(trace)
-    return round(observed_total_contributing_tokens(trace) / ceiling, 4) if ceiling else 0.0
+def capture_completeness_ratio(trace: Trace) -> float | None:
+    return _band(effective_events(trace.events)).capture_completeness_ratio
 
 
 def total_is_lower_bound(trace: Trace) -> bool:
-    """True when ``observed_total_contributing_tokens`` is a FLOOR, not a point value.
+    return _band(effective_events(trace.events)).total_is_lower_bound
 
-    The observed total is exact only when every real token was both measured and counted.
-    It is a lower bound (the true total is >= it) whenever a LIVE event carries:
-      - an ``unverified`` quantity  — a real count we don't trust, excluded as 0; or
-      - an ``unknown`` quantity      — a lost measurement, contributing 0 (INV-6); or
-      - a provider total we could not reconcile (``event_total_mismatch`` != 0), i.e. the
-        provider counted tokens we could not attribute.
-    Superseded / non-authoritative events are skipped: they contribute 0 by DESIGN (a
-    duplicate or a retired attempt), not because real tokens were lost, so their
-    imperfections must not taint the live total's status.
-    """
-    for e in live_authoritative_events(trace):
-        for q in e.quantities:
-            if q.trust == Trust.UNVERIFIED:
-                return True
-            if q.quantity is None or q.precision_level == PrecisionLevel.UNKNOWN:
-                return True
-        if e.event_total_mismatch not in (None, 0):
-            return True
-    return False
+
+def total_is_upper_bound(trace: Trace) -> bool:
+    return _band(effective_events(trace.events)).total_is_upper_bound
 
 
 @dataclass(frozen=True)
 class TraceRollup:
-    """A small derived snapshot of a trace's totals and event-grain counts.
-
-    ``total_is_lower_bound`` travels WITH the headline total so a consumer can never take the
-    number as a point estimate when it is actually a floor (see ``total_is_lower_bound``)."""
-
     trace_id: str
     observed_total_contributing_tokens: int
     headline_floor_tokens: int
     headline_estimate_tokens: int
-    headline_ceiling_tokens: int
-    capture_completeness_ratio: float
+    headline_ceiling_tokens: int | None
+    headline_upper_bound_status: str
+    headline_status: str
+    attribution_status: str
+    capture_completeness_ratio: float | None
     unattributed_tokens: int
     over_attributed_tokens: int
     event_count: int
     superseded_event_count: int
     flagged_event_count: int
     total_is_lower_bound: bool
+    total_is_upper_bound: bool
+    open_upper_bound_event_count: int
+    provider_reconciled_event_count: int
 
 
 def roll_up(trace: Trace) -> TraceRollup:
-    """Compute the derived totals + counts for a trace (all recomputed, nothing stored)."""
-    floor, estimate, ceiling = headline_band(trace)
+    events = effective_events(trace.events)
+    live = [event for event in events if not event.superseded and event.is_authoritative]
+    accumulator = HeadlineBandAccumulator()
+    for event in events:
+        accumulator.add(event)
+    band = accumulator.to_band()
     return TraceRollup(
         trace_id=trace.trace_id,
-        observed_total_contributing_tokens=observed_total_contributing_tokens(trace),
-        headline_floor_tokens=floor,
-        headline_estimate_tokens=estimate,
-        headline_ceiling_tokens=ceiling,
-        capture_completeness_ratio=capture_completeness_ratio(trace),
-        unattributed_tokens=unattributed_tokens(trace),
-        over_attributed_tokens=over_attributed_tokens(trace),
-        event_count=len(trace.events),
-        superseded_event_count=sum(1 for e in trace.events if e.superseded),
-        flagged_event_count=sum(1 for e in trace.events if e.data_quality_flags),
-        total_is_lower_bound=total_is_lower_bound(trace),
+        observed_total_contributing_tokens=sum(event.event_contributing_tokens for event in events),
+        headline_floor_tokens=band.floor_tokens,
+        headline_estimate_tokens=band.estimate_tokens,
+        headline_ceiling_tokens=band.ceiling_tokens,
+        headline_upper_bound_status=band.upper_bound_status,
+        headline_status=band.status,
+        attribution_status=band.attribution_status,
+        capture_completeness_ratio=band.capture_completeness_ratio,
+        unattributed_tokens=sum(event.under_attributed_tokens for event in live),
+        over_attributed_tokens=sum(event.over_attributed_tokens for event in live),
+        event_count=len(events),
+        superseded_event_count=sum(1 for event in events if event.superseded),
+        flagged_event_count=sum(1 for event in events if event.data_quality_flags),
+        total_is_lower_bound=band.total_is_lower_bound,
+        total_is_upper_bound=band.total_is_upper_bound,
+        open_upper_bound_event_count=band.open_upper_bound_event_count,
+        provider_reconciled_event_count=band.provider_reconciled_event_count,
     )
+
+
+__all__ = [
+    "TraceRollup",
+    "capture_completeness_ratio",
+    "estimated_contributing_tokens",
+    "headline_band",
+    "live_authoritative_events",
+    "observed_total_contributing_tokens",
+    "over_attributed_tokens",
+    "roll_up",
+    "total_is_lower_bound",
+    "total_is_upper_bound",
+    "unattributed_tokens",
+    "unverified_independent_tokens",
+]

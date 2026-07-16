@@ -275,6 +275,7 @@ def random_group(rcid):
                 span_id="s",
                 quantities=[],
                 provider_total_tokens=None,
+                observation={"authoritative": True},
             )
         )
         # give the partial a genuine partial-estimate quantity
@@ -308,6 +309,7 @@ def random_group(rcid):
                 ],
                 provider_total_tokens=amount,
                 timestamp=ts,
+                observation={"authoritative": True},
             )
         )
     # expected: 0 finals -> partials never resolved (partials stay AT THEIR OWN value, since

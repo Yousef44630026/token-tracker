@@ -87,9 +87,9 @@ check(
     "a lost independent+verified count still contributes 0 (unknown quantity, INV-6)",
 )
 
-# --- additivity remains stored for compatibility; the axes are stored too for the full 2x2 space ---
+# --- schema v9 stores the independent axes and reconstructs the legacy compatibility view ---
 d = tc.to_dict()
-check(d.get("additivity") == "total_contributing", "additivity is still stored for compatibility")
+check("additivity" not in d, "flat additivity is not redundantly stored")
 check(d.get("overlap") == "independent" and d.get("trust") == "verified", "overlap/trust are serialized as source-of-truth")
 check(TokenQuantity.from_dict(d).overlap == Overlap.INDEPENDENT, "round-trip through storage preserves the axes")
 round_trip_unv_sub = TokenQuantity.from_dict(unv_sub.to_dict())

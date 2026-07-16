@@ -17,6 +17,7 @@ check(defaults.host == "127.0.0.1", "collector binds to loopback by default")
 check(defaults.port == 8787, "collector uses the documented default port")
 check(defaults.store == "collector_events.jsonl", "collector has a deterministic default store")
 check(defaults.durable is True, "collector durable persistence is enabled by default")
+check(defaults.partitioned_store is False, "flat JSONL remains the compatibility default")
 
 configured = _parser(
     {
@@ -24,6 +25,7 @@ configured = _parser(
         "TRACKER_HOST": "localhost",
         "TRACKER_PORT": "9876",
         "TRACKER_DURABLE": "false",
+        "TRACKER_PARTITIONED": "true",
         "TRACKER_AUTH_TOKEN": "unit-token",
     }
 ).parse_args([])
@@ -31,6 +33,7 @@ check(configured.store == "configured.jsonl", "TRACKER_STORE configures the coll
 check(configured.host == "localhost", "TRACKER_HOST configures the collector host")
 check(configured.port == 9876, "TRACKER_PORT configures the collector port")
 check(configured.durable is False, "TRACKER_DURABLE=false explicitly disables fsync")
+check(configured.partitioned_store is True, "TRACKER_PARTITIONED enables the scalable ledger")
 check(configured.auth_token == "unit-token", "TRACKER_AUTH_TOKEN configures collector authentication")
 
 overridden = _parser({"TRACKER_DURABLE": "true"}).parse_args(["--no-durable"])

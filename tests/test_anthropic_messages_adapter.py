@@ -64,6 +64,7 @@ event = TokenEvent(
     model=usage.model,
     quantities=usage.quantities,
     provider_total_tokens=usage.provider_total_tokens,
+    observation={"authoritative": True},
 )
 check(event.event_contributing_tokens == 2220, "contributing == input+cache read+cache creation+output")
 check(event.event_total_mismatch is None, "no provider total -> mismatch is None (cannot be judged)")

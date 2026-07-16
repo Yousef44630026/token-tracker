@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Any
 
+from tracker.derive.effective_events import effective_events
 from tracker.models.enums import Additivity, PrecisionLevel, TokenType, Trust
 from tracker.models.span import Span
 from tracker.models.token_event import TokenEvent
@@ -39,7 +40,7 @@ def ratio(numerator: float, denominator: float, digits: int = 6) -> float | None
 
 def authoritative_events(trace: Trace) -> list[TokenEvent]:
     """Events allowed into operational metrics and totals."""
-    return [event for event in trace.events if not event.superseded and event.is_authoritative]
+    return [event for event in effective_events(trace.events) if not event.superseded and event.is_authoritative]
 
 
 def known_quantity(quantity: TokenQuantity) -> bool:

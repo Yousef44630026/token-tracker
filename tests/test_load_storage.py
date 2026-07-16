@@ -56,6 +56,7 @@ events = [
         api_surface="chat_completions",
         quantities=[q(TokenType.INPUT, 100), q(TokenType.OUTPUT, 50)],
         provider_total_tokens=150,
+        observation={"authoritative": True},
     )
     for i in range(N)
 ]

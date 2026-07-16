@@ -1,4 +1,4 @@
-# Claude Code Deployment Prompt — AI Token Tracker (Architecture v8)
+# Claude Code Deployment Prompt — AI Token Tracker (Architecture v9)
 
 ## Current repository decisions
 
@@ -10,6 +10,9 @@ updates for the current repository:
   permitted only as a reconstructible acceleration structure and never stores accounting
   totals or replaces the JSONL ledger.
 - Current CI must run the six named falsifying invariants plus the complete non-live suite.
+- Event schema v9 stores `overlap` and `trust`, not the redundant flat `additivity` view.
+  Supersession and normalizer-owned quality flags are derived from source events on read.
+  `observation.authoritative` is an explicit typed boolean and missing authority fails closed.
 
 ## How to use
 1. Create an empty (or to-be-replaced) folder for the project.
@@ -56,15 +59,16 @@ NON-NEGOTIABLE INVARIANTS — enforce in code AND in dedicated tests
 =====================================================================
 INV-1 (Storage = source of truth only).
   TokenQuantity STORES: token_type, token_role, quantity (Optional[int]), precision_level,
-    usage_source, additivity, subtotal_of, aggregation_mode, unknown_reason, metadata.
+    usage_source, overlap, trust, subtotal_of, aggregation_mode, unknown_reason, metadata.
   TokenEvent STORES: event_id, request_correlation_id, identity/context/provider fields,
-    quantities[], provider_total_tokens, superseded, superseded_by, data_quality_flags,
-    hashes, timestamp, observation.
+    quantities[], provider_total_tokens, observed/provenance data_quality_flags, hashes,
+    timestamp, typed observation. Every row carries schema_version=9.
 
 INV-2 (Derived, never stored, never serialized into JSONL).
   These are @property / computed only, and the JSONL serializer MUST exclude them:
-    included_in_total, quantity_in_total, export_warning,
-    event_contributing_tokens, event_total_mismatch, all trace totals.
+    additivity compatibility view, included_in_total, quantity_in_total, export_warning,
+    superseded, superseded_by, normalizer-owned quality flags,
+    event_contributing_tokens, event_total_mismatch, all trace totals and trust bands.
   Derivation:
     included_in_total = (overlap == "independent") and (trust == "verified") and (quantity is not None)
     quantity_in_total = quantity if included_in_total else 0
@@ -78,7 +82,7 @@ INV-2 (Derived, never stored, never serialized into JSONL).
     event_contributing_tokens = 0 if event.superseded or observation.authoritative == false
                                 else sum(q.quantity_in_total for q in event.quantities)
     event_total_mismatch      = provider_total_tokens - sum(q.quantity_in_total)  # if provider_total_tokens is not None
-    trace.observed_total_contributing_tokens = sum(event.event_contributing_tokens for event in trace.events)
+    trace.observed_total_contributing_tokens = sum(event.event_contributing_tokens for event in correlation_effective_events)
 
 INV-3 (token_type purity).
   token_type encodes WHAT the tokens are, never how well they were measured.
@@ -89,14 +93,16 @@ INV-3 (token_type purity).
     embedding, rerank_input, rerank_output, audio_input, audio_output, image_input, video_input.
   `total` is NOT a token type; provider total is event-level raw data.
 
-INV-4 (Additivity is adapter-assigned, never inferred from the type string).
-  additivity ∈ {total_contributing, subtotal_of, unverified}.
-  Per-provider truth (the adapter sets this):
+INV-4 (Overlap and trust are independent provider-assigned axes).
+  overlap ∈ {independent, subtotal_of}; trust ∈ {verified, unverified}.
+  The legacy additivity enum is a runtime compatibility view and is never serialized.
+  Per-provider truth (the provider rule registry sets these axes):
     OpenAI Responses & Chat Completions: input, output = total_contributing;
       cached_input = subtotal_of input; reasoning = subtotal_of output.
     Gemini Generate Content: input, output = total_contributing;
       cached_input = subtotal_of input; thinking = total_contributing (added on top).
-    Bedrock Converse cache fields = "unverified" (contribute 0, raise flag)
+    Bedrock Converse cache fields may be subtotal_of + unverified (both truths retained;
+      contribute 0 and raise the unverified flag)
     Anthropic Messages cache_read/cache_creation = "total_contributing" because Anthropic
     reports them as distinct input buckets alongside input_tokens.
   Totals sum quantity_in_total ONLY. The raw quantity column is NEVER summed.
@@ -108,13 +114,16 @@ INV-5 (Supersession, correlated).
   A partial estimate is matched to its final-usage event by request_correlation_id
     (NOT span_id — a span may contain retries = multiple calls).
   On match: partial.superseded=True, partial.superseded_by=final.event_id, flag "superseded".
-  Supersession is set by the reconciler / stream tracker, never by an adapter.
+  Supersession is derived by the canonical reconciler / stream tracker, never by an adapter,
+  and is not serialized into source JSONL.
 
 INV-6 (Unknown is not zero).
   A lost output is quantity=None, precision_level="unknown", contributes 0, and is surfaced as a COUNT,
   never summed into a measured total as zero-with-confidence.
 
 INV-7 (Operational authority is explicit).
+  observation is a typed object with authoritative: bool. Missing authority fails closed,
+  raises authority_missing on legacy reads, and is rejected by live schema-v9 ingestion.
   observation.status records complete / failed / incomplete.
   observation.authoritative=false preserves the event for audit but forces its contributing
   total to 0 in model, trace rollup, CSV, Excel, and coverage calculations.

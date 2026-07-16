@@ -8,6 +8,7 @@ from collections import Counter
 from collections.abc import Iterable
 from pathlib import Path
 
+from tracker.derive.effective_events import iter_effective_events
 from tracker.models.enums import Additivity, PrecisionLevel, TokenType
 from tracker.models.token_event import TokenEvent
 from tracker.normalization.additivity import assign_additivity
@@ -274,7 +275,7 @@ def summarize_events(events: Iterable[TokenEvent]) -> dict:
     incomplete_estimated_tokens = 0
     contributing_tokens = 0
 
-    for event in events:
+    for event in iter_effective_events(events):
         event_count += 1
         models[event.model or "unknown"] += 1
         statuses[event.observation.get("status", "legacy")] += 1

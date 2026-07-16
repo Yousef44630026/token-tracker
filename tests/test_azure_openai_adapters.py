@@ -75,6 +75,7 @@ def assert_surface(label, adapter, surface, fixture):
         model=usage.model,
         quantities=usage.quantities,
         provider_total_tokens=usage.provider_total_tokens,
+        observation={"authoritative": True},
     )
     check(event.event_contributing_tokens == 1300 and event.event_total_mismatch == 0, f"{label}: contributing == 1300, no mismatch")
 

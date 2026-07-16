@@ -51,6 +51,7 @@ event = TokenEvent(
     model=usage.model,
     quantities=usage.quantities,
     provider_total_tokens=usage.provider_total_tokens,
+    observation={"authoritative": True},
 )
 check(event.event_contributing_tokens == EXPECTED, "2) assembled event total == 1300")
 

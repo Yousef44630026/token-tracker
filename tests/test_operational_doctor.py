@@ -51,6 +51,7 @@ def event(event_id: str, trace_id: str = "doctor-trace") -> TokenEvent:
             )
         ],
         provider_total_tokens=42,
+        observation={"authoritative": True},
     )
 
 

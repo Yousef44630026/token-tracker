@@ -44,6 +44,7 @@ def event(event_id, quantity=1):
             )
         ],
         provider_total_tokens=quantity,
+        observation={"authoritative": True},
     )
 
 
@@ -173,17 +174,25 @@ threading.Thread(target=server.serve_forever, daemon=True).start()
 
 def request(path, payload):
     body = json.dumps(payload).encode("utf-8")
-    req = url_request.Request(
-        base + path,
-        data=body,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-    try:
-        with url_request.urlopen(req, timeout=5) as response:
-            return response.status, json.loads(response.read())
-    except url_error.HTTPError as exc:
-        return exc.code, json.loads(exc.read())
+    for attempt in range(3):
+        req = url_request.Request(
+            base + path,
+            data=body,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with url_request.urlopen(req, timeout=5) as response:
+                return response.status, json.loads(response.read())
+        except url_error.HTTPError as exc:
+            return exc.code, json.loads(exc.read())
+        except (ConnectionAbortedError, ConnectionResetError):
+            # Windows endpoint protection can occasionally tear down one loopback socket.
+            # Retry only that transport-level interruption; repeated failure still fails.
+            if attempt == 2:
+                raise
+            time.sleep(0.05 * (attempt + 1))
+    raise AssertionError("unreachable")
 
 
 try:

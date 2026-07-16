@@ -16,6 +16,7 @@ from tracker.models.enums import Additivity, PrecisionLevel, TokenType, UsageSou
 from tracker.models.token_event import TokenEvent  # noqa: E402
 from tracker.models.token_quantity import TokenQuantity  # noqa: E402
 from tracker.models.trace import Trace  # noqa: E402
+from tracker.normalization.reconciler import reconcile_events  # noqa: E402
 
 _failures = 0
 
@@ -39,25 +40,37 @@ def out(quantity: int) -> TokenQuantity:
     )
 
 
-# A failed first attempt (later superseded) and the live retry, same span, same trace.
+# A partial estimate and final provider usage for one logical attempt.
 attempt = TokenEvent(
     event_id="evt-attempt",
     request_correlation_id="rcid-attempt",
     trace_id="t-1",
     span_id="s-1",
-    quantities=[out(120)],
-    provider_total_tokens=120,
-    superseded=True,
-    superseded_by="evt-final",
+    quantities=[
+        TokenQuantity(
+            token_type=TokenType.OUTPUT,
+            quantity=120,
+            precision_level=PrecisionLevel.ESTIMATE,
+            usage_source=UsageSource.PARTIAL_STREAM_TOKENIZER,
+            additivity=Additivity.TOTAL_CONTRIBUTING,
+        )
+    ],
+    data_quality_flags=["partial_stream_estimate", "stream_interrupted"],
+    timestamp="2026-07-16T10:00:00Z",
+    observation={"authoritative": True, "status": "incomplete"},
 )
 final = TokenEvent(
     event_id="evt-final",
-    request_correlation_id="rcid-final",
+    request_correlation_id="rcid-attempt",
     trace_id="t-1",
     span_id="s-1",
     quantities=[out(200)],
     provider_total_tokens=200,
+    timestamp="2026-07-16T10:00:01Z",
+    observation={"authoritative": True, "status": "complete"},
 )
+
+reconcile_events([attempt, final])
 
 check(attempt.event_contributing_tokens == 0, "superseded event contributes 0")
 check(final.event_contributing_tokens == 200, "live event contributes its tokens")
@@ -69,8 +82,8 @@ trace.add_event(final)
 rollup = observed_total_contributing_tokens(trace)
 check(rollup == 200, f"trace total counts the live event only (got {rollup})")
 check(
-    rollup != attempt.provider_total_tokens + final.provider_total_tokens,
-    "trace total is NOT attempt + final (no double count)",
+    rollup != 120 + final.provider_total_tokens,
+    "trace total is NOT partial + final (no double count)",
 )
 
 print("\nRESULT:", "all checks passed" if _failures == 0 else f"{_failures} FAILURE(S)")

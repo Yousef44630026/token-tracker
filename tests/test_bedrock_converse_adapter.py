@@ -71,6 +71,7 @@ event = TokenEvent(
     model=usage.model,
     quantities=usage.quantities,
     provider_total_tokens=usage.provider_total_tokens,
+    observation={"authoritative": True},
 )
 check(event.event_contributing_tokens == 1300, "contributing == input+output (cache excluded)")
 check(event.event_contributing_tokens == event.provider_total_tokens, "contributing == provider_total (no double count)")

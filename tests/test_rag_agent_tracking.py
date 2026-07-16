@@ -96,6 +96,7 @@ llm = TokenEvent(
         ),
     ],
     provider_total_tokens=600,
+    observation={"authoritative": True},
 )
 trace.add_event(llm)
 total = observed_total_contributing_tokens(trace)
@@ -159,6 +160,7 @@ llm2 = TokenEvent(
         )
     ],
     provider_total_tokens=420,
+    observation={"authoritative": True},
 )
 trace2.add_event(llm2)
 total2 = observed_total_contributing_tokens(trace2)

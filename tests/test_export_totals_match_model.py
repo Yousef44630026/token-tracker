@@ -64,6 +64,7 @@ a = TokenEvent(
     api_surface="responses",
     quantities=[q(TokenType.INPUT, 1000), q(TokenType.OUTPUT, 300), q(TokenType.CACHED_INPUT, 800), q(TokenType.REASONING, 250)],
     provider_total_tokens=1300,
+    observation={"authoritative": True},
 )
 # Event B: output 200 -> 200
 b = TokenEvent(
@@ -75,6 +76,7 @@ b = TokenEvent(
     api_surface="responses",
     quantities=[q(TokenType.OUTPUT, 200)],
     provider_total_tokens=200,
+    observation={"authoritative": True},
 )
 # Event C: a superseded partial estimate (output 40) -> contributes 0
 c = TokenEvent(
@@ -88,6 +90,7 @@ c = TokenEvent(
     superseded=True,
     superseded_by="evt-b",
     data_quality_flags=["superseded"],
+    observation={"authoritative": True},
 )
 
 trace = Trace(trace_id="t-1")

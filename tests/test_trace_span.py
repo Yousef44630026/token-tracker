@@ -46,6 +46,7 @@ def mk_event(eid: str, qty: int) -> TokenEvent:
             )
         ],
         provider_total_tokens=qty,
+        observation={"authoritative": True},
     )
 
 

@@ -208,10 +208,23 @@ superseded_exact = event(
     suite_label="Superseded prompt",
     suite_fingerprint="c" * 64,
 )
-superseded_exact.superseded = True
-superseded_exact.superseded_by = "replacement"
-superseded_summary = summarize_events([superseded_exact])
-check(superseded_summary["events"] == 1, "superseded exact event remains visible")
+replacement = event(
+    "replacement",
+    [
+        TokenQuantity(
+            TokenType.OUTPUT,
+            0,
+            PrecisionLevel.ESTIMATE,
+            UsageSource.PROVIDER_RESPONSE,
+            Additivity.TOTAL_CONTRIBUTING,
+        )
+    ],
+    status="complete",
+    authoritative=True,
+)
+replacement.request_correlation_id = superseded_exact.request_correlation_id
+superseded_summary = summarize_events([replacement, superseded_exact])
+check(superseded_summary["events"] == 2, "superseded source and replacement both remain visible")
 check(superseded_summary["superseded_events"] == 1, "superseded event is counted separately")
 check(superseded_summary["exact_usage_events"] == 0, "superseded exact event is not counted as exact usage")
 check(superseded_summary["fresh_input_tokens"] == 0, "superseded event does not feed fresh input bucket")

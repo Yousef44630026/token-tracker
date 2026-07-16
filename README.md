@@ -1,25 +1,22 @@
 # AI Token Tracker (Architecture v9)
 
-Token tracking layer for GenAI, RAG, and agentic systems — built on the standard library
-(+ `openpyxl` for Excel). **No pricing logic. No SQL/DB.** Storage supports append-only
-event JSONL and atomic complete-trace snapshots; CSV and Excel exports include events,
-quantities, and spans.
+Token tracking layer for GenAI, RAG, and agentic systems, built on the standard library
+(+ `openpyxl` for Excel). Capture and accounting contain **no pricing and no SQL/DB**.
+The optional reporting extra may derive presentation-only cost from an external price table.
 
-> Status: the core library and 60+ non-live regression scripts are implemented. Provider
-> adapter tests currently use **SIMULATED fixtures** (`tests/fixtures/*.SIMULATED.json`)
-> built to documented usage shapes. Replace them with recorded payloads for ground-truth
-> verification. Unregistered provider/token combinations fail closed as
-> `additivity="unverified"` and do not affect totals.
+> Status: the accounting core, operational collector, exports, and non-live regression suite
+> are implemented. Provider readiness remains evidence-based: consult
+> `docs/OPERATIONAL_EVIDENCE.md` and the provider matrix before claiming a surface validated.
 
 ## Core idea — storage vs. derived
 
 The single most important boundary in this codebase:
 
-- **Stored = source of truth only.** `TokenEvent` / `TokenQuantity` store raw, observed
-  facts (token_type, quantity, precision, additivity, provider totals, hashes…).
+- **Stored = source of truth only.** Schema v9 stores observed facts, including the independent
+  `overlap` and `trust` axes, provider totals, hashes, and typed observation metadata.
 - **Derived = computed, never stored, never serialized.** Anything that can be recomputed
   (`included_in_total`, `quantity_in_total`, `export_warning`, `event_contributing_tokens`,
-  trace totals…) is a `@property` / pure function and is **excluded** from the JSONL.
+  supersession, normalizer flags, trace totals) is **excluded** from the JSONL.
 
 Totals sum `quantity_in_total` **only** — never the raw `quantity` column, never
 `provider_total_tokens` across events. This is what prevents double-counting of cached /
@@ -30,11 +27,12 @@ reasoning / subtotal quantities and of superseded (retried/streamed) events.
 - **INV-1** Storage holds source-of-truth fields only.
 - **INV-2** Derived fields are computed-only and absent from serialized JSONL.
 - **INV-3** `token_type` says *what* the tokens are, never *how well measured* (precision is separate).
-- **INV-4** Additivity (`total_contributing` / `subtotal_of` / `unverified`) is set by the adapter, never inferred from the type string.
+- **INV-4** Overlap (`independent` / `subtotal_of`) and trust (`verified` / `unverified`)
+  are separate axes assigned by provider rules; the legacy flat additivity enum is a runtime view.
 - **INV-5** Supersession is correlated by `request_correlation_id`; a superseded event contributes 0.
 - **INV-6** Unknown is not zero — a lost quantity is `None`/`unknown`, surfaced as a count.
-- **INV-7** Trace/event/span identities must agree; invalid and duplicate aggregate members
-  are rejected at the model boundary.
+- **INV-7** Operational authority is an explicit typed boolean. Missing authority fails closed,
+  is flagged, and live v9 ingestion rejects the payload.
 
 ## Layout
 
@@ -107,6 +105,9 @@ ai-token-tracker-doctor --store runs\events --partitioned-store
 ai-token-tracker-proxy report --store runs\events --partitioned-store
 ai-token-tracker-proxy powerbi-export --store runs\events --partitioned-store --output powerbi_dataset
 ```
+
+The collector supports the same mode with `--partitioned-store` or
+`TRACKER_PARTITIONED=true`; in that mode `TRACKER_STORE` names the partition root.
 
 The Power BI exporter consumes the repository iterator once into a temporary, event-id
 deduplicated SQLite snapshot. Fact CSVs are then written from replayable iterators, avoiding
@@ -229,7 +230,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\tt-collector-task.ps
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\tt-collector-task.ps1 -Mode Status
 ```
 
-The task starts at logon, supervises and restarts a failed collector child, keeps logs beside
+The task starts at Windows startup and logon, supervises and restarts a failed collector child, keeps logs beside
 the non-synced event store, and never serializes `TRACKER_AUTH_TOKEN`. Use `-Mode Stop` for maintenance and
 `-Mode Uninstall` to remove the task.
 
@@ -265,6 +266,9 @@ supersession rules, cost allocation, interactive filters, KPI definitions, and r
 `FileRepository` serializes concurrent same-process writers targeting the same path, supports
 idempotent `append_unique()`, and can recover a crash-truncated final JSONL line. Use
 `recover_truncated_tail=False` when strict corruption detection is preferred.
+
+CSV bundles include a `manifest.json` with row counts, SHA-256 hashes, schema version, the
+canonical observed total, and the only columns that are safe to sum at each grain.
 
 ## Real-call proxy comparison
 

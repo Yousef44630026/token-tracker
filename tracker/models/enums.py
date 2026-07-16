@@ -135,6 +135,7 @@ class DataQualityFlag(str, Enum):
     PROVIDER_TOTAL_MISMATCH = "provider_total_mismatch"
     PROVIDER_TOTAL_UNDER_ATTRIBUTION = "provider_total_under_attribution"
     PROVIDER_TOTAL_OVER_ATTRIBUTION = "provider_total_over_attribution"
+    AUTHORITY_MISSING = "authority_missing"
     UNVERIFIED_ADDITIVITY = "unverified_additivity"
     UNKNOWN_QUANTITY_PRESENT = "unknown_quantity_present"
     PARTIAL_STREAM_ESTIMATE = "partial_stream_estimate"

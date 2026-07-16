@@ -1,14 +1,15 @@
 """Typed builder for TokenEvent.observation metadata.
 
-The stored event model keeps ``observation`` as a plain dictionary for compatibility and
-extensibility. This helper gives new code a typed path into that dictionary while preserving
-the open shape for legacy/custom metadata.
+``TokenEvent`` keeps this typed object as its operational authority gate. It also implements
+the mutable mapping interface so existing adapters can attach provider-specific metadata
+without weakening validation of the known fields.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any
+from collections.abc import Iterator, Mapping, MutableMapping
+from dataclasses import dataclass, field, fields
+from typing import Any, ClassVar
 
 from tracker.observability.status import STATUS_VALUES
 
@@ -30,11 +31,11 @@ def _non_negative_int(name: str, value: int | None) -> None:
             raise ValueError(f"{name} must be a non-negative integer when provided")
 
 
-@dataclass(frozen=True)
-class Observation:
+@dataclass
+class Observation(MutableMapping[str, Any]):
     """Typed operational metadata that serializes to ``TokenEvent.observation``."""
 
-    authoritative: bool = True
+    authoritative: bool = False
     status: str | None = None
     http_status: int | None = None
     duration_ms: float | int | None = None
@@ -52,6 +53,27 @@ class Observation:
     fallback_from: str | None = None
     fallback_to: str | None = None
     extra: dict[str, Any] = field(default_factory=dict)
+    _FIELD_NAMES: ClassVar[frozenset[str]] = frozenset(
+        {
+            "authoritative",
+            "status",
+            "http_status",
+            "duration_ms",
+            "time_to_first_token_ms",
+            "time_to_last_token_ms",
+            "provider_request_id",
+            "provider_response_id",
+            "provider_error_code",
+            "retry_count",
+            "service_name",
+            "tenant_id",
+            "cloud_provider",
+            "region",
+            "deployment",
+            "fallback_from",
+            "fallback_to",
+        }
+    )
 
     def __post_init__(self) -> None:
         if self.status is not None and self.status not in STATUS_VALUES:
@@ -113,6 +135,51 @@ class Observation:
                 data[key] = value
         return data
 
+    def __getitem__(self, key: str) -> Any:
+        if key in self._FIELD_NAMES:
+            value = getattr(self, key)
+            if value is None:
+                raise KeyError(key)
+            return value
+        return self.extra[key]
+
+    def __setitem__(self, key: str, value: Any) -> None:
+        self.update({key: value})
+
+    def __delitem__(self, key: str) -> None:
+        if key == "authoritative":
+            raise ValueError("authoritative cannot be removed")
+        data = self.to_dict()
+        if key not in data:
+            raise KeyError(key)
+        del data[key]
+        self._replace(self.from_dict(data))
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self.to_dict())
+
+    def __len__(self) -> int:
+        return len(self.to_dict())
+
+    def update(self, *args: Mapping[str, Any] | object, **kwargs: Any) -> None:
+        """Apply a dictionary-style update atomically through full validation."""
+        if len(args) > 1:
+            raise TypeError(f"update expected at most 1 argument, got {len(args)}")
+        data = self.to_dict()
+        if args:
+            source = args[0]
+            if isinstance(source, Mapping):
+                data.update(source)
+            else:
+                data.update(dict(source))  # type: ignore[arg-type]
+        data.update(kwargs)
+        self._replace(self.from_dict(data))
+
+    def _replace(self, other: Observation) -> None:
+        for descriptor in fields(self):
+            value = getattr(other, descriptor.name)
+            setattr(self, descriptor.name, dict(value) if descriptor.name == "extra" else value)
+
     @classmethod
     def from_dict(cls, data: dict[str, Any], *, require_explicit_authority: bool = True) -> Observation:
         """Validate and normalize an observation dictionary.
@@ -125,25 +192,7 @@ class Observation:
             raise TypeError("observation must be a dictionary")
         if require_explicit_authority and "authoritative" not in data:
             raise ValueError("observation.authoritative must be explicit")
-        known = {
-            "status",
-            "authoritative",
-            "http_status",
-            "duration_ms",
-            "time_to_first_token_ms",
-            "time_to_last_token_ms",
-            "provider_request_id",
-            "provider_response_id",
-            "provider_error_code",
-            "retry_count",
-            "service_name",
-            "tenant_id",
-            "cloud_provider",
-            "region",
-            "deployment",
-            "fallback_from",
-            "fallback_to",
-        }
+        known = cls._FIELD_NAMES
         kwargs = {key: data[key] for key in known if key in data}
         extra = {key: value for key, value in data.items() if key not in known}
         return cls(extra=extra, **kwargs)

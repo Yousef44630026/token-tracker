@@ -47,6 +47,7 @@ trace.add_event(
         model="gemini-2.5-flash",
         api_surface="generate_content",
         quantities=[q(100)],
+        observation={"authoritative": True},
     )
 )
 trace.add_event(
@@ -59,6 +60,7 @@ trace.add_event(
         model="gemini-2.5-flash",
         api_surface="generate_content",
         quantities=[q(200)],
+        observation={"authoritative": True},
     )
 )
 

@@ -42,6 +42,7 @@ under = TokenEvent(
     quantities=[q(TokenType.INPUT, 100), q(TokenType.OUTPUT, 40, PrecisionLevel.ESTIMATE)],
     provider_total_tokens=200,
     timestamp="2026-07-06T10:00:00Z",
+    observation={"authoritative": True},
 )
 over = TokenEvent(
     event_id="over",
@@ -51,6 +52,7 @@ over = TokenEvent(
     quantities=[q(TokenType.INPUT, 500)],
     provider_total_tokens=400,
     timestamp="2026-07-06T10:01:00Z",
+    observation={"authoritative": True},
 )
 unverified = TokenEvent(
     event_id="unverified",
@@ -59,16 +61,18 @@ unverified = TokenEvent(
     span_id="s",
     quantities=[q(TokenType.INPUT, 30, add=Additivity.UNVERIFIED)],
     timestamp="2026-07-06T10:02:00Z",
+    observation={"authoritative": True},
 )
 superseded = TokenEvent(
     event_id="old",
-    request_correlation_id="r-old",
+    request_correlation_id="r-under",
     trace_id=trace.trace_id,
     span_id="s",
     quantities=[q(TokenType.OUTPUT, 999)],
     superseded=True,
     superseded_by="under",
-    timestamp="2026-07-06T10:03:00Z",
+    timestamp="2026-07-06T09:59:00Z",
+    observation={"authoritative": True},
 )
 custom = TokenEvent(
     event_id="custom",
@@ -77,6 +81,7 @@ custom = TokenEvent(
     span_id="s",
     quantities=[],
     data_quality_flags=["tenant_12345_dynamic_label", "raw_usage_missing"],
+    observation={"authoritative": True},
 )
 for event in (under, over, unverified, superseded, custom):
     trace.add_event(event)
@@ -98,10 +103,10 @@ streaming_coverage = build_coverage_exactness_from_events(event for event in tra
 check(streaming_coverage == coverage, "iterator CoverageExactness matches Trace CoverageExactness")
 check(coverage["unattributed_tokens"] == 60, "CoverageExactness carries unattributed_tokens")
 check(coverage["over_attributed_tokens"] == 100, "CoverageExactness carries over_attributed_tokens")
-check(coverage["headline_floor_tokens"] == 660, "headline floor excludes estimate magnitude")
-check(coverage["headline_estimate_tokens"] == 700, "headline estimate adds provider-known unattributed tokens")
-check(coverage["headline_ceiling_tokens"] == 730, "headline ceiling adds independent unverified known tokens")
-check(coverage["capture_completeness_ratio"] == 0.8767, "capture completeness is observed / finite ceiling")
+check(coverage["headline_floor_tokens"] == 600, "provider totals pin the trusted floor")
+check(coverage["headline_estimate_tokens"] == 600, "provider totals replace mismatched quantity estimates")
+check(coverage["headline_ceiling_tokens"] == 630, "known independent uncertainty widens only the ceiling")
+check(coverage["capture_completeness_ratio"] is None, "mixed under/over attribution has no misleading completeness ratio")
 
 report = build_trust_report(trace)
 streaming_report = build_trust_report_from_events((event for event in trace.events), trace_id=trace.trace_id)
@@ -115,7 +120,8 @@ check(
     aggregate_report.anomaly_count == report.anomaly_count and aggregate_report.anomalies == [],
     "aggregate-only TrustReport keeps anomaly count without retaining anomaly details",
 )
-check(report.headline_floor_tokens == 660 and report.headline_ceiling_tokens == 730, "TrustReport carries headline band")
+check(report.headline_floor_tokens == 600 and report.headline_ceiling_tokens == 630, "TrustReport carries headline band")
+check(report.attribution_status == "mixed", "TrustReport names mixed attribution direction")
 check(report.unattributed_tokens == 60 and report.over_attributed_tokens == 100, "TrustReport carries mismatch magnitudes")
 check(any(a.event_id == "over" and a.severity == "high" for a in report.anomalies), "over-attribution anomaly is high severity")
 

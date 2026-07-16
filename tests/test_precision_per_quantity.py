@@ -71,6 +71,7 @@ event = TokenEvent(
         q(TokenType.OUTPUT, 40, UsageSource.PARTIAL_STREAM_TOKENIZER),
         q(TokenType.REASONING, None, UsageSource.NONE),
     ],
+    observation={"authoritative": True},
 )
 precisions = [qq.precision_level for qq in event.quantities]
 check(precisions == [PrecisionLevel.EXACT, PrecisionLevel.ESTIMATE, PrecisionLevel.UNKNOWN], "each quantity keeps its own precision")

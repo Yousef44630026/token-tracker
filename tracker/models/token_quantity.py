@@ -1,8 +1,9 @@
 """TokenQuantity — source of truth (INV-1) + derived view (INV-2). (Phase 2)
 
 STORED (the only things serialized): token_type, token_role, quantity, precision_level,
-usage_source, additivity, overlap, trust, subtotal_of, aggregation_mode, unknown_reason,
-metadata.
+usage_source, overlap, trust, subtotal_of, aggregation_mode, unknown_reason, metadata.
+The legacy flat additivity enum remains a runtime compatibility view reconstructed from
+overlap + trust on read; schema v9 does not serialize it.
 
 DERIVED (@property, never stored, never serialized): included_in_total,
 quantity_in_total, export_warning. These are recomputed on read so storage can never
@@ -135,7 +136,6 @@ class TokenQuantity:
             "quantity": self.quantity,
             "precision_level": self.precision_level.value,
             "usage_source": self.usage_source.value,
-            "additivity": self.additivity.value,
             "overlap": self.overlap.value,
             "trust": self.trust.value,
             "aggregation_mode": self.aggregation_mode.value,
@@ -148,14 +148,26 @@ class TokenQuantity:
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> TokenQuantity:
         ur = d.get("unknown_reason")
+        overlap = Overlap(d["overlap"]) if d.get("overlap") else None
+        trust = Trust(d["trust"]) if d.get("trust") else None
+        additivity_value = d.get("additivity")
+        if additivity_value is None:
+            if trust == Trust.UNVERIFIED:
+                additivity = Additivity.UNVERIFIED
+            elif overlap == Overlap.SUBTOTAL_OF:
+                additivity = Additivity.SUBTOTAL_OF
+            else:
+                additivity = Additivity.TOTAL_CONTRIBUTING
+        else:
+            additivity = Additivity(additivity_value)
         return cls(
             token_type=TokenType(d["token_type"]),
             quantity=d["quantity"],
             precision_level=PrecisionLevel(d["precision_level"]),
             usage_source=UsageSource(d["usage_source"]),
-            additivity=Additivity(d["additivity"]),
-            overlap=Overlap(d["overlap"]) if d.get("overlap") else None,
-            trust=Trust(d["trust"]) if d.get("trust") else None,
+            additivity=additivity,
+            overlap=overlap,
+            trust=trust,
             aggregation_mode=AggregationMode(d.get("aggregation_mode", "sum")),
             token_role=d.get("token_role"),
             subtotal_of=d.get("subtotal_of"),

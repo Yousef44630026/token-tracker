@@ -42,6 +42,7 @@ def llm_event(eid, span_id, tokens):
         quantities=[
             TokenQuantity(TokenType.INPUT, tokens, PrecisionLevel.EXACT, UsageSource.PROVIDER_RESPONSE, Additivity.TOTAL_CONTRIBUTING)
         ],
+        observation={"authoritative": True},
     )
 
 

@@ -41,8 +41,9 @@ if __package__ in (None, ""):
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from tracker.derive.derived_fields import event_contributing_tokens  # noqa: E402
+from tracker.derive.effective_events import iter_effective_events  # noqa: E402
 from tracker.models.token_event import TokenEvent  # noqa: E402
-from tracker.storage.file_repository import FileRepository  # noqa: E402
+from tracker.storage.file_repository import FileRepository, PartitionedFileRepository  # noqa: E402
 
 EVENTS_PATH = "/v1/events"
 DEFAULT_MAX_BODY_BYTES = 1_048_576
@@ -61,8 +62,11 @@ def _is_loopback_host(host: str | None) -> bool:
         return False
 
 
+Repository = FileRepository | PartitionedFileRepository
+
+
 def _make_handler(
-    repo: FileRepository,
+    repo: Repository,
     *,
     max_body_bytes: int,
     max_batch_size: int,
@@ -76,20 +80,32 @@ def _make_handler(
     summary_signature: tuple[int, int] | None = None
 
     def _store_signature() -> tuple[int, int]:
+        signature_path = repo.index_path if isinstance(repo, PartitionedFileRepository) else repo.path
         try:
-            stat = os.stat(repo.path)
+            stat = os.stat(signature_path)
         except FileNotFoundError:
             return (0, 0)
         return (stat.st_size, stat.st_mtime_ns)
 
     def _scan_summary() -> dict[str, int]:
-        count = 0
+        raw_count = 0
+        effective_count = 0
+        superseded_count = 0
         total = 0
         source = repo.iter_events() if hasattr(repo, "iter_events") else repo.read_all()
-        for event in source:
-            count += 1
+        for event in iter_effective_events(source):
+            raw_count += 1
+            if event.superseded:
+                superseded_count += 1
+            elif event.is_authoritative:
+                effective_count += 1
             total += event_contributing_tokens(event)
-        return {"events": count, "total": total}
+        return {
+            "events": raw_count,
+            "effective_events": effective_count,
+            "superseded_events": superseded_count,
+            "total": total,
+        }
 
     def _summary_stats() -> dict[str, int]:
         nonlocal summary_cache, summary_signature
@@ -104,15 +120,11 @@ def _make_handler(
         nonlocal summary_cache, summary_signature
         with summary_lock:
             appended_ids = repo.append_unique(events)
-            if summary_cache is not None and appended_ids:
-                first_by_id: dict[str, TokenEvent] = {}
-                for event in events:
-                    first_by_id.setdefault(event.event_id, event)
-                for event_id in appended_ids:
-                    event = first_by_id[event_id]
-                    summary_cache["events"] += 1
-                    summary_cache["total"] += event_contributing_tokens(event)
-                summary_signature = _store_signature()
+            if appended_ids:
+                # A newly appended final can retire an older partial. Invalidate instead of
+                # incrementing a cached total that cannot subtract the superseded contribution.
+                summary_cache = None
+                summary_signature = None
             return appended_ids
 
     def _write_dead_letters(items: list[dict[str, Any]]) -> None:
@@ -173,13 +185,25 @@ def _make_handler(
             traces: dict[str, int] = {}
             total = 0
             count = 0
+            effective_count = 0
+            superseded_count = 0
             source = repo.iter_events() if hasattr(repo, "iter_events") else repo.read_all()
-            for e in source:
+            for e in iter_effective_events(source):
                 count += 1
+                if e.superseded:
+                    superseded_count += 1
+                elif e.is_authoritative:
+                    effective_count += 1
                 contributing = event_contributing_tokens(e)
                 total += contributing
                 traces[e.trace_id] = traces.get(e.trace_id, 0) + contributing
-            return {"events": count, "total": total, "traces": traces}
+            return {
+                "events": count,
+                "effective_events": effective_count,
+                "superseded_events": superseded_count,
+                "total": total,
+                "traces": traces,
+            }
 
         # --- writes ---
         def do_POST(self) -> None:  # noqa: N802 (http.server API)
@@ -234,7 +258,7 @@ def _make_handler(
             rejected_items: list[dict[str, Any]] = []
             for item in batch:
                 try:
-                    event = TokenEvent.from_dict(item)
+                    event = TokenEvent.from_dict(item, require_explicit_authority=True)
                 except (KeyError, TypeError, ValueError, AttributeError) as exc:
                     rejected += 1
                     if dead_letter_path:
@@ -267,7 +291,7 @@ def _make_handler(
 
 
 def create_server(
-    repo: FileRepository,
+    repo: Repository,
     host: str = "127.0.0.1",
     port: int = 8787,
     *,
@@ -364,6 +388,12 @@ def _parser(environment: dict[str, str] | None = None) -> argparse.ArgumentParse
         default=_environment_flag(env, "TRACKER_DURABLE", default=True),
         help="fsync acknowledged events before returning success (default: enabled)",
     )
+    parser.add_argument(
+        "--partitioned-store",
+        action=argparse.BooleanOptionalAction,
+        default=_environment_flag(env, "TRACKER_PARTITIONED", default=False),
+        help="treat --store as a date/trace-partitioned ledger root",
+    )
     parser.add_argument("--auth-token", default=env.get("TRACKER_AUTH_TOKEN"))
     return parser
 
@@ -371,7 +401,8 @@ def _parser(environment: dict[str, str] | None = None) -> argparse.ArgumentParse
 def main(argv: list[str] | None = None) -> None:
     args = _parser().parse_args(argv)
 
-    repo = FileRepository(args.store, durable=args.durable)
+    repository_type = PartitionedFileRepository if args.partitioned_store else FileRepository
+    repo = repository_type(args.store, durable=args.durable)
     server = create_server(repo, args.host, args.port, auth_token=args.auth_token)
     bound_host, bound_port = server.server_address[:2]
     print(f"collector listening on http://{bound_host}:{bound_port}{EVENTS_PATH}")

@@ -46,7 +46,7 @@ def request(base, path, method="GET", body=None):
 def event_dict(eid, out):
     return {
         "event_id": eid,
-        "request_correlation_id": "r",
+        "request_correlation_id": f"r-{eid}",
         "trace_id": "t",
         "span_id": "s",
         "quantities": [
@@ -55,10 +55,13 @@ def event_dict(eid, out):
                 "quantity": out,
                 "precision_level": "exact",
                 "usage_source": "provider_response",
-                "additivity": "total_contributing",
+                "overlap": "independent",
+                "trust": "verified",
             }
         ],
         "provider_total_tokens": out,
+        "observation": {"authoritative": True},
+        "schema_version": 9,
     }
 
 

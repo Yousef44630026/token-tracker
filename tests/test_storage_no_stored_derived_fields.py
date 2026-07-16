@@ -36,6 +36,9 @@ DERIVED_KEYS = {
     "event_total_mismatch",
     "under_attributed_tokens",
     "over_attributed_tokens",
+    "superseded",
+    "superseded_by",
+    "additivity",
 }
 
 
@@ -150,6 +153,8 @@ def main() -> int:
         f"no derived @property leaks into JSONL (offenders: {sorted(derived_properties & all_keys)})",
     )
     check("event_id" in all_keys and "quantities" in all_keys, "stored keys ARE present in JSONL")
+    check(raw["schema_version"] == 9, "stored events carry the explicit v9 schema marker")
+    check(isinstance(raw["observation"]["authoritative"], bool), "stored authority is an explicit boolean")
     check(
         raw["observation"]["provider_request_id"] == "req-1",
         "source-of-truth observation metadata is serialized",

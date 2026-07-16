@@ -15,6 +15,7 @@ import sqlite3
 from collections import defaultdict
 from collections.abc import Iterable, Iterator
 
+from tracker.derive.effective_events import iter_effective_events
 from tracker.models.token_event import TokenEvent
 from tracker.storage._locking import lock_for
 
@@ -102,7 +103,7 @@ class FileRepository:
         kept = 0
         with self._lock:
             with open(destination, "w", encoding="utf-8", newline="\n") as out:
-                for event in self._iter_events_unlocked():
+                for event in iter_effective_events(self._iter_events_unlocked()):
                     if drop_superseded and event.superseded:
                         continue
                     out.write(json.dumps(event.to_dict(), ensure_ascii=False) + "\n")
@@ -395,7 +396,7 @@ class PartitionedFileRepository:
         )
         kept = 0
         batch: list[TokenEvent] = []
-        for event in self.iter_events():
+        for event in iter_effective_events(self.iter_events()):
             if drop_superseded and event.superseded:
                 continue
             batch.append(event)

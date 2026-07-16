@@ -35,6 +35,7 @@ def event(event_id: str, trace_id: str, timestamp: str) -> TokenEvent:
             )
         ],
         provider_total_tokens=1,
+        observation={"authoritative": True},
     )
 
 

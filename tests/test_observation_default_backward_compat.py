@@ -1,15 +1,14 @@
-"""Regression — a missing/empty observation must default to authoritative, not be rejected.
+"""Regression — legacy missing authority stays readable but fails closed.
 
 Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_observation_default_backward_compat.py
 
-The explicit-``authoritative`` requirement (INV-7) guards against a TYPO when observation
-metadata is present (e.g. ``authoratative`` must not silently default into the total). It must
-NOT reject an event that carries no observation at all — that is the common case for minimal
-collector payloads and every legacy JSONL row written before the observation field existed.
+The explicit-``authoritative`` requirement (INV-7) guards both against typos and omitted
+authority. Live ingestion rejects omission. Historical JSONL remains readable, but missing
+authority is represented as ``authoritative=False`` plus ``authority_missing`` so it can never
+silently enter an accounting total.
 
-This falsifies the regression where TokenEvent.from_dict routed an absent observation through
-``Observation.from_dict({})`` and raised "observation.authoritative must be explicit", which
-made the collector silently drop valid events and made pre-existing JSONL data unreadable.
+This pins the migration boundary: compatibility means readable and auditable, not trusted by
+default.
 """
 
 import json
@@ -52,10 +51,18 @@ def minimal_dict(eid: str) -> dict:
     }
 
 
-# 1. No observation key at all -> loads, defaults to authoritative, contributes.
+# 1. No observation key at all -> legacy load succeeds, but fails closed.
 ev = TokenEvent.from_dict(minimal_dict("no-obs"))
-check(ev.is_authoritative is True, "event with no observation defaults to authoritative")
-check(ev.event_contributing_tokens == 7, "authoritative-by-default event contributes its tokens")
+check(ev.is_authoritative is False, "event with no observation fails closed")
+check("authority_missing" in ev.data_quality_flags, "missing authority is visible in data quality")
+check(ev.event_contributing_tokens == 0, "event with missing authority contributes 0")
+
+rejected_live = False
+try:
+    TokenEvent.from_dict(minimal_dict("live-no-obs"), require_explicit_authority=True)
+except ValueError:
+    rejected_live = True
+check(rejected_live, "live ingestion rejects a missing authority field")
 
 # 2. An EXPLICIT empty observation dict is a caller handing metadata-shaped nothing; it is
 #    still rejected (INV-7) so authority never silently defaults into totals. Only a fully
@@ -86,7 +93,7 @@ ev_nonauth = TokenEvent.from_dict(d_nonauth)
 check(ev_nonauth.is_authoritative is False, "explicit authoritative=False is honored")
 check(ev_nonauth.event_contributing_tokens == 0, "non-authoritative event contributes 0")
 
-# 5. Round-trip through real JSONL: a legacy row (no observation key) must read back.
+# 5. Round-trip through real JSONL: a legacy row reads back but remains excluded.
 with tempfile.TemporaryDirectory(prefix="tt_obs_compat_") as d:
     path = os.path.join(d, "legacy.jsonl")
     with open(path, "w", encoding="utf-8") as fh:
@@ -94,7 +101,9 @@ with tempfile.TemporaryDirectory(prefix="tt_obs_compat_") as d:
     repo = FileRepository(path)
     events = repo.read_all()
     check(len(events) == 1, "legacy JSONL row (no observation) reads back")
-    check(events[0].event_contributing_tokens == 7, "legacy row still contributes its tokens")
+    check(events[0].is_authoritative is False, "legacy row fails closed after JSONL read")
+    check(events[0].event_contributing_tokens == 0, "legacy row cannot silently affect totals")
+    check("authority_missing" in events[0].data_quality_flags, "legacy authority gap stays auditable")
 
 print("\nRESULT:", "all checks passed" if _failures == 0 else f"{_failures} FAILURE(S)")
 sys.exit(1 if _failures else 0)

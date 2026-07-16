@@ -27,8 +27,8 @@ from openpyxl.workbook.defined_name import DefinedName
 from openpyxl.worksheet.datavalidation import DataValidation
 from openpyxl.worksheet.table import Table, TableStyleInfo
 
+from tracker.derive.effective_events import effective_events
 from tracker.models.token_event import TokenEvent
-from tracker.normalization.supersession import reconcile_supersession
 
 LOGGER = logging.getLogger("tracker.reporting.excel_dashboard")
 
@@ -220,7 +220,11 @@ def load_jsonl_events(
                 selected[event.event_id] = loaded
 
     loaded_events = sorted(selected.values(), key=lambda item: item.sequence)
-    reconcile_supersession([item.event for item in loaded_events])
+    projected = {event.event_id: event for event in effective_events([item.event for item in loaded_events])}
+    loaded_events = [
+        LoadedEvent(projected[item.event.event_id], item.source_file, item.source_line, item.sequence)
+        for item in loaded_events
+    ]
     report = LoadReport(
         files_read=len(files),
         lines_read=lines_read,
@@ -470,7 +474,7 @@ def build_data_frame(events: list[LoadedEvent], prices: pd.DataFrame) -> pd.Data
                     "request_ttft_ms": None,
                     "request_ttft_observation_once": 0,
                     "quantity_metadata_json": json.dumps(quantity.metadata, ensure_ascii=True, sort_keys=True) if quantity else "{}",
-                    "observation_json": json.dumps(observation, ensure_ascii=True, sort_keys=True),
+                    "observation_json": json.dumps(observation.to_dict(), ensure_ascii=True, sort_keys=True),
                 }
             )
 

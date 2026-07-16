@@ -156,9 +156,9 @@ invalid = TokenEvent(
     data_quality_flags=["raw_usage_missing"],
     observation={"authoritative": True},
 )
-# Simulate a legacy/corrupt event object after load/mutation. New TokenEvent construction rejects
-# this shape, but the observation-contract analytics should still diagnose it if encountered.
-invalid.observation = {
+# Direct mutation is validated too; only an object-level bypass can simulate legacy memory
+# corruption for the observation-contract diagnostic.
+invalid_observation = {
     "status": "mystery",
     "authoritative": "yes",
     "http_status": 999,
@@ -167,6 +167,14 @@ invalid.observation = {
     "provider_request_id": "",
     "fallback_from": "bedrock",
 }
+try:
+    invalid.observation = invalid_observation
+except ValueError:
+    invalid_mutation_rejected = True
+else:
+    invalid_mutation_rejected = False
+check(invalid_mutation_rejected, "TokenEvent rejects invalid observation reassignment")
+object.__setattr__(invalid, "observation", invalid_observation)
 trace.add_event(invalid)
 
 issues = validate_trace_observations(trace)
@@ -183,6 +191,8 @@ summary = build_observation_contract_summary(trace)
 check(summary["event_count"] == 2, "observation summary counts events")
 check(summary["events_with_issues"] == 1, "observation summary counts affected events")
 check(summary["issue_count"] == len(issues), "observation summary issue count matches details")
+# Restore a valid typed value before exercising serializers and aggregate reports.
+object.__setattr__(invalid, "observation", Observation(authoritative=False, status="failed"))
 
 records = [
     fixture_record("azure_openai_responses.REAL.json", AzureOpenAIResponsesAdapter),

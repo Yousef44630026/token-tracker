@@ -2,11 +2,11 @@
 
 STORED (serialized): event_id, request_correlation_id, identity/context fields
 (trace_id, span_id, parent_span_id, business_id, workflow, environment), provider fields
-(provider, model, api_surface), quantities[], provider_total_tokens, superseded,
-superseded_by, data_quality_flags, hashes, timestamp, observation.
+(provider, model, api_surface), quantities[], provider_total_tokens, observed/provenance
+quality flags, hashes, timestamp, and typed observation.
 
-DERIVED (@property, never stored): event_contributing_tokens, event_total_mismatch
-(see INV-2 / INV-5). A superseded event contributes 0 everywhere.
+DERIVED (never stored): supersession state, normalizer-owned quality flags,
+event_contributing_tokens, event_total_mismatch, and directional mismatch magnitudes.
 """
 
 from __future__ import annotations
@@ -14,10 +14,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from tracker.models.enums import Overlap
+from tracker.models.enums import DataQualityFlag, Overlap
 from tracker.models.token_quantity import TokenQuantity
 from tracker.normalization.quality_flags import normalize_quality_flags
 from tracker.observability.observation import Observation
+
+CURRENT_EVENT_SCHEMA_VERSION = 9
 
 
 @dataclass
@@ -54,7 +56,12 @@ class TokenEvent:
     request_hash: str | None = None
     response_hash: str | None = None
     timestamp: str | None = None
-    observation: dict[str, Any] | Observation = field(default_factory=Observation)
+    observation: dict[str, Any] | Observation | None = None
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        if name == "observation" and value is not None and not isinstance(value, Observation):
+            value = self._normalize_observation(value)
+        object.__setattr__(self, name, value)
 
     def __post_init__(self) -> None:
         for field_name in ("event_id", "request_correlation_id", "trace_id", "span_id"):
@@ -83,21 +90,25 @@ class TokenEvent:
             raise ValueError("a superseded event must identify superseded_by")
         if not self.superseded and self.superseded_by is not None:
             raise ValueError("superseded_by requires superseded=True")
+        if self.observation is None:
+            self.observation = Observation(authoritative=False)
+            self.data_quality_flags.append(DataQualityFlag.AUTHORITY_MISSING.value)
+        else:
+            self.observation = self._normalize_observation(self.observation)
         self.data_quality_flags = normalize_quality_flags(self.data_quality_flags)
-        self.observation = self._normalize_observation(self.observation)
 
     @staticmethod
-    def _normalize_observation(observation: dict[str, Any] | Observation) -> dict[str, Any]:
+    def _normalize_observation(observation: dict[str, Any] | Observation) -> Observation:
         if isinstance(observation, Observation):
-            return observation.to_dict()
+            return Observation.from_dict(observation.to_dict())
         if not isinstance(observation, dict):
             raise TypeError("observation must be a dictionary or Observation")
-        return Observation.from_dict(observation).to_dict()
+        return Observation.from_dict(observation)
 
     @property
     def is_authoritative(self) -> bool:
         """Whether this event is allowed into authoritative totals."""
-        return self.observation["authoritative"]
+        return self.observation.authoritative
 
     # --- derived: computed only (INV-2), never stored/serialized ---
     @property
@@ -130,7 +141,10 @@ class TokenEvent:
 
     # --- serialization: STORED fields only ---
     def to_dict(self) -> dict[str, Any]:
+        from tracker.normalization.data_quality import stored_quality_flags
+
         return {
+            "schema_version": CURRENT_EVENT_SCHEMA_VERSION,
             "event_id": self.event_id,
             "request_correlation_id": self.request_correlation_id,
             "trace_id": self.trace_id,
@@ -144,17 +158,22 @@ class TokenEvent:
             "api_surface": self.api_surface,
             "quantities": [q.to_dict() for q in self.quantities],
             "provider_total_tokens": self.provider_total_tokens,
-            "superseded": self.superseded,
-            "superseded_by": self.superseded_by,
-            "data_quality_flags": list(self.data_quality_flags),
+            "data_quality_flags": stored_quality_flags(self.data_quality_flags),
             "request_hash": self.request_hash,
             "response_hash": self.response_hash,
             "timestamp": self.timestamp,
-            "observation": dict(self.observation),
+            "observation": self.observation.to_dict(),
         }
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> TokenEvent:
+    def from_dict(cls, d: dict[str, Any], *, require_explicit_authority: bool = False) -> TokenEvent:
+        version = d.get("schema_version")
+        if version is not None and version != CURRENT_EVENT_SCHEMA_VERSION:
+            raise ValueError(f"unsupported event schema_version: {version!r}")
+        if require_explicit_authority:
+            observation = d.get("observation")
+            if not isinstance(observation, dict) or "authoritative" not in observation:
+                raise ValueError("observation.authoritative must be explicit")
         kwargs: dict[str, Any] = dict(
             event_id=d["event_id"],
             request_correlation_id=d["request_correlation_id"],
@@ -169,18 +188,22 @@ class TokenEvent:
             api_surface=d.get("api_surface"),
             quantities=[TokenQuantity.from_dict(q) for q in d.get("quantities", [])],
             provider_total_tokens=d.get("provider_total_tokens"),
-            superseded=d.get("superseded", False),
-            superseded_by=d.get("superseded_by"),
+            superseded=d.get("superseded", False) if version is None else False,
+            superseded_by=d.get("superseded_by") if version is None else None,
             data_quality_flags=list(d.get("data_quality_flags", [])),
             request_hash=d.get("request_hash"),
             response_hash=d.get("response_hash"),
             timestamp=d.get("timestamp"),
         )
-        # Distinguish an ABSENT observation from an explicit one. A minimal collector payload
-        # or a legacy JSONL row (written before the observation field existed) carries no
-        # observation key at all — let the default authoritative Observation apply. Only pass
-        # observation through the strict explicit-``authoritative`` gate (INV-7) when the key
-        # is actually present, so a real (possibly empty/typo'd) observation is still validated.
+        # Preserve the distinction between an absent legacy observation and an explicit one.
+        # __post_init__ fails the absent case closed and raises authority_missing; live v9
+        # ingestion rejects it before construction.
         if "observation" in d:
             kwargs["observation"] = dict(d["observation"])
-        return cls(**kwargs)
+        event = cls(**kwargs)
+        from tracker.normalization.data_quality import normalizer_flags
+
+        event.data_quality_flags = normalize_quality_flags(
+            [*event.data_quality_flags, *normalizer_flags(event.quantities, event.provider_total_tokens)]
+        )
+        return event

@@ -6,6 +6,7 @@ from collections import Counter, defaultdict
 from typing import Any
 
 from tracker.analytics._common import ratio
+from tracker.derive.effective_events import effective_events
 from tracker.models.token_event import TokenEvent
 from tracker.models.trace import Trace
 
@@ -124,12 +125,15 @@ def _block(events: list[TokenEvent]) -> dict[str, Any]:
 
 def build_reliability_summary(trace: Trace) -> dict[str, Any]:
     """Return reliability metrics for all events and per provider."""
-    events = list(trace.events)
+    projected = effective_events(trace.events)
+    events = [event for event in projected if not event.superseded]
     by_provider: dict[str, list[TokenEvent]] = defaultdict(list)
     for event in events:
         by_provider[event.provider or "unknown"].append(event)
     return {
         **_block(events),
+        "source_event_count": len(projected),
+        "superseded_event_count": len(projected) - len(events),
         "by_provider": {provider: _block(group) for provider, group in sorted(by_provider.items())},
     }
 

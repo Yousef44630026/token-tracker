@@ -41,6 +41,7 @@ from tracker.analytics.provider_validation import (
 from tracker.analytics.rag import build_rag_summary
 from tracker.analytics.reliability import build_reliability_summary
 from tracker.analytics.trust_report import build_trust_report, build_trust_report_from_events
+from tracker.derive.effective_events import iter_effective_events
 from tracker.models.enums import Additivity, TokenType
 from tracker.models.token_event import TokenEvent
 from tracker.models.trace import Trace
@@ -449,15 +450,33 @@ class _DiskEventSnapshot:
         )
         os.close(descriptor)
         self._connection = sqlite3.connect(self.path)
-        self._connection.execute("CREATE TABLE events (sequence INTEGER PRIMARY KEY, event_id TEXT UNIQUE, payload TEXT NOT NULL)")
+        self._connection.execute(
+            """
+            CREATE TABLE events (
+                sequence INTEGER PRIMARY KEY,
+                event_id TEXT UNIQUE,
+                payload TEXT NOT NULL,
+                superseded INTEGER NOT NULL,
+                superseded_by TEXT,
+                quality_flags TEXT NOT NULL
+            )
+            """
+        )
         try:
             with self._connection:
                 for event in events:
                     self._connection.execute(
-                        "INSERT OR IGNORE INTO events(event_id, payload) VALUES (?, ?)",
+                        """
+                        INSERT OR IGNORE INTO events(
+                            event_id, payload, superseded, superseded_by, quality_flags
+                        ) VALUES (?, ?, ?, ?, ?)
+                        """,
                         (
                             event.event_id,
                             json.dumps(event.to_dict(), ensure_ascii=False, separators=(",", ":")),
+                            1 if event.superseded else 0,
+                            event.superseded_by,
+                            json.dumps(event.data_quality_flags, ensure_ascii=False, separators=(",", ":")),
                         ),
                     )
         except Exception:
@@ -465,9 +484,15 @@ class _DiskEventSnapshot:
             raise
 
     def __iter__(self) -> Iterator[TokenEvent]:
-        cursor = self._connection.execute("SELECT payload FROM events ORDER BY sequence")
-        for (payload,) in cursor:
-            yield TokenEvent.from_dict(json.loads(payload))
+        cursor = self._connection.execute(
+            "SELECT payload, superseded, superseded_by, quality_flags FROM events ORDER BY sequence"
+        )
+        for payload, superseded, superseded_by, quality_flags in cursor:
+            event = TokenEvent.from_dict(json.loads(payload))
+            event.superseded = bool(superseded)
+            event.superseded_by = superseded_by
+            event.data_quality_flags = json.loads(quality_flags)
+            yield event
 
     def close(self) -> None:
         self._connection.close()
@@ -1043,7 +1068,7 @@ def export_powerbi_events(
     """Export event data as a Power BI import folder and return created paths."""
     os.makedirs(out_dir, exist_ok=True)
     snapshot_ts = generated_at or _now_utc()
-    event_snapshot = _DiskEventSnapshot(events)
+    event_snapshot = _DiskEventSnapshot(iter_effective_events(events))
     try:
         metric_rows = metric_snapshot_rows(trace, snapshot_ts, events=event_snapshot)
         metric_rows.extend(provider_validation_summary_rows(snapshot_ts))

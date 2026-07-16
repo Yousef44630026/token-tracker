@@ -49,10 +49,12 @@ def q(qty):
 
 
 gemini_event = TokenEvent(
-    event_id="gemini-1", request_correlation_id="r1", trace_id="t", span_id="s", provider="gemini", quantities=[q(10)]
+    event_id="gemini-1", request_correlation_id="r1", trace_id="t", span_id="s", provider="gemini", quantities=[q(10)],
+    observation={"authoritative": True},
 )
 vertex_event = TokenEvent(
-    event_id="vertex-1", request_correlation_id="r2", trace_id="t", span_id="s", provider="vertex_ai", quantities=[q(10)]
+    event_id="vertex-1", request_correlation_id="r2", trace_id="t", span_id="s", provider="vertex_ai", quantities=[q(10)],
+    observation={"authoritative": True},
 )
 rows = fact_token_event_rows([gemini_event, vertex_event])
 gemini_row = next(r for r in rows if r["event_id"] == "gemini-1")
@@ -62,7 +64,8 @@ check(gemini_row["cloud_provider"] != "gcp", f"1. FIXED: direct Gemini no longer
 
 # --- 2. unmeasured event no longer silently error_count=0-implies-success ---
 unmeasured_event = TokenEvent(
-    event_id="unmeasured-1", request_correlation_id="r3", trace_id="t", span_id="s", provider="openai", quantities=[q(10)]
+    event_id="unmeasured-1", request_correlation_id="r3", trace_id="t", span_id="s", provider="openai", quantities=[q(10)],
+    observation={"authoritative": True},
 )
 measured_row = fact_token_event_rows([unmeasured_event])[0]
 check(measured_row["measured"] == 0, "2. an event with no observation data is correctly marked unmeasured")
@@ -121,6 +124,7 @@ unknown_input = TokenEvent(
             unknown_reason=UnknownReason.PROVIDER_OMITTED,
         )
     ],
+    observation={"authoritative": True},
 )
 zero_input = TokenEvent(
     event_id="zero-input",
@@ -128,6 +132,7 @@ zero_input = TokenEvent(
     trace_id="t",
     span_id="s",
     quantities=[q(0)],
+    observation={"authoritative": True},
 )
 breakdown_rows = {row["event_id"]: row for row in fact_token_event_rows([unknown_input, zero_input])}
 check(breakdown_rows["unknown-input"]["input_tokens"] is None, "5. unknown input exports as blank, never zero")

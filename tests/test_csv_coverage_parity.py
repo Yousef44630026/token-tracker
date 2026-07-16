@@ -48,6 +48,7 @@ trace.add_event(
             TokenQuantity(TokenType.OUTPUT, 500, PrecisionLevel.EXACT, UsageSource.PROVIDER_RESPONSE, Additivity.TOTAL_CONTRIBUTING),
         ],
         provider_total_tokens=1500,
+        observation={"authoritative": True},
     )
 )
 trace.add_event(
@@ -59,6 +60,7 @@ trace.add_event(
         quantities=[
             TokenQuantity(TokenType.CACHED_INPUT, 900, PrecisionLevel.EXACT, UsageSource.PROVIDER_RESPONSE, Additivity.UNVERIFIED),
         ],
+        observation={"authoritative": True},
     )
 )
 

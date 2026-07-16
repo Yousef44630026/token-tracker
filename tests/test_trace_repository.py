@@ -48,6 +48,7 @@ def build_trace(tid="trace-1"):
                 TokenQuantity(TokenType.OUTPUT, 200, PrecisionLevel.EXACT, UsageSource.PROVIDER_RESPONSE, Additivity.TOTAL_CONTRIBUTING)
             ],
             provider_total_tokens=200,
+            observation={"authoritative": True},
         )
     )
     return tr
@@ -91,6 +92,7 @@ tr2.add_event(
             TokenQuantity(TokenType.OUTPUT, 50, PrecisionLevel.EXACT, UsageSource.PROVIDER_RESPONSE, Additivity.TOTAL_CONTRIBUTING)
         ],
         provider_total_tokens=50,
+        observation={"authoritative": True},
     )
 )
 repo.save(tr2)

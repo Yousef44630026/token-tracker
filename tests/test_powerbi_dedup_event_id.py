@@ -45,6 +45,7 @@ def event(eid):
             TokenQuantity(TokenType.OUTPUT, 50, PrecisionLevel.EXACT, UsageSource.PROVIDER_RESPONSE, Additivity.TOTAL_CONTRIBUTING),
         ],
         provider_total_tokens=150,
+        observation={"authoritative": True},
     )
 
 

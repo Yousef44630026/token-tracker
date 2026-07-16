@@ -38,6 +38,7 @@ def partial(eid, rcid, span="s-1", qty=40):
                 TokenType.OUTPUT, qty, PrecisionLevel.ESTIMATE, UsageSource.PARTIAL_STREAM_TOKENIZER, Additivity.TOTAL_CONTRIBUTING
             )
         ],
+        observation={"authoritative": True},
     )
 
 
@@ -51,6 +52,7 @@ def final(eid, rcid, span="s-1", qty=200):
             TokenQuantity(TokenType.OUTPUT, qty, PrecisionLevel.EXACT, UsageSource.PROVIDER_STREAM_FINAL, Additivity.TOTAL_CONTRIBUTING)
         ],
         provider_total_tokens=qty,
+        observation={"authoritative": True},
     )
 
 

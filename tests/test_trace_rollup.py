@@ -31,23 +31,30 @@ def out(qty, prec=PrecisionLevel.EXACT, src=UsageSource.PROVIDER_RESPONSE):
     return TokenQuantity(TokenType.OUTPUT, qty, prec, src, Additivity.TOTAL_CONTRIBUTING)
 
 
-def event(eid, qty, superseded=False, flags=None):
+def event(eid, qty, *, correlation_id=None, source=UsageSource.PROVIDER_RESPONSE, flags=None):
     return TokenEvent(
         event_id=eid,
-        request_correlation_id=f"r-{eid}",
+        request_correlation_id=correlation_id or f"r-{eid}",
         trace_id="t-1",
         span_id="s",
-        quantities=[out(qty)],
-        superseded=superseded,
-        superseded_by="final" if superseded else None,
+        quantities=[out(qty, src=source)],
         data_quality_flags=flags or [],
+        observation={"authoritative": True},
     )
 
 
 trace = Trace(trace_id="t-1")
 trace.add_event(event("a", 100))
 trace.add_event(event("b", 200))
-trace.add_event(event("c", 999, superseded=True, flags=["superseded"]))  # contributes 0
+trace.add_event(
+    event(
+        "c",
+        999,
+        correlation_id="r-a",
+        source=UsageSource.PARTIAL_STREAM_TOKENIZER,
+        flags=["partial_stream_estimate"],
+    )
+)  # superseded by a, contributes 0
 trace.add_event(
     TokenEvent(
         event_id="d",
@@ -56,6 +63,7 @@ trace.add_event(
         span_id="s",
         quantities=[out(None, PrecisionLevel.UNKNOWN, UsageSource.NONE)],
         data_quality_flags=["unknown_quantity_present"],
+        observation={"authoritative": True},
     )
 )  # contributes 0
 

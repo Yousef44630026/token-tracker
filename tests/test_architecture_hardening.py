@@ -79,6 +79,7 @@ try:
             request_correlation_id="request-a",
             trace_id="trace-b",
             span_id="span-a",
+            observation={"authoritative": True},
         )
     )
 except ValueError:
@@ -110,6 +111,7 @@ trace.add_event(
         span_id="span-1",
         quantities=[quantity],
         provider_total_tokens=20,
+        observation={"authoritative": True},
     )
 )
 trace.events[0].provider_total_tokens = 99
@@ -139,14 +141,21 @@ check(
 )
 
 # Quantity exports are directly summable and spans are exported.
+partial_quantity = TokenQuantity(
+    TokenType.OUTPUT,
+    20,
+    PrecisionLevel.ESTIMATE,
+    UsageSource.PARTIAL_STREAM_TOKENIZER,
+    Additivity.TOTAL_CONTRIBUTING,
+)
 superseded = TokenEvent(
     event_id="event-old",
-    request_correlation_id="request-old",
+    request_correlation_id="request-1",
     trace_id="trace-1",
     span_id="span-1",
-    quantities=[quantity],
-    superseded=True,
-    superseded_by="event-1",
+    quantities=[partial_quantity],
+    data_quality_flags=["partial_stream_estimate"],
+    observation={"authoritative": True},
 )
 trace.add_event(superseded)
 check(

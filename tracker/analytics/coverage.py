@@ -17,10 +17,12 @@ was exact") for anyone who wants that specific question answered, but it is neve
 from __future__ import annotations
 
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
-from tracker.models.enums import Overlap, PrecisionLevel, Trust
+from tracker.derive.effective_events import iter_effective_events
+from tracker.derive.headline import HeadlineBandAccumulator
+from tracker.models.enums import DataQualityFlag, Overlap, PrecisionLevel, Trust
 from tracker.models.token_event import TokenEvent
 from tracker.models.trace import Trace
 
@@ -48,11 +50,31 @@ class CoverageExactnessAccumulator:
     unverified_quantity_count: int = 0
     provider_total_mismatch_count: int = 0
     events_with_provider_total: int = 0
-    total_is_lower_bound: bool = False
+    non_authoritative_event_count: int = 0
+    authority_missing_event_count: int = 0
+    propagation_lost_event_count: int = 0
+    partial_stream_estimate_event_count: int = 0
+    stream_interrupted_event_count: int = 0
+    correlation_id_collision_event_count: int = 0
+    headline: HeadlineBandAccumulator = field(default_factory=HeadlineBandAccumulator)
 
     def add(self, event: TokenEvent) -> None:
+        self.headline.add(event)
         self.event_count += 1
         self.observed_total_contributing_tokens += event.event_contributing_tokens
+        flags = set(event.data_quality_flags)
+        if not event.is_authoritative:
+            self.non_authoritative_event_count += 1
+        if DataQualityFlag.AUTHORITY_MISSING.value in flags:
+            self.authority_missing_event_count += 1
+        if DataQualityFlag.PROPAGATION_LOST.value in flags:
+            self.propagation_lost_event_count += 1
+        if DataQualityFlag.PARTIAL_STREAM_ESTIMATE.value in flags:
+            self.partial_stream_estimate_event_count += 1
+        if DataQualityFlag.STREAM_INTERRUPTED.value in flags:
+            self.stream_interrupted_event_count += 1
+        if DataQualityFlag.CORRELATION_ID_COLLISION.value in flags:
+            self.correlation_id_collision_event_count += 1
         if event.superseded:
             self.superseded_event_count += 1
         if event.superseded or not event.is_authoritative:
@@ -63,7 +85,6 @@ class CoverageExactnessAccumulator:
             self.events_with_provider_total += 1
         if event.event_total_mismatch not in (None, 0):
             self.provider_total_mismatch_count += 1
-            self.total_is_lower_bound = True
         self.unattributed_tokens += event.under_attributed_tokens
         self.over_attributed_tokens += event.over_attributed_tokens
 
@@ -79,27 +100,26 @@ class CoverageExactnessAccumulator:
 
             if quantity.trust == Trust.UNVERIFIED:
                 self.unverified_quantity_count += 1
-                self.total_is_lower_bound = True
             if quantity.trust == Trust.UNVERIFIED and quantity.overlap == Overlap.INDEPENDENT and quantity.quantity is not None:
                 self.unverified_independent_tokens += quantity.quantity
-            if quantity.quantity is None or quantity.precision_level == PrecisionLevel.UNKNOWN:
-                self.total_is_lower_bound = True
 
     def to_dict(self) -> dict[str, Any]:
         known = self.exact_quantity_count + self.estimate_quantity_count
-        best = self.observed_total_contributing_tokens + self.unattributed_tokens
-        floor = max(best - self.estimated_contributing_tokens, 0)
-        ceiling = best + self.unverified_independent_tokens
+        band = self.headline.to_band()
 
         return {
             "observed_total_contributing_tokens": self.observed_total_contributing_tokens,
-            "headline_floor_tokens": floor,
-            "headline_estimate_tokens": best,
-            "headline_ceiling_tokens": ceiling,
-            "capture_completeness_ratio": (round(self.observed_total_contributing_tokens / ceiling, 4) if ceiling else 0.0),
-            # Whether that headline is a point value or a floor (see derive/trace_rollup) - kept
-            # adjacent so the number is never read without its epistemic status.
-            "total_is_lower_bound": self.total_is_lower_bound,
+            "headline_floor_tokens": band.floor_tokens,
+            "headline_estimate_tokens": band.estimate_tokens,
+            "headline_ceiling_tokens": band.ceiling_tokens,
+            "headline_upper_bound_status": band.upper_bound_status,
+            "headline_status": band.status,
+            "attribution_status": band.attribution_status,
+            "capture_completeness_ratio": band.capture_completeness_ratio,
+            "total_is_lower_bound": band.total_is_lower_bound,
+            "total_is_upper_bound": band.total_is_upper_bound,
+            "open_upper_bound_event_count": band.open_upper_bound_event_count,
+            "provider_reconciled_event_count": band.provider_reconciled_event_count,
             "estimated_contributing_tokens": self.estimated_contributing_tokens,
             "unattributed_tokens": self.unattributed_tokens,
             "over_attributed_tokens": self.over_attributed_tokens,
@@ -118,6 +138,12 @@ class CoverageExactnessAccumulator:
             "unverified_quantity_count": self.unverified_quantity_count,
             "provider_total_mismatch_count": self.provider_total_mismatch_count,
             "events_with_provider_total": self.events_with_provider_total,
+            "non_authoritative_event_count": self.non_authoritative_event_count,
+            "authority_missing_event_count": self.authority_missing_event_count,
+            "propagation_lost_event_count": self.propagation_lost_event_count,
+            "partial_stream_estimate_event_count": self.partial_stream_estimate_event_count,
+            "stream_interrupted_event_count": self.stream_interrupted_event_count,
+            "correlation_id_collision_event_count": self.correlation_id_collision_event_count,
             "coverage_ratio": _ratio(self.events_with_provider_total, self.live_event_count),
             # exact / EVERYTHING (including unknown) - the honest headline (see module docstring).
             "exactness_ratio": _ratio(self.exact_quantity_count, self.quantity_count),
@@ -131,7 +157,7 @@ class CoverageExactnessAccumulator:
 def build_coverage_exactness_from_events(events: Iterable[TokenEvent]) -> dict[str, Any]:
     """Return CoverageExactness metrics from a streaming event source."""
     accumulator = CoverageExactnessAccumulator()
-    for event in events:
+    for event in iter_effective_events(events):
         accumulator.add(event)
     return accumulator.to_dict()
 

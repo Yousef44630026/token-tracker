@@ -1,8 +1,8 @@
 """Derived validation for the TokenEvent.observation contract.
 
-``observation`` remains an open metadata dictionary for compatibility, but operational
-metrics rely on a stable subset of keys. This module validates that subset without mutating
-events or making optional fields mandatory for old data.
+``observation`` is typed but retains an open metadata mapping for provider-specific fields.
+This module audits the operational subset and can still diagnose a legacy/corrupt in-memory
+shape without mutating it.
 """
 
 from __future__ import annotations

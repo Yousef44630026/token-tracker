@@ -39,7 +39,13 @@ ctx = new_trace(business_id="biz", workflow="wf", environment="prod")
 
 # --- identity wiring + generated event_id ---
 ev = build_event(
-    context=ctx, provider="openai", api_surface="chat_completions", model="gpt-4o", quantities=[q(100)], provider_total_tokens=100
+    context=ctx,
+    provider="openai",
+    api_surface="chat_completions",
+    model="gpt-4o",
+    quantities=[q(100)],
+    provider_total_tokens=100,
+    observation={"authoritative": True},
 )
 check(ev.trace_id == ctx.trace_id and ev.span_id == ctx.span_id, "identity wired from context")
 check(ev.request_correlation_id == ctx.request_correlation_id, "request_correlation_id wired")
@@ -50,7 +56,14 @@ check(ev.data_quality_flags == [], "clean event -> no flags")
 
 # --- supplied event_id honored ---
 ev2 = build_event(
-    context=ctx, provider=None, api_surface=None, model=None, quantities=[q(100)], provider_total_tokens=100, event_id="fixed-id"
+    context=ctx,
+    provider=None,
+    api_surface=None,
+    model=None,
+    quantities=[q(100)],
+    provider_total_tokens=100,
+    event_id="fixed-id",
+    observation={"authoritative": True},
 )
 check(ev2.event_id == "fixed-id", "supplied event_id is used")
 
@@ -64,6 +77,7 @@ ev3 = build_event(
     provider_total_tokens=100,
     leading_flags=["raw_usage_missing", "unverified_additivity"],
     trailing_flags=["custom", "custom"],
+    observation={"authoritative": True},
 )
 check("unverified_additivity" in ev3.data_quality_flags, "normalizer flag (unverified) applied")
 check(ev3.data_quality_flags.count("unverified_additivity") == 1, "leading flag not duplicated with the normalizer one")
@@ -72,7 +86,13 @@ check(ev3.data_quality_flags.count("custom") == 1, "trailing duplicates collapse
 
 # --- provider/derived mismatch is detected by the shared builder ---
 ev4 = build_event(
-    context=ctx, provider="openai", api_surface="chat_completions", model=None, quantities=[q(100)], provider_total_tokens=999
+    context=ctx,
+    provider="openai",
+    api_surface="chat_completions",
+    model=None,
+    quantities=[q(100)],
+    provider_total_tokens=999,
+    observation={"authoritative": True},
 )
 check("provider_total_mismatch" in ev4.data_quality_flags, "mismatch flagged by build_event")
 

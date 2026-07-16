@@ -65,6 +65,7 @@ live = TokenEvent(
     span_id="s",
     quantities=[contributing, subtotal, unverified, unknown],
     provider_total_tokens=300,
+    observation={"authoritative": True},
 )
 check(event_contributing_tokens(live) == 300, "event contributing == 300 (only the contributing quantity)")
 check(event_total_mismatch(live) == 0, "no mismatch (300 == 300)")
@@ -77,6 +78,7 @@ superseded = TokenEvent(
     quantities=[contributing],
     superseded=True,
     superseded_by="e-final",
+    observation={"authoritative": True},
 )
 check(event_contributing_tokens(superseded) == 0, "superseded event contributes 0")
 
@@ -93,7 +95,14 @@ check(
     "explicitly non-authoritative observation contributes 0",
 )
 
-no_total = TokenEvent(event_id="e3", request_correlation_id="r3", trace_id="t", span_id="s", quantities=[contributing])
+no_total = TokenEvent(
+    event_id="e3",
+    request_correlation_id="r3",
+    trace_id="t",
+    span_id="s",
+    quantities=[contributing],
+    observation={"authoritative": True},
+)
 check(event_total_mismatch(no_total) is None, "no provider total -> mismatch None")
 
 print("\nRESULT:", "all checks passed" if _failures == 0 else f"{_failures} FAILURE(S)")

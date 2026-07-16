@@ -42,6 +42,7 @@ tr.add_event(
             TokenQuantity(TokenType.OUTPUT, 200, PrecisionLevel.EXACT, UsageSource.PROVIDER_RESPONSE, Additivity.TOTAL_CONTRIBUTING)
         ],
         provider_total_tokens=200,
+        observation={"authoritative": True},
     )
 )
 

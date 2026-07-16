@@ -36,6 +36,7 @@ def event(event_id: str) -> TokenEvent:
             )
         ],
         provider_total_tokens=1,
+        observation={"authoritative": True},
     )
 
 

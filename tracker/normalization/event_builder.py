@@ -49,7 +49,7 @@ def build_event(
     request_hash: str | None = None,
     response_hash: str | None = None,
     timestamp: str | None = None,
-    observation: dict[str, Any] | Observation | None = None,
+    observation: dict[str, Any] | Observation,
 ) -> TokenEvent:
     """Build one event and apply the common quality policy exactly once."""
     observed_at = timestamp or datetime.now(UTC).isoformat().replace("+00:00", "Z")
@@ -78,5 +78,5 @@ def build_event(
         request_hash=request_hash,
         response_hash=response_hash,
         timestamp=observed_at,
-        observation=Observation() if observation is None else observation,
+        observation=observation,
     )

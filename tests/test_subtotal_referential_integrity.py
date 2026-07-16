@@ -41,6 +41,7 @@ def event(quantities):
         trace_id="t",
         span_id="s",
         quantities=quantities,
+        observation={"authoritative": True},
     )
 
 

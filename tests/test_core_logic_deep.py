@@ -136,11 +136,9 @@ def random_event() -> tuple[TokenEvent, bool, bool]:
     quantities = random_quantities(n)
     superseded = rng.random() < 0.2
     authoritative = True if rng.random() < 0.85 else False
-    kwargs = {}
+    kwargs = {"observation": {"authoritative": authoritative, "status": "complete" if authoritative else "failed"}}
     if superseded:
         kwargs["superseded_by"] = uid("final")
-    if not authoritative:
-        kwargs["observation"] = {"authoritative": False, "status": "failed"}
     event = TokenEvent(
         event_id=uid(),
         request_correlation_id=uid("r"),
@@ -185,13 +183,11 @@ for trace_i in range(N_TRACES):
     for _ in range(n_events):
         n_q = rng.randint(0, 6)
         quantities = random_quantities(n_q)
-        superseded = rng.random() < 0.2
+        # Correlation-derived supersession is exercised in Part 2. This rollup fuzz keeps
+        # unique request ids, so none of these independent events may be retired.
+        superseded = False
         authoritative = rng.random() >= 0.1
-        kwargs = {}
-        if superseded:
-            kwargs["superseded_by"] = uid("final")
-        if not authoritative:
-            kwargs["observation"] = {"authoritative": False}
+        kwargs = {"observation": {"authoritative": authoritative}}
         ev = TokenEvent(
             event_id=uid(),
             request_correlation_id=uid("r"),
@@ -219,7 +215,8 @@ def out_q(qty, source):
 
 def partial(eid, rcid, qty=10):
     return TokenEvent(
-        event_id=eid, request_correlation_id=rcid, trace_id="t", span_id="s", quantities=[out_q(qty, UsageSource.PARTIAL_STREAM_TOKENIZER)]
+        event_id=eid, request_correlation_id=rcid, trace_id="t", span_id="s", quantities=[out_q(qty, UsageSource.PARTIAL_STREAM_TOKENIZER)],
+        observation={"authoritative": True},
     )
 
 
@@ -232,6 +229,7 @@ def final(eid, rcid, qty=100, total=None, timestamp=None):
         quantities=[out_q(qty, UsageSource.PROVIDER_RESPONSE)],
         provider_total_tokens=total if total is not None else qty,
         timestamp=timestamp,
+        observation={"authoritative": True},
     )
 
 
@@ -281,6 +279,7 @@ mixed = TokenEvent(
     trace_id="t",
     span_id="s",
     quantities=[out_q(5, UsageSource.PARTIAL_STREAM_TOKENIZER), out_q(3, UsageSource.PROVIDER_RESPONSE)],
+    observation={"authoritative": True},
 )
 f_mixed = final("f-mixed", "rc-mixed", qty=50)
 reconcile_supersession([mixed, f_mixed])
@@ -334,6 +333,7 @@ final_with_subtotal = TokenEvent(
         ),
     ],
     provider_total_tokens=300,
+    observation={"authoritative": True},
 )
 p_sub = partial("p-sub", "rc-sub", qty=15)
 reconcile_supersession([p_sub, final_with_subtotal])
@@ -357,6 +357,7 @@ raw_total_only = TokenEvent(
     span_id="s",
     quantities=[],
     provider_total_tokens=12,
+    observation={"authoritative": True},
 )
 reconcile_supersession([p_total_only, raw_total_only])
 check(
@@ -387,6 +388,7 @@ input_only_final = TokenEvent(
     span_id="s",
     quantities=[TokenQuantity(TokenType.INPUT, 100, PrecisionLevel.EXACT, UsageSource.PROVIDER_RESPONSE, Additivity.TOTAL_CONTRIBUTING)],
     provider_total_tokens=100,
+    observation={"authoritative": True},
 )
 reconcile_supersession([p_input_only, input_only_final])
 check(p_input_only.superseded is False, "2.9: input-only provider usage does not supersede an output partial")
@@ -416,14 +418,28 @@ for i in range(50):
     )
     if additivity == Additivity.TOTAL_CONTRIBUTING:
         expected_many += qty
-ev_many = TokenEvent(event_id=uid(), request_correlation_id=uid(), trace_id="t", span_id="s", quantities=many_quantities)
+ev_many = TokenEvent(
+    event_id=uid(),
+    request_correlation_id=uid(),
+    trace_id="t",
+    span_id="s",
+    quantities=many_quantities,
+    observation={"authoritative": True},
+)
 check(
     ev_many.event_contributing_tokens == expected_many,
     f"3.1: 50-quantity event sums exactly (got {ev_many.event_contributing_tokens}, expected {expected_many})",
 )
 
 # --- 3.2: an event with ZERO quantities (empty list) contributes 0, no crash ---
-ev_empty = TokenEvent(event_id=uid(), request_correlation_id=uid(), trace_id="t", span_id="s", quantities=[])
+ev_empty = TokenEvent(
+    event_id=uid(),
+    request_correlation_id=uid(),
+    trace_id="t",
+    span_id="s",
+    quantities=[],
+    observation={"authoritative": True},
+)
 check(ev_empty.event_contributing_tokens == 0, "3.2: empty-quantities event contributes 0 (no crash on empty sum)")
 
 # --- 3.3: an event where NO quantity is total_contributing (all subtotal/unverified) ---
@@ -441,6 +457,7 @@ ev_no_contrib = TokenEvent(
         ),
         TokenQuantity(TokenType.OUTPUT, 300, PrecisionLevel.EXACT, UsageSource.PROVIDER_RESPONSE, Additivity.UNVERIFIED),
     ],
+    observation={"authoritative": True},
 )
 check(ev_no_contrib.event_contributing_tokens == 0, "3.3: all-excluded event (no total_contributing entries) -> 0")
 
@@ -451,6 +468,7 @@ ev_known_zero = TokenEvent(
     trace_id="t",
     span_id="s",
     quantities=[TokenQuantity(TokenType.OUTPUT, 0, PrecisionLevel.EXACT, UsageSource.PROVIDER_RESPONSE, Additivity.TOTAL_CONTRIBUTING)],
+    observation={"authoritative": True},
 )
 check(
     ev_known_zero.event_contributing_tokens == 0 and ev_known_zero.quantities[0].included_in_total is True,
@@ -471,6 +489,7 @@ ev_unknown = TokenEvent(
             unknown_reason=UnknownReason.STREAM_TIMEOUT,
         )
     ],
+    observation={"authoritative": True},
 )
 check(
     ev_unknown.event_contributing_tokens == 0 and ev_unknown.quantities[0].included_in_total is False,
@@ -486,6 +505,7 @@ ev_huge = TokenEvent(
     span_id="s",
     quantities=[TokenQuantity(TokenType.INPUT, huge, PrecisionLevel.EXACT, UsageSource.PROVIDER_RESPONSE, Additivity.TOTAL_CONTRIBUTING)],
     provider_total_tokens=huge,
+    observation={"authoritative": True},
 )
 check(ev_huge.event_contributing_tokens == huge, "3.5: a 10**15-scale quantity sums exactly")
 check(type(ev_huge.event_contributing_tokens) is int, "3.5: result type is exactly int, not float")

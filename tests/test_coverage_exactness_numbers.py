@@ -43,6 +43,7 @@ e1 = TokenEvent(
         q(TokenType.CACHED_INPUT, 800, PrecisionLevel.EXACT, UsageSource.PROVIDER_RESPONSE, add=Additivity.SUBTOTAL_OF, parent="input"),
     ],
     provider_total_tokens=1300,
+    observation={"authoritative": True},
 )
 # e2: a partial-stream estimate, no provider total
 e2 = TokenEvent(
@@ -51,6 +52,7 @@ e2 = TokenEvent(
     trace_id="t",
     span_id="s",
     quantities=[q(TokenType.OUTPUT, 40, PrecisionLevel.ESTIMATE, UsageSource.PARTIAL_STREAM_TOKENIZER)],
+    observation={"authoritative": True},
 )
 # e3: a lost (unknown) output, no provider total
 e3 = TokenEvent(
@@ -59,17 +61,19 @@ e3 = TokenEvent(
     trace_id="t",
     span_id="s",
     quantities=[q(TokenType.OUTPUT, None, PrecisionLevel.UNKNOWN, UsageSource.NONE)],
+    observation={"authoritative": True},
 )
 # e4/e5 are preserved in the trace for audit but excluded from coverage denominators.
 e4 = TokenEvent(
     event_id="e4",
-    request_correlation_id="r4",
+    request_correlation_id="r1",
     trace_id="t",
     span_id="s",
     quantities=[q(TokenType.OUTPUT, 999, PrecisionLevel.EXACT, UsageSource.PROVIDER_RESPONSE)],
     provider_total_tokens=999,
     superseded=True,
     superseded_by="e1",
+    observation={"authoritative": True},
 )
 e5 = TokenEvent(
     event_id="e5",
@@ -88,7 +92,11 @@ for e in (e1, e2, e3, e4, e5):
 c = build_coverage_exactness(trace)
 
 check(c["observed_total_contributing_tokens"] == 1340, "observed total == 1300 + 40 + 0")
-check(c["total_is_lower_bound"] is True, "unknown live output makes observed total a lower bound")
+check(
+    c["total_is_lower_bound"] is False,
+    "an estimate plus an unknown creates an open band, not a misleading lower-bound label",
+)
+check(c["headline_upper_bound_status"] == "open", "unknown live output makes the upper bound explicitly open")
 check(c["event_count"] == 3, "event_count excludes superseded/non-authoritative events")
 check(c["excluded_event_count"] == 2, "excluded_event_count == superseded + non-authoritative")
 check(c["superseded_event_count"] == 1, "superseded_event_count == 1")
@@ -114,6 +122,7 @@ mostly_unknown.add_event(
         trace_id="mostly-unknown",
         span_id="s",
         quantities=[q(TokenType.INPUT, 10, PrecisionLevel.EXACT, UsageSource.PROVIDER_RESPONSE)],
+        observation={"authoritative": True},
     )
 )
 for i in range(9):
@@ -124,6 +133,7 @@ for i in range(9):
             trace_id="mostly-unknown",
             span_id="s",
             quantities=[q(TokenType.OUTPUT, None, PrecisionLevel.UNKNOWN, UsageSource.NONE)],
+            observation={"authoritative": True},
         )
     )
 mostly_unknown_summary = build_coverage_exactness(mostly_unknown)

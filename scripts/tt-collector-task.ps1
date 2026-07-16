@@ -21,6 +21,11 @@ $durable = if ($env:TRACKER_DURABLE) {
 } else {
     $true
 }
+$partitioned = if ($env:TRACKER_PARTITIONED) {
+    $env:TRACKER_PARTITIONED.Trim().ToLowerInvariant() -in @("1", "true", "yes", "on")
+} else {
+    $false
+}
 
 $plan = [ordered]@{
     task_name = $TaskName
@@ -32,6 +37,7 @@ $plan = [ordered]@{
     host = $hostAddress
     port = $port
     durable = $durable
+    partitioned = $partitioned
     log = $logPath
     triggers = @("at_startup", "at_logon")
     start_when_available = $true
@@ -63,7 +69,7 @@ function Get-CollectorHealth {
 
 function Stop-ManagedCollectorProcesses {
     # Task Scheduler can terminate the PowerShell action before its cmd/python descendants.
-    # Only stop a listener whose process chain proves it belongs to this tracker runner.
+    # Stop a matching listener only when its parent is our runner or the parent is gone.
     try {
         $connections = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction Stop
     } catch {
@@ -75,11 +81,15 @@ function Stop-ManagedCollectorProcesses {
             continue
         }
         $parent = Get-CimInstance Win32_Process -Filter "ProcessId=$($child.ParentProcessId)" -ErrorAction SilentlyContinue
-        if (-not $parent -or $parent.CommandLine -notlike "*tt-collector-run.cmd*") {
+        $managedParent = $parent -and $parent.CommandLine -like "*tt-collector-run.cmd*"
+        $orphaned = -not $parent
+        if (-not $managedParent -and -not $orphaned) {
             continue
         }
-        Stop-Process -Id $parent.ProcessId -Force -ErrorAction SilentlyContinue
-        Stop-Process -Id $child.ProcessId -Force -ErrorAction SilentlyContinue
+        Stop-Process -Id $child.ProcessId -Force -ErrorAction Stop
+        if ($managedParent) {
+            Stop-Process -Id $parent.ProcessId -Force -ErrorAction Stop
+        }
     }
 }
 

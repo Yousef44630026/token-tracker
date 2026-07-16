@@ -30,8 +30,10 @@ _DERIVED_EVENT_KEYS = {
     "event_total_mismatch",
     "under_attributed_tokens",
     "over_attributed_tokens",
+    "superseded",
+    "superseded_by",
 }
-_DERIVED_QUANTITY_KEYS = {"included_in_total", "quantity_in_total", "export_warning"}
+_DERIVED_QUANTITY_KEYS = {"additivity", "included_in_total", "quantity_in_total", "export_warning"}
 _SECRET_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("bearer_token", re.compile(r"\bbearer\s+[A-Za-z0-9._~+/=-]{16,}", re.IGNORECASE)),
     ("openai_style_key", re.compile(r"\bsk-[A-Za-z0-9_-]{16,}\b")),
@@ -388,6 +390,12 @@ def _storage_contract_check() -> DoctorCheck:
             "derived fields leaked into serialized source-of-truth payload",
             event_leaks=event_leaks,
             quantity_leaks=quantity_leaks,
+        )
+    if payload.get("schema_version") != 9 or not isinstance(payload.get("observation", {}).get("authoritative"), bool):
+        return _check(
+            "storage-contract",
+            "fail",
+            "serialized event lacks schema v9 or explicit boolean authority",
         )
     if event.event_contributing_tokens != 10:
         return _check("storage-contract", "fail", "event contribution derivation disagrees with sample payload")

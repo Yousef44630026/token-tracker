@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass
 
+from tracker.derive.effective_events import iter_effective_events
 from tracker.models.token_event import TokenEvent
 from tracker.models.trace import Trace
 
@@ -42,7 +43,7 @@ def event_anomalies(event: TokenEvent) -> list[AnomalySignal]:
 def detect_anomalies_from_events(events: Iterable[TokenEvent]) -> list[AnomalySignal]:
     """Materialize event-level quality and mismatch signals without storing them."""
     signals: list[AnomalySignal] = []
-    for event in events:
+    for event in iter_effective_events(events):
         signals.extend(event_anomalies(event))
     return signals
 

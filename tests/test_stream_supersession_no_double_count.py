@@ -45,6 +45,7 @@ partial = TokenEvent(
             additivity=Additivity.TOTAL_CONTRIBUTING,
         )
     ],
+    observation={"authoritative": True},
 )
 final = TokenEvent(
     event_id="evt-final",
@@ -61,6 +62,7 @@ final = TokenEvent(
         )
     ],
     provider_total_tokens=210,
+    observation={"authoritative": True},
 )
 
 events = [partial, final]
@@ -99,6 +101,7 @@ enriched_partial = TokenEvent(
         ),
     ],
     data_quality_flags=["partial_stream_estimate", "stream_interrupted"],
+    observation={"authoritative": True},
 )
 input_only_final = TokenEvent(
     event_id="evt-input-only-final",
@@ -115,6 +118,7 @@ input_only_final = TokenEvent(
         )
     ],
     provider_total_tokens=100,
+    observation={"authoritative": True},
 )
 enriched_events = [enriched_partial, input_only_final]
 reconcile_supersession(enriched_events)

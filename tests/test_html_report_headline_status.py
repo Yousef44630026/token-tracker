@@ -87,6 +87,7 @@ lb.add_event(
                 Additivity.UNVERIFIED,
             ),
         ],
+        observation={"authoritative": True},
     )
 )
 lb_rollup = roll_up(lb)
@@ -158,6 +159,7 @@ clean.add_event(
             ),
         ],
         provider_total_tokens=150,
+        observation={"authoritative": True},
     )
 )
 clean_section = trace_summary_section(render_html_report(clean))

@@ -2,7 +2,7 @@
 
 Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_load_events.py
 
-Builds 10k events (every 10th superseded), checks the rollup / coverage / CSV export all
+Builds 10k events (every 10th is a partial superseded by its correlated final), checks the rollup / coverage / CSV export all
 agree on the contributing total at scale, and that it completes well under a generous bound.
 """
 
@@ -33,30 +33,36 @@ def check(cond, msg):
         _failures += 1
 
 
-def q(tt, qty):
-    return TokenQuantity(tt, qty, PrecisionLevel.EXACT, UsageSource.PROVIDER_RESPONSE, Additivity.TOTAL_CONTRIBUTING)
+def q(tt, qty, *, precision=PrecisionLevel.EXACT, source=UsageSource.PROVIDER_RESPONSE):
+    return TokenQuantity(tt, qty, precision, source, Additivity.TOTAL_CONTRIBUTING)
 
 
 t0 = time.perf_counter()
 trace = Trace(trace_id="load")
 live = 0
 for i in range(N):
-    superseded = i % 10 == 0
+    partial = i % 10 == 0
+    correlation_id = f"r{i - 1}" if i % 10 == 1 else f"r{i}"
+    source = UsageSource.PARTIAL_STREAM_TOKENIZER if partial else UsageSource.PROVIDER_RESPONSE
+    precision = PrecisionLevel.ESTIMATE if partial else PrecisionLevel.EXACT
     trace.add_event(
         TokenEvent(
             event_id=f"e{i}",
-            request_correlation_id=f"r{i}",
+            request_correlation_id=correlation_id,
             trace_id="load",
             span_id="s",
             provider="openai",
             api_surface="chat_completions",
-            quantities=[q(TokenType.INPUT, 100), q(TokenType.OUTPUT, 50)],
-            provider_total_tokens=150,
-            superseded=superseded,
-            superseded_by=("final" if superseded else None),
+            quantities=[
+                q(TokenType.INPUT, 100, precision=precision, source=source),
+                q(TokenType.OUTPUT, 50, precision=precision, source=source),
+            ],
+            provider_total_tokens=None if partial else 150,
+            data_quality_flags=["partial_stream_estimate"] if partial else [],
+            observation={"authoritative": True},
         )
     )
-    if not superseded:
+    if not partial:
         live += 1
 build_s = time.perf_counter() - t0
 expected = live * 150

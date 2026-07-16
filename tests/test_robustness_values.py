@@ -79,7 +79,7 @@ with open(paths["token_events"], newline="", encoding="utf-8") as f:
     rows = list(csv.DictReader(f))
 check(rows == [], "empty trace -> header-only events CSV (0 data rows)")
 
-# --- a trace of only superseded events totals 0 ---
+# --- a superseded partial plus a zero-token final totals 0 ---
 sup = Trace(trace_id="sup")
 sup.add_event(
     TokenEvent(
@@ -88,13 +88,32 @@ sup.add_event(
         trace_id="sup",
         span_id="s",
         quantities=[
-            TokenQuantity(TokenType.OUTPUT, 500, PrecisionLevel.EXACT, UsageSource.PROVIDER_RESPONSE, Additivity.TOTAL_CONTRIBUTING)
+            TokenQuantity(
+                TokenType.OUTPUT,
+                500,
+                PrecisionLevel.ESTIMATE,
+                UsageSource.PARTIAL_STREAM_TOKENIZER,
+                Additivity.TOTAL_CONTRIBUTING,
+            )
         ],
-        superseded=True,
-        superseded_by="final",
+        data_quality_flags=["partial_stream_estimate"],
+        observation={"authoritative": True},
     )
 )
-check(observed_total_contributing_tokens(sup) == 0, "all-superseded trace totals 0")
+sup.add_event(
+    TokenEvent(
+        event_id="final",
+        request_correlation_id="r",
+        trace_id="sup",
+        span_id="s",
+        quantities=[
+            TokenQuantity(TokenType.OUTPUT, 0, PrecisionLevel.EXACT, UsageSource.PROVIDER_RESPONSE, Additivity.TOTAL_CONTRIBUTING)
+        ],
+        provider_total_tokens=0,
+        observation={"authoritative": True},
+    )
+)
+check(observed_total_contributing_tokens(sup) == 0, "superseded partial plus zero-token final totals 0")
 
 print("\nRESULT:", "all checks passed" if _failures == 0 else f"{_failures} FAILURE(S)")
 shutil.rmtree(out_dir, ignore_errors=True)

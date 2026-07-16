@@ -46,6 +46,7 @@ def event(eid, out):
             TokenQuantity(TokenType.OUTPUT, out, PrecisionLevel.EXACT, UsageSource.PROVIDER_RESPONSE, Additivity.TOTAL_CONTRIBUTING)
         ],
         provider_total_tokens=out,
+        observation={"authoritative": True},
     )
 
 
@@ -78,10 +79,15 @@ try:
     # --- stats reflect contributing totals ---
     code, stats = get_json(base + "/v1/stats")
     check(code == 200 and stats["events"] == 2, "/v1/stats counts persisted events")
+    check(stats["effective_events"] == 2 and stats["superseded_events"] == 0, "/v1/stats separates effective and superseded events")
     check(stats["total"] == 300, "/v1/stats total == 100 + 200")
     check(stats["traces"]["t-api"] == 300, "/v1/stats per-trace total")
     code, summary = get_json(base + "/v1/stats?summary=1")
-    check(code == 200 and summary == {"events": 2, "total": 300}, "summary stats omit high-cardinality traces")
+    check(
+        code == 200
+        and summary == {"events": 2, "effective_events": 2, "superseded_events": 0, "total": 300},
+        "summary stats omit high-cardinality traces but retain audit counts",
+    )
 
     # --- malformed body -> 400, server stays up ---
     bad_status = None
@@ -107,12 +113,18 @@ try:
     check(stats["events"] == 8, "all events (2 + 1 + 5) persisted")
     check(stats["total"] == 300 + 300 + 50, "grand total reconciles end-to-end (650)")
     code, summary = get_json(base + "/v1/stats?summary=true")
-    check(summary == {"events": 8, "total": 650}, "summary cache updates incrementally after appends")
+    check(
+        summary == {"events": 8, "effective_events": 8, "superseded_events": 0, "total": 650},
+        "summary cache updates after appends",
+    )
     check(len(repo.read_all()) == 8, "repository holds every delivered event")
 
     repo.append(event("external", 5))
     code, summary = get_json(base + "/v1/stats?summary=1")
-    check(summary == {"events": 9, "total": 655}, "external store changes invalidate the summary cache")
+    check(
+        summary == {"events": 9, "effective_events": 9, "superseded_events": 0, "total": 655},
+        "external store changes invalidate the summary cache",
+    )
 finally:
     server.shutdown()
     server.server_close()
