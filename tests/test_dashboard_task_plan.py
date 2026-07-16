@@ -24,6 +24,7 @@ task_runner = root / "scripts" / "tt-dashboard-task-run.ps1"
 environment = dict(os.environ)
 environment.update(
     {
+        "AI_TOKEN_TRACKER_PYTHON": sys.executable,
         "TRACKER_STORE": r"C:\tracker-test-data\collector.jsonl",
         "TRACKER_AUTH_TOKEN": "must-not-appear",
     }
