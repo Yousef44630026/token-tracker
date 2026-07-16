@@ -34,7 +34,20 @@ DERIVED_KEYS = {
     "export_warning",
     "event_contributing_tokens",
     "event_total_mismatch",
+    "under_attributed_tokens",
+    "over_attributed_tokens",
 }
+
+
+def _model_derived_property_names() -> set[str]:
+    """Every @property on the stored models = the set of fields that MUST stay derived.
+
+    Introspected, not hand-listed: the hand-maintained DERIVED_KEYS above silently drifted
+    once (under/over_attributed_tokens were added to the model and to doctor.py but never
+    back-ported here), which would let a future to_dict() regression on a new derived field
+    pass this falsifier green. Deriving the set from the classes makes that drift impossible.
+    """
+    return {name for cls in (TokenEvent, TokenQuantity) for name, attr in vars(cls).items() if isinstance(attr, property)}
 
 
 def check(cond: bool, msg: str) -> None:
@@ -128,6 +141,13 @@ def main() -> int:
     check(
         DERIVED_KEYS.isdisjoint(all_keys),
         f"no derived key serialized to JSONL (found offenders: {DERIVED_KEYS & all_keys})",
+    )
+    # Anti-drift backstop: catch ANY derived @property leaking, including ones not yet added
+    # to the hand list above, so the falsifier cannot silently go stale as the model grows.
+    derived_properties = _model_derived_property_names()
+    check(
+        derived_properties.isdisjoint(all_keys),
+        f"no derived @property leaks into JSONL (offenders: {sorted(derived_properties & all_keys)})",
     )
     check("event_id" in all_keys and "quantities" in all_keys, "stored keys ARE present in JSONL")
     check(

@@ -22,7 +22,17 @@ from tracker.storage.file_repository import FileRepository  # noqa: E402
 
 _failures = 0
 N = 5000
-DERIVED = {"included_in_total", "quantity_in_total", "export_warning", "event_contributing_tokens", "event_total_mismatch"}
+# Must stay in sync with the model's derived @property fields (see the introspective backstop
+# in test_storage_no_stored_derived_fields.py). under/over_attributed_tokens were added later.
+DERIVED = {
+    "included_in_total",
+    "quantity_in_total",
+    "export_warning",
+    "event_contributing_tokens",
+    "event_total_mismatch",
+    "under_attributed_tokens",
+    "over_attributed_tokens",
+}
 
 
 def check(cond, msg):
