@@ -5,7 +5,7 @@ A green unit-test suite must not promote an unobserved provider or workload to "
 
 | Evidence | Current state | Pass criterion | Artifact |
 |---|---|---|---|
-| Permanent accounting falsifiers | Main workflow green on clean CI (run #5, `0cd4187`, 2026-07-15). The local v9 candidate passes Ruff plus 170/170 isolated test scripts and 24,878 deep-fuzz assertions (2026-07-16); commit/push CI is still pending. | Whole `tracker-check` workflow (all steps) green in GitHub Actions for the candidate commit | https://github.com/Yousef44630026/token-tracker/actions/runs/29422396529 + local `tests/run_all.py` / `tt-check` output |
+| Permanent accounting falsifiers | v9 workflow green on clean CI (`c614b1c`, 2026-07-16), after Ruff plus 170/170 isolated test scripts and 24,878 deep-fuzz assertions passed locally | Whole `tracker-check` workflow (all steps) green in GitHub Actions for the candidate commit | https://github.com/Yousef44630026/token-tracker/actions/runs/29497484410 + local `tests/run_all.py` / `tt-check` output |
 | Provider payload semantics | Partial — see "Provider verification" below | Real redacted capture for every supported surface and usage mode | `tracker/validation/fixture_manifest.py` + `tt-provider-matrix` |
 | Billing reconciliation | Not demonstrated | Tracker totals reconciled to a provider invoice for a fixed window | Signed reconciliation summary |
 | Proxy soak | Not demonstrated | 72 hours under representative streaming load with bounded memory/handles and zero silent loss | Soak report plus event store hash |
