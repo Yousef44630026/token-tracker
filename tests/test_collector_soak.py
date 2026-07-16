@@ -58,6 +58,7 @@ mixed = run_soak(
         ]
     ),
     monotonic=clock.monotonic,
+    wall_clock=clock.monotonic,
     sleep=clock.sleep,
 )
 check(mixed["samples"] == 3, "soak honors the bounded sample target")
@@ -84,11 +85,39 @@ healthy = run_soak(
         ]
     ),
     monotonic=clock.monotonic,
+    wall_clock=clock.monotonic,
     sleep=clock.sleep,
 )
 check(healthy["passed"] is True, "healthy probes with an unchanged store prefix pass")
 check(healthy["store_integrity"]["verified"] is True, "soak verifies the pre-existing store prefix")
 check(healthy["collector_counters"]["regressions"] == 0, "monotonic collector counters remain clean")
+
+
+class SuspendingClock(FakeClock):
+    def sleep(self, seconds: float) -> None:
+        self.value += 10.0
+
+
+suspending_clock = SuspendingClock()
+suspended = run_soak(
+    base_url="http://127.0.0.1:8787",
+    store_path=store,
+    output_dir=os.path.join(root, "suspended"),
+    duration_seconds=10,
+    interval_seconds=1,
+    probe=sequence_probe(
+        [
+            {"healthy": True, "events": 3, "total": 15, "latency_ms": 1.0},
+            {"healthy": True, "events": 3, "total": 15, "latency_ms": 1.0},
+        ]
+    ),
+    monotonic=suspending_clock.monotonic,
+    wall_clock=suspending_clock.monotonic,
+    sleep=suspending_clock.sleep,
+)
+check(suspended["sampling"]["sample_gap_count"] == 1, "sleep/resume gap is measured explicitly")
+check(suspended["sampling"]["capture_ratio"] < 0.95, "missing scheduled probes reduce capture completeness")
+check(suspended["passed"] is False, "a mostly sleeping soak cannot report a passing verdict")
 
 mutating_calls = 0
 
@@ -112,11 +141,12 @@ mutated = run_soak(
     max_samples=2,
     probe=mutating_probe,
     monotonic=clock.monotonic,
+    wall_clock=clock.monotonic,
     sleep=clock.sleep,
 )
 check(mutated["store_integrity"]["prefix_unchanged"] is False, "in-place store mutation is detected")
 check(mutated["passed"] is False, "store-prefix mutation fails the soak verdict")
-check(json.loads(summary_text)["schema_version"] == 1, "soak summary is explicitly versioned")
+check(json.loads(summary_text)["schema_version"] == 2, "soak summary is explicitly versioned")
 
 shutil.rmtree(root, ignore_errors=True)
 sys.exit(check.report("RESULT test_collector_soak"))

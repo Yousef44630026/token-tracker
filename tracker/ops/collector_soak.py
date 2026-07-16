@@ -95,7 +95,10 @@ def run_soak(
     durable: bool = True,
     probe: Probe = check_collector,
     monotonic: Callable[[], float] = time.monotonic,
+    wall_clock: Callable[[], float] = time.time,
     sleep: Callable[[float], None] = time.sleep,
+    max_sample_gap_seconds: float | None = None,
+    minimum_capture_ratio: float = 0.95,
 ) -> dict[str, Any]:
     """Run bounded probes and write a single audit-friendly soak summary."""
     if duration_seconds < 0:
@@ -104,6 +107,10 @@ def run_soak(
         raise ValueError("interval_seconds must be positive")
     if max_samples is not None and max_samples <= 0:
         raise ValueError("max_samples must be positive")
+    if max_sample_gap_seconds is not None and max_sample_gap_seconds <= 0:
+        raise ValueError("max_sample_gap_seconds must be positive")
+    if not 0 < minimum_capture_ratio <= 1:
+        raise ValueError("minimum_capture_ratio must be in (0, 1]")
 
     output_dir = os.path.abspath(output_dir)
     health_log = os.path.join(output_dir, "samples.jsonl")
@@ -111,6 +118,8 @@ def run_soak(
     summary_path = os.path.join(output_dir, "summary.json")
     started_at = _timestamp()
     started = monotonic()
+    wall_started = wall_clock()
+    sample_gap_limit = max_sample_gap_seconds or max(interval_seconds * 3, interval_seconds + timeout * 2)
     start_store = _safe_snapshot(store_path)
     start_prefix_bytes = int(start_store.get("size_bytes") or 0)
 
@@ -126,11 +135,25 @@ def run_soak(
     final_events: int | None = None
     first_total: int | None = None
     final_total: int | None = None
+    previous_probe_wall_time: float | None = None
+    sample_gap_count = 0
+    max_sample_gap = 0.0
+    wall_clock_regressions = 0
     stop_reason = "duration_elapsed"
     interrupted = False
 
     try:
         while True:
+            probe_wall_time = wall_clock()
+            if previous_probe_wall_time is not None:
+                sample_gap = probe_wall_time - previous_probe_wall_time
+                if sample_gap < 0:
+                    wall_clock_regressions += 1
+                else:
+                    max_sample_gap = max(max_sample_gap, sample_gap)
+                    if sample_gap > sample_gap_limit:
+                        sample_gap_count += 1
+            previous_probe_wall_time = probe_wall_time
             sample = probe(
                 base_url=base_url,
                 health_log=health_log,
@@ -179,6 +202,10 @@ def run_soak(
         stop_reason = "interrupted"
 
     elapsed_seconds = round(monotonic() - started, 3)
+    wall_elapsed_seconds = round(max(0.0, wall_clock() - wall_started), 3)
+    expected_samples = max_samples if max_samples is not None else int(duration_seconds // interval_seconds) + 1
+    capture_ratio = min(1.0, samples / expected_samples) if expected_samples else 1.0
+    sampling_complete = capture_ratio >= minimum_capture_ratio
     end_store = _safe_snapshot(store_path, prefix_bytes=start_prefix_bytes)
     prefix_unchanged = bool(
         start_store.get("exists") is True
@@ -188,14 +215,23 @@ def run_soak(
         and end_store.get("sha256") == start_store.get("sha256")
     )
     store_verified = prefix_unchanged and "error_type" not in start_store and "error_type" not in end_store
-    passed = not interrupted and failed_samples == 0 and counter_regressions == 0 and store_verified
+    passed = (
+        not interrupted
+        and failed_samples == 0
+        and counter_regressions == 0
+        and store_verified
+        and sample_gap_count == 0
+        and wall_clock_regressions == 0
+        and sampling_complete
+    )
     summary: dict[str, Any] = {
-        "schema_version": 1,
+        "schema_version": 2,
         "started_at": started_at,
         "ended_at": _timestamp(),
         "base_url": base_url.rstrip("/"),
         "requested_duration_seconds": duration_seconds,
         "elapsed_seconds": elapsed_seconds,
+        "wall_elapsed_seconds": wall_elapsed_seconds,
         "interval_seconds": interval_seconds,
         "stop_reason": stop_reason,
         "interrupted": interrupted,
@@ -205,6 +241,16 @@ def run_soak(
         "uptime_ratio": round(healthy_samples / samples, 6) if samples else 0.0,
         "outage_count": outage_count,
         "max_consecutive_failures": max_consecutive_failures,
+        "sampling": {
+            "expected_samples": expected_samples,
+            "capture_ratio": round(capture_ratio, 6),
+            "minimum_capture_ratio": minimum_capture_ratio,
+            "complete": sampling_complete,
+            "sample_gap_count": sample_gap_count,
+            "max_sample_gap_seconds": round(max_sample_gap, 3),
+            "allowed_sample_gap_seconds": round(sample_gap_limit, 3),
+            "wall_clock_regressions": wall_clock_regressions,
+        },
         "latency_ms": {
             "p50": _percentile(latencies, 0.50),
             "p95": _percentile(latencies, 0.95),
@@ -248,6 +294,8 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--interval-seconds", type=float, default=60.0)
     parser.add_argument("--max-samples", type=int)
     parser.add_argument("--timeout", type=float, default=3.0)
+    parser.add_argument("--max-sample-gap-seconds", type=float)
+    parser.add_argument("--minimum-capture-ratio", type=float, default=0.95)
     parser.add_argument("--no-durable", action="store_true")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
@@ -259,6 +307,8 @@ def main(argv: list[str] | None = None) -> None:
         interval_seconds=args.interval_seconds,
         max_samples=args.max_samples,
         timeout=args.timeout,
+        max_sample_gap_seconds=args.max_sample_gap_seconds,
+        minimum_capture_ratio=args.minimum_capture_ratio,
         auth_token=environment.get("TRACKER_AUTH_TOKEN"),
         durable=not args.no_durable,
     )
