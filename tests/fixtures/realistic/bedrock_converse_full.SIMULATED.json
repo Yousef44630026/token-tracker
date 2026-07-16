@@ -23,7 +23,7 @@
     "usage": {
       "inputTokens": 1100,
       "outputTokens": 380,
-      "totalTokens": 1480,
+      "totalTokens": 2380,
       "cacheReadInputTokens": 900,
       "cacheWriteInputTokens": 0
     },

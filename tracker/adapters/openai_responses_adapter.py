@@ -30,6 +30,17 @@ class OpenAIResponsesAdapter(BaseAPISurfaceAdapter):
 
     provider = "openai"
     api_surface = "responses"
+    recognized_usage_token_paths = frozenset(
+        {
+            "input_tokens",
+            "output_tokens",
+            "total_tokens",
+            "input_tokens_details.cached_tokens",
+            "input_tokens_details.audio_tokens",
+            "output_tokens_details.reasoning_tokens",
+            "output_tokens_details.audio_tokens",
+        }
+    )
 
     def _usage_to_quantities(self, usage: Any, source: UsageSource) -> list:
         quantities = []

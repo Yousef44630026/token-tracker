@@ -43,7 +43,12 @@ PRE-FLIGHT — do this first, then STOP and wait for me to type "go"
 HARD CONSTRAINTS (never violate)
 =====================================================================
 - Language: Python 3.11+. Use dataclasses, full type hints, pytest, and Ruff. Excel via openpyxl.
-- FROM SCRATCH: no OpenTelemetry, Langfuse, Datadog, LangSmith, Helicone, or any observability SDK. Standard library + pytest/Ruff + provider SDKs (for capturing test fixtures only).
+- FROM SCRATCH: capture, normalization, accounting, storage, proxy, and collector do not depend
+  on OpenTelemetry, Langfuse, Datadog, LangSmith, Helicone, or another observability SDK.
+  Standard library + pytest/Ruff + provider SDKs (for explicit live smoke/fixture capture only).
+  The optional
+  `otel` export extra MAY emit a derived metric projection to a caller-owned MeterProvider or
+  isolated OTLP sink; it is never imported by capture/storage and never replaces the JSONL ledger.
 - Event storage is JSONL, exported to CSV/Excel. SQL/ORM accounting storage is forbidden;
   a disposable, reconstructible SQLite event-id index is allowed for partition lookup only.
 - NO pricing in capture, normalization, storage, canonical token metrics, or serialized events.
@@ -52,6 +57,8 @@ HARD CONSTRAINTS (never violate)
   treated as source of truth, and missing prices or quantities remain unknown rather than zero.
 - Core/runtime dependencies remain standard library + openpyxl. Pandas is permitted only in the
   optional `reporting` extra and must never be imported by capture, storage, proxy, or collector paths.
+  OpenTelemetry packages are permitted only in the optional `otel` extra and are lazy-imported by
+  `tracker.export.otel_sdk`; core imports and source-of-truth accounting must work without them.
 - No localStorage/sessionStorage-style hacks, no fabricated provider fields, no invented token counts.
 
 =====================================================================
@@ -101,10 +108,11 @@ INV-4 (Overlap and trust are independent provider-assigned axes).
       cached_input = subtotal_of input; reasoning = subtotal_of output.
     Gemini Generate Content: input, output = total_contributing;
       cached_input = subtotal_of input; thinking = total_contributing (added on top).
-    Bedrock Converse cache fields may be subtotal_of + unverified (both truths retained;
-      contribute 0 and raise the unverified flag)
+    Bedrock Converse cache_read/cache_write = total_contributing because AWS documents
+      inputTokens as non-cached input when prompt caching is enabled.
     Anthropic Messages cache_read/cache_creation = "total_contributing" because Anthropic
-    reports them as distinct input buckets alongside input_tokens.
+      reports them as distinct input buckets alongside input_tokens; thinking is a
+      subtotal_of output and remains an estimate.
   Totals sum quantity_in_total ONLY. The raw quantity column is NEVER summed.
   provider_total_tokens is raw provider data and is NEVER summed across events.
   subtotal_of is a single parent (string) for all current providers.
@@ -233,8 +241,10 @@ PHASE 9 — CSV + Excel export. Materialize quantity_in_total + export_warning i
   Forbid summing raw quantity or provider_total across rows; never mix event-grain and quantity-grain in one sum.
   STOP.
 
-PHASE 10 — Bedrock Converse + Gemini Generate Content adapters. Keep Bedrock cache fields
-  additivity="unverified" (contribute 0, flag unverified_additivity) until verified against a real payload.
+PHASE 10 — Bedrock Converse + Gemini Generate Content adapters. Bedrock cache fields were
+  originally unverified pending evidence. Current AWS accounting documentation defines inputTokens
+  as non-cached input and cacheRead/cacheWrite as separate additive buckets; they therefore use
+  overlap=independent + trust=verified. The two-call redacted live smoke remains the ground-truth proof.
   Anthropic cache buckets were subsequently verified as distinct additive input quantities.
   Gemini thinking = total_contributing; reconcile to provider total. test_bedrock_converse_adapter.py,
   test_gemini_generate_content_adapter.py. STOP.

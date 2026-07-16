@@ -29,14 +29,14 @@ you found a real bug: fix the bug and document it.
 2. **Additivity per (provider, token_type) must match REAL provider semantics:**
    - `subtotal_of` ⇒ contributes **0** (it's a slice of a parent): OpenAI `cached_input`,
      `reasoning`, `audio_*`; Gemini `cached_input`, image/audio/video modality.
-   - `total_contributing` ⇒ counts: `input`, `output`; Gemini `thinking`; **Anthropic
-     `input` + `cache_read` + `cache_creation` (separate additive buckets)**; `embedding`;
-     `rerank_input`.
-   - `unverified` ⇒ contributes **0 + raises `unverified_additivity`**: Bedrock cache, and
-     **any unregistered (provider, token_type)** (fail-closed).
+   - `total_contributing` ⇒ counts: `input`, `output`; Gemini `thinking`; **Anthropic and
+     Bedrock `input` + `cache_read` + `cache_creation` (separate additive buckets)**;
+     `embedding`; `rerank_input`.
+   - `unverified` ⇒ contributes **0 + raises `unverified_additivity`** for any unregistered
+     `(provider, token_type)` (fail-closed).
 3. **Reconciliation:** when a provider total exists, `event_total_mismatch == 0`. When a token
-   field is renamed/dropped (drift), the event is **flagged** (`raw_usage_missing` or
-   `provider_total_mismatch`) — **never a silently wrong total**.
+   field is renamed/dropped/added (drift), the event is **flagged** (`raw_usage_missing`,
+   `provider_total_mismatch`, or `provider_schema_drift`) — **never silently trusted**.
 4. **INV-1..7** hold (esp. INV-4 additivity adapter-assigned, INV-5 supersession contributes 0,
    INV-6 unknown≠zero, INV-7 non-authoritative observation contributes 0).
 

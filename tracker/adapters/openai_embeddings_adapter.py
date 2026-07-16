@@ -26,6 +26,7 @@ class OpenAIEmbeddingsAdapter(BaseAPISurfaceAdapter):
 
     provider = "openai"
     api_surface = "embeddings"
+    recognized_usage_token_paths = frozenset({"prompt_tokens", "total_tokens"})
 
     def _usage_to_quantities(self, usage: Any, source: UsageSource) -> list:
         prompt = _field(usage, "prompt_tokens")

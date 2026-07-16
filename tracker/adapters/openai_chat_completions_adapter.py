@@ -29,6 +29,19 @@ class OpenAIChatCompletionsAdapter(BaseAPISurfaceAdapter):
 
     provider = "openai"
     api_surface = "chat_completions"
+    recognized_usage_token_paths = frozenset(
+        {
+            "prompt_tokens",
+            "completion_tokens",
+            "total_tokens",
+            "prompt_tokens_details.cached_tokens",
+            "prompt_tokens_details.audio_tokens",
+            "completion_tokens_details.reasoning_tokens",
+            "completion_tokens_details.audio_tokens",
+            "completion_tokens_details.accepted_prediction_tokens",
+            "completion_tokens_details.rejected_prediction_tokens",
+        }
+    )
 
     def _usage_to_quantities(self, usage: Any, source: UsageSource) -> list:
         quantities = []

@@ -15,7 +15,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from tracker.adapters.anthropic_messages_adapter import AnthropicMessagesAdapter  # noqa: E402
 from tracker.context.propagation import new_trace  # noqa: E402
-from tracker.models.enums import Additivity, TokenType  # noqa: E402
+from tracker.models.enums import Additivity, PrecisionLevel, TokenType  # noqa: E402
 from tracker.models.token_event import TokenEvent  # noqa: E402
 from tracker.normalization.data_quality import normalizer_flags  # noqa: E402
 from tracker.normalization.normalizer import normalize  # noqa: E402
@@ -44,6 +44,7 @@ inp = by_type(usage, TokenType.INPUT)
 out = by_type(usage, TokenType.OUTPUT)
 cread = by_type(usage, TokenType.CACHED_INPUT)
 cwrite = by_type(usage, TokenType.CACHE_CREATION_INPUT)
+thinking = by_type(usage, TokenType.THINKING)
 
 check(inp.quantity == 1000 and inp.additivity == Additivity.TOTAL_CONTRIBUTING, "input total_contributing")
 check(out.quantity == 300 and out.additivity == Additivity.TOTAL_CONTRIBUTING, "output total_contributing")
@@ -51,6 +52,14 @@ check(cread is not None and cread.additivity == Additivity.TOTAL_CONTRIBUTING, "
 check(cwrite is not None and cwrite.additivity == Additivity.TOTAL_CONTRIBUTING, "cache_creation contributes separately")
 check(cread.quantity_in_total == 800 and cwrite.quantity_in_total == 120, "cache buckets contribute their exact counts")
 check(cread.export_warning is None and cwrite.export_warning is None, "verified cache buckets have no warning")
+check(
+    thinking.quantity == 180
+    and thinking.additivity == Additivity.SUBTOTAL_OF
+    and thinking.subtotal_of == "output"
+    and thinking.precision_level == PrecisionLevel.ESTIMATE,
+    "thinking is an estimated decomposition of output",
+)
+check(thinking.quantity_in_total == 0, "thinking detail never double-counts output_tokens")
 
 check(usage.provider_total_tokens is None, "Anthropic provides no total -> provider_total_tokens is None")
 

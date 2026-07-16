@@ -1,6 +1,6 @@
 {
   "_SIMULATED": true,
-  "_warning": "NOT a real captured payload. Built to the documented Bedrock Converse `usage` shape. The cache fields are intentionally treated as additivity=unverified (contribute 0, flag raised) precisely BECAUSE this is not a verified real payload — replace with a real recorded Converse response to verify the cache semantics.",
+  "_warning": "NOT a real captured payload. Built to the documented Bedrock Converse usage shape. AWS documents cache read/write as separate additive input buckets. Replace this fixture with a real cached response to upgrade payload coverage without changing the accounting rule.",
   "_provider": "bedrock",
   "_api_surface": "converse",
   "response": {
@@ -8,7 +8,7 @@
     "usage": {
       "inputTokens": 1000,
       "outputTokens": 300,
-      "totalTokens": 1300,
+      "totalTokens": 2220,
       "cacheReadInputTokens": 800,
       "cacheWriteInputTokens": 120
     }

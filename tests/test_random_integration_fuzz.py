@@ -135,17 +135,19 @@ def gen_anthropic():
 
 def gen_bedrock_converse():
     inp, out = tok(), tok()
-    total = inp + out
+    cache_read = tok(0, 500) if maybe(0.3) else 0
+    cache_write = tok(0, 500) if maybe(0.2) else 0
+    total = inp + cache_read + cache_write + out
     payload = {
         "usage": {
             "inputTokens": inp,
             "outputTokens": out,
             "totalTokens": total,
-            "cacheReadInputTokens": tok(0, 500) if maybe(0.3) else 0,  # UNVERIFIED -> contributes 0 regardless
-            "cacheWriteInputTokens": tok(0, 500) if maybe(0.2) else 0,
+            "cacheReadInputTokens": cache_read,
+            "cacheWriteInputTokens": cache_write,
         }
     }
-    return payload, total, total  # cache fields stay unverified, excluded
+    return payload, total, total
 
 
 def gen_bedrock_invoke_model():

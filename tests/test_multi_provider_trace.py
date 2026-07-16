@@ -3,8 +3,7 @@
 Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_multi_provider_trace.py
 
 Normalizes a real-shaped (SIMULATED) call from each provider through the keystone, drops them
-in one trace, and checks the contributing totals add up and survive export — and that the
-provider-specific flags (Bedrock unverified cache) ride along.
+in one trace, and checks the contributing totals add up and survive export.
 """
 
 import csv
@@ -51,7 +50,7 @@ calls = [
         1550,
         "azure_openai",
     ),
-    (BedrockConverseAdapter(), "bedrock_converse_cache.SIMULATED.json", 1300, "bedrock"),
+    (BedrockConverseAdapter(), "bedrock_converse_cache.SIMULATED.json", 2220, "bedrock"),
     (BedrockInvokeModelAdapter(), "realistic/bedrock_invoke_model_full.SIMULATED.json", 1225, "bedrock"),
     (GeminiGenerateContentAdapter(), "gemini_generate_content_thinking.SIMULATED.json", 1550, "gemini"),
     (AnthropicMessagesAdapter(), "anthropic_messages_cache.SIMULATED.json", 2220, "anthropic"),
@@ -65,12 +64,12 @@ for adapter, fixture, expected, provider in calls:
     trace.add_event(ev)
 
 total = observed_total_contributing_tokens(trace)
-expected_total = 1300 + 1550 + 1300 + 1225 + 1550 + 2220
+expected_total = 1300 + 1550 + 2220 + 1225 + 1550 + 2220
 check(total == expected_total, f"trace total == {expected_total} (got {total})")
 
 # provider-specific flags ride along
 bedrock_events = [e for e in trace.events if e.provider == "bedrock"]
-check(any("unverified_additivity" in e.data_quality_flags for e in bedrock_events), "bedrock Converse event carries unverified_additivity")
+check(all("unverified_additivity" not in e.data_quality_flags for e in bedrock_events), "bedrock cache additivity is verified")
 check(any(e.api_surface == "invoke_model" and e.data_quality_flags == [] for e in bedrock_events), "bedrock InvokeModel event is clean")
 check(
     all("unverified_additivity" not in e.data_quality_flags for e in trace.events if e.provider == "anthropic"),

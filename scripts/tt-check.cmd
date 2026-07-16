@@ -24,6 +24,26 @@ call "%PY%" tests\test_azure_smoke_harness.py
 if errorlevel 1 set FAIL=1
 
 echo.
+echo === tests\test_bedrock_cache_smoke.py ===
+call "%PY%" tests\test_bedrock_cache_smoke.py
+if errorlevel 1 set FAIL=1
+
+echo.
+echo === tests\test_otel_projection.py ===
+call "%PY%" tests\test_otel_projection.py
+if errorlevel 1 set FAIL=1
+
+echo.
+echo === tests\test_otel_sdk_bridge.py ===
+call "%PY%" tests\test_otel_sdk_bridge.py
+if errorlevel 1 set FAIL=1
+
+echo.
+echo === tests\test_provider_schema_drift_signal.py ===
+call "%PY%" tests\test_provider_schema_drift_signal.py
+if errorlevel 1 set FAIL=1
+
+echo.
 echo === tests\test_azure_openai_adapters.py ===
 call "%PY%" tests\test_azure_openai_adapters.py
 if errorlevel 1 set FAIL=1

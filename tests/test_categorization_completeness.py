@@ -101,6 +101,7 @@ def anthropic_response():
                 "ephemeral_5m_input_tokens": 12,
                 "ephemeral_1h_input_tokens": 8,
             },
+            "output_tokens_details": {"thinking_tokens": 9},
         },
     }
 
@@ -134,7 +135,7 @@ def bedrock_converse_response():
         "usage": {
             "inputTokens": 100,
             "outputTokens": 30,
-            "totalTokens": 130,
+            "totalTokens": 190,
             "cacheReadInputTokens": 40,
             "cacheWriteInputTokens": 20,
         },
@@ -281,6 +282,7 @@ SPECS = {
             "usage.output_tokens": TokenType.OUTPUT,
             "usage.cache_read_input_tokens": TokenType.CACHED_INPUT,
             "usage.cache_creation_input_tokens": TokenType.CACHE_CREATION_INPUT,
+            "usage.output_tokens_details.thinking_tokens": TokenType.THINKING,
         },
         METADATA_FIELDS: {
             "usage.cache_creation.ephemeral_5m_input_tokens": (TokenType.CACHE_CREATION_INPUT, "ephemeral_5m_input_tokens"),

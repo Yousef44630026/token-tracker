@@ -23,6 +23,7 @@ class VoyageRerankAdapter(BaseAPISurfaceAdapter):
 
     provider = "voyage"
     api_surface = "rerank"
+    recognized_usage_token_paths = frozenset({"total_tokens"})
 
     def extract_usage_from_response(self, response: Any) -> NormalizedUsage:
         usage = _field(response, "usage")

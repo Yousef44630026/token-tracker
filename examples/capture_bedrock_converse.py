@@ -25,11 +25,13 @@ Two auth methods are supported — use WHICHEVER you actually have:
        $env:AWS_REGION = "us-east-1"
        $env:BEDROCK_MODEL_ID = "amazon.nova-micro-v1:0"
 
-Either way: install boto3 yourself first (this script never installs anything):
-    & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" -m pip install boto3
+Either way: install the optional Bedrock capture extra first:
+    & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" -m pip install -e ".[bedrock]"
 Then re-run this script in the SAME terminal where you set the variables above.
 
 Missing boto3 or missing env vars -> prints instructions and exits cleanly (no call, no cost).
+For cache accounting ground truth, prefer scripts\\tt-bedrock-cache-smoke.cmd: it performs
+the required write/read pair and never stores prompt or generated content.
 """
 
 import datetime
@@ -61,7 +63,7 @@ except ImportError:
     skip(
         "[SKIP] boto3 non installe - aucun appel effectue (cout nul).\n"
         "       Installe-le toi-meme : "
-        '& "C:\\Users\\yerabhaoui\\python-portable\\python.exe" -m pip install boto3\n'
+        '& "C:\\Users\\yerabhaoui\\python-portable\\python.exe" -m pip install -e ".[bedrock]"\n'
         "       Puis relance ce script."
     )
 
@@ -172,8 +174,8 @@ elif event.event_total_mismatch is not None:
 else:
     print("\n[i] Pas de total fourni sur ce payload — rien a reconcilier (mais l'extraction a fonctionne).")
 
-if "unverified_additivity" in event.data_quality_flags:
-    print("\n[i] Les champs de cache restent 'unverified' (contribuent 0) tant qu'un vrai payload AVEC cache")
-    print("    n'est pas capture (ex. deux appels identiques d'affilee pour declencher un cache hit).")
+if qty(TokenType.CACHED_INPUT) is None and qty(TokenType.CACHE_CREATION_INPUT) is None:
+    print("\n[i] Ce payload ne contient pas de preuve de cache.")
+    print("    Lance scripts\\tt-bedrock-cache-smoke.cmd --require-live pour une preuve write/read redacted.")
 
 sys.exit(0)

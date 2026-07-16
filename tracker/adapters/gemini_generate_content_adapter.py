@@ -29,6 +29,20 @@ class GeminiGenerateContentAdapter(BaseAPISurfaceAdapter):
 
     provider = "gemini"
     api_surface = "generate_content"
+    recognized_usage_token_paths = frozenset(
+        {
+            "promptTokenCount",
+            "candidatesTokenCount",
+            "cachedContentTokenCount",
+            "thoughtsTokenCount",
+            "toolUsePromptTokenCount",
+            "totalTokenCount",
+            "promptTokensDetails[].tokenCount",
+            "cacheTokensDetails[].tokenCount",
+            "candidatesTokensDetails[].tokenCount",
+            "toolUsePromptTokensDetails[].tokenCount",
+        }
+    )
 
     # promptTokensDetails / candidatesTokensDetails break the count down by modality; each is
     # a subtotal of the input / output it belongs to (TEXT is the bulk and stays in the total).

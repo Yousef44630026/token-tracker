@@ -144,6 +144,7 @@ class DataQualityFlag(str, Enum):
     CORRELATION_ID_COLLISION = "correlation_id_collision"
     PROPAGATION_LOST = "propagation_lost"
     RAW_USAGE_MISSING = "raw_usage_missing"
+    PROVIDER_SCHEMA_DRIFT = "provider_schema_drift"
     NORMALIZATION_ERROR = "normalization_error"
     INPUT_ESTIMATE_ONLY = "input_estimate_only"
     PROVIDER_USAGE_MISSING = "provider_usage_missing"

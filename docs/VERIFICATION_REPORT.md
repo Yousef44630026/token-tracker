@@ -31,8 +31,8 @@ were changed during this audit.
 | anthropic | cache_creation_input | total_contributing | yes | test_categorization_matrix.py; test_double_count_guard.py |
 | bedrock | input | total_contributing | yes | test_categorization_matrix.py; test_reconciliation_audit.py |
 | bedrock | output | total_contributing | yes | test_categorization_matrix.py; test_reconciliation_audit.py |
-| bedrock | cached_input | unverified | no | test_categorization_matrix.py; test_reconciliation_audit.py |
-| bedrock | cache_creation_input | unverified | no | test_categorization_matrix.py; test_reconciliation_audit.py |
+| bedrock | cached_input | total_contributing | yes | test_categorization_matrix.py; test_bedrock_converse_adapter.py |
+| bedrock | cache_creation_input | total_contributing | yes | test_categorization_matrix.py; test_bedrock_converse_adapter.py |
 | bedrock | embedding | total_contributing | yes | test_categorization_matrix.py; test_reconciliation_audit.py |
 | mistral | input | total_contributing | yes | test_categorization_matrix.py; test_reconciliation_audit.py |
 | mistral | output | total_contributing | yes | test_categorization_matrix.py; test_reconciliation_audit.py |
@@ -48,7 +48,7 @@ were changed during this audit.
 | Total is sum(quantity_in_total), not raw quantity sum | test_double_count_guard.py builds crowded OpenAI and Anthropic events and checks derived totals exactly. |
 | subtotal_of contributes 0 | test_categorization_matrix.py and test_reconciliation_audit.py check every subtotal quantity contributes 0. |
 | total_contributing contributes its quantity | test_categorization_matrix.py checks representative quantities; reconciliation fixtures check event totals. |
-| unverified contributes 0 and flags | test_categorization_matrix.py checks an unregistered provider/type and normalizer flag behavior; Bedrock cache fixtures are audited in test_reconciliation_audit.py. |
+| unverified contributes 0 and flags | test_categorization_matrix.py checks an unregistered provider/type and normalizer flag behavior. |
 | provider totals reconcile to derived totals | test_reconciliation_audit.py discovers every realistic *.SIMULATED.json and *.REAL.json fixture and checks event_total_mismatch is 0 or None. |
 | drift is flagged, not silent | test_reconciliation_audit.py includes renamed/dropped OpenAI usage-field checks for provider_total_mismatch/raw_usage_missing. |
 | documented fields are mapped or explicitly ignored | test_categorization_completeness.py lists each adapter usage field and proves it maps to a TokenType, provider total, metadata, or ALLOWED_IGNORED reason. |
@@ -76,4 +76,3 @@ interrupted before completion. No full-suite pass is claimed in this report.
 | Completeness-test model treated Mistral as if OpenAI detail subfields were documented. | no | yes, test fixture narrowed to documented Mistral usage shape | test_categorization_completeness.py passes |
 | Completeness-test model initially did not represent fields that validly produce both a token quantity and provider_total_tokens, such as Voyage rerank total_tokens and Bedrock embedding input header. | no | yes, added explicit dual-category accounting in the test | test_categorization_completeness.py passes |
 | Full non-live suite did not complete because the run was interrupted. | no production finding | not applicable | focused audit tests pass; full-suite pass remains unclaimed |
-

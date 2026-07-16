@@ -56,10 +56,10 @@ with trace(business_id="biz-2", workflow="agent", environment="dev"):
 check(ev2.trace_id == sp.trace_id and ev2.span_id == sp.span_id, "ambient context is used with no explicit context")
 check(ev2.business_id == "biz-2" and ev2.workflow == "agent", "ambient labels propagated")
 
-# --- 3) Bedrock unverified cache -> normalizer raises unverified_additivity ---
+# --- 3) Bedrock cache buckets follow AWS's documented additive formula ---
 ev3 = normalize(load("bedrock_converse_cache.SIMULATED.json"), BedrockConverseAdapter(), context=new_trace())
-check("unverified_additivity" in ev3.data_quality_flags, "normalizer flags unverified_additivity for Bedrock cache")
-check(ev3.event_contributing_tokens == 1300, "Bedrock contributing total == 1300 (cache excluded)")
+check("unverified_additivity" not in ev3.data_quality_flags, "Bedrock documented cache additivity is verified")
+check(ev3.event_contributing_tokens == 2220, "Bedrock contributing total includes cache read/write")
 
 # --- 4) missing usage -> raw_usage_missing, no fabricated quantities ---
 ev4 = normalize({"id": "x"}, OpenAIResponsesAdapter(), context=new_trace())

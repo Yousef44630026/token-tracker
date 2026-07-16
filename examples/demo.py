@@ -11,7 +11,7 @@ The run it simulates (one trace):
   1. RAG retrieval        — a vector_search span (native metrics) + prompt_assembly (context)
   2. generation #1        — an OpenAI Chat Completions call (cached + reasoning)
   3. an agent tool call   — search_orders, whose result feeds the next prompt
-  4. generation #2        — an Anthropic Messages call (cache fields stay unverified)
+  4. generation #2        — an Anthropic Messages call (additive cache + thinking subtotal)
   5. a streamed answer    — interrupted (partial estimate) then resolved (supersedes it)
 """
 

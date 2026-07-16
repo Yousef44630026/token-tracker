@@ -5,9 +5,8 @@ loop_count, step tracking) driven by the REAL Bedrock Converse adapter, extendin
 Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_agent_bedrock_deep.py
 
 Bedrock-specific realities this test respects (all previously confirmed):
-  - cache fields (cacheReadInputTokens/cacheWriteInputTokens) stay additivity=unverified —
-    they must NOT contribute, even though a real agent loop's later turns are exactly the
-    scenario where a provider WOULD start reporting cache hits.
+  - cache fields (cacheReadInputTokens/cacheWriteInputTokens) are additive input buckets;
+    AWS documents inputTokens as only the non-cached portion when caching is enabled.
   - the response body never echoes the model name (confirmed against a real capture) — model
     stays None throughout, which must not be mistaken for a bug.
   - no total field ambiguity: Converse DOES report totalTokens, unlike Anthropic/Cohere/Voyage
@@ -53,7 +52,7 @@ def bedrock_turn(input_t, output_t, cache_read=0, cache_write=0):
         "usage": {
             "inputTokens": input_t,
             "outputTokens": output_t,
-            "totalTokens": input_t + output_t,
+            "totalTokens": input_t + cache_read + cache_write + output_t,
             "cacheReadInputTokens": cache_read,
             "cacheWriteInputTokens": cache_write,
         }
@@ -76,9 +75,9 @@ CARRIER_STATUS_RESULT = (
 
 adapter = BedrockConverseAdapter()
 agent_run_id = "run-bedrock-agent-1"
-# (input, output, cache_read, cache_write) per turn — cache fields present but must stay 0
-turns = [(320, 45, 0, 0), (480, 60, 0, 0), (610, 55, 0, 0), (740, 180, 0, 0)]
-expected_total = sum(i + o for i, o, _, _ in turns)  # cache excluded regardless of value
+# (non-cached input, output, cache_read, cache_write) per turn
+turns = [(320, 45, 0, 0), (80, 60, 400, 0), (110, 55, 500, 0), (140, 180, 550, 50)]
+expected_total = sum(i + o + cache_read + cache_write for i, o, cache_read, cache_write in turns)
 
 with trace(business_id="northwind", workflow="bedrock_agent") as root:
     tr = Trace(trace_id=root.trace_id, business_id="northwind", workflow="bedrock_agent")
@@ -100,7 +99,7 @@ with trace(business_id="northwind", workflow="bedrock_agent") as root:
     check(ev0.event_total_mismatch == 0, "turn 0: reconciles")
     check(
         q(ev0, TokenType.CACHED_INPUT).quantity_in_total == 0 if q(ev0, TokenType.CACHED_INPUT) else True,
-        "turn 0: any cache field present stays excluded (unverified)",
+        "turn 0: zero cache usage creates no additive quantity",
     )
 
     with span() as tool1_ctx:
@@ -219,13 +218,13 @@ for i in range(N_RUNS):
     expected = 0
     for step in range(n_steps):
         inp, out = rng.randint(10, 5000), rng.randint(1, 800)
-        # cache fields randomly present but must NEVER contribute regardless of magnitude
+        # Cache fields are separate additive input buckets under AWS's documented formula.
         cache_read = rng.randint(0, 3000) if rng.random() < 0.4 else 0
         cache_write = rng.randint(0, 500) if rng.random() < 0.2 else 0
         ctx = new_trace(trace_id=run_trace_id)
         ev = normalize(bedrock_turn(inp, out, cache_read, cache_write), adapter, context=ctx)
         tr_f.add_event(ev)
-        expected += inp + out  # cache excluded no matter how large
+        expected += inp + out + cache_read + cache_write
         check(ev.event_total_mismatch == 0, f"fuzz run #{i} step {step}: reconciles")
     got = observed_total_contributing_tokens(tr_f)
     check(got == expected, f"fuzz run #{i} ({n_steps} steps): agent-loop total matches ({got} != {expected})")

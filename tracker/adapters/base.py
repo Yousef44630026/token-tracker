@@ -62,6 +62,41 @@ class BaseAPISurfaceAdapter(ABC):
 
     provider: str = ""
     api_surface: str = ""
+    # Leaf paths in the provider's usage object that contain token counts and are either
+    # mapped or deliberately ignored. List items use ``[]`` so cardinality stays bounded.
+    recognized_usage_token_paths: frozenset[str] = frozenset()
+
+    @staticmethod
+    def _usage_leaf_paths(value: Any, prefix: str = "") -> list[str]:
+        """Return normalized leaf paths for a decoded usage mapping."""
+        if isinstance(value, dict):
+            paths: list[str] = []
+            for key, child in value.items():
+                path = f"{prefix}.{key}" if prefix else str(key)
+                paths.extend(BaseAPISurfaceAdapter._usage_leaf_paths(child, path))
+            return paths
+        if isinstance(value, list):
+            paths = []
+            list_prefix = f"{prefix}[]"
+            for child in value:
+                paths.extend(BaseAPISurfaceAdapter._usage_leaf_paths(child, list_prefix))
+            return paths
+        return [prefix] if prefix else []
+
+    def unmapped_usage_token_paths(self, raw_usage: dict[str, Any] | None) -> tuple[str, ...]:
+        """Return up to eight unfamiliar token-looking paths for audit.
+
+        This is detection only. Unknown values never become quantities automatically.
+        Adapters without an explicit contract opt out rather than producing noisy guesses.
+        """
+        if not raw_usage or not self.recognized_usage_token_paths:
+            return ()
+        unknown = {
+            path
+            for path in self._usage_leaf_paths(raw_usage)
+            if "token" in path.lower() and path not in self.recognized_usage_token_paths
+        }
+        return tuple(sorted(unknown)[:8])
 
     # --- provided: one shared INV-4 source of truth -----------------------------------
     def assign_additivity(self, token_type: TokenType) -> tuple[Additivity, str | None]:

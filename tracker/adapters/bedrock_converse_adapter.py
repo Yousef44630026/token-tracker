@@ -1,16 +1,17 @@
-"""Bedrock Converse adapter (cache = unverified). (Phase 10)
+"""Bedrock Converse adapter (cache buckets are additive). (Phase 10)
 
 Translates a Bedrock *Converse* payload into a NormalizedUsage. The Converse `usage` shape::
 
     usage.inputTokens
     usage.outputTokens
     usage.totalTokens               -> provider_total_tokens (raw)
-    usage.cacheReadInputTokens      -> cached_input          (additivity UNVERIFIED)
-    usage.cacheWriteInputTokens     -> cache_creation_input  (additivity UNVERIFIED)
+    usage.cacheReadInputTokens      -> cached_input          (total_contributing)
+    usage.cacheWriteInputTokens     -> cache_creation_input  (total_contributing)
 
-The cache fields are deliberately additivity="unverified" (INV-4 table): they contribute 0
-and the normalizer raises ``unverified_additivity`` until the cache semantics are confirmed
-against a REAL recorded payload. input+output already equal totalTokens (no double count).
+AWS documents ``inputTokens`` as only non-cached input when prompt caching is enabled.
+Cache read/write counts are separate additive input buckets, so totalTokens reconciles as
+input + cache read + cache write + output. Real cached-payload coverage remains reported
+separately; fixture provenance must not change the provider's documented accounting rule.
 """
 
 from __future__ import annotations
@@ -27,6 +28,17 @@ class BedrockConverseAdapter(BaseAPISurfaceAdapter):
 
     provider = "bedrock"
     api_surface = "converse"
+    recognized_usage_token_paths = frozenset(
+        {
+            "inputTokens",
+            "outputTokens",
+            "totalTokens",
+            "cacheReadInputTokens",
+            "cacheWriteInputTokens",
+            "cacheDetails[].inputTokens",
+            "cacheDetails[].tokenCount",
+        }
+    )
 
     def _usage_to_quantities(self, usage: Any, source: UsageSource) -> list:
         quantities = []

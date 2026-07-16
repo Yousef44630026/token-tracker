@@ -23,6 +23,14 @@ class CohereChatAdapter(BaseAPISurfaceAdapter):
 
     provider = "cohere"
     api_surface = "chat"
+    recognized_usage_token_paths = frozenset(
+        {
+            "tokens.input_tokens",
+            "tokens.output_tokens",
+            "billed_units.input_tokens",
+            "billed_units.output_tokens",
+        }
+    )
 
     def _usage_to_quantities(self, usage: Any, source: UsageSource) -> list:
         # `tokens` (raw counts) is preferred over `billed_units` (billing-adjusted) — but a

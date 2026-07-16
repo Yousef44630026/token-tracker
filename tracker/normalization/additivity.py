@@ -17,8 +17,13 @@ is the single, centralized truth table the adapters call so every surface agrees
         Anthropic reports these as distinct usage buckets; cache fields are not
         contained within ``input_tokens``.
   - Bedrock Converse:
-        cache fields             -> unverified           (contribute 0, raise a flag)
-                                    until verified against a real payload.
+        input, cache read, cache creation, output
+                                 -> total_contributing
+        AWS documents ``inputTokens`` as non-cached input when prompt caching is enabled;
+        cache read/write are therefore separate additive input buckets.
+  - Anthropic Messages:
+        thinking                 -> subtotal_of "output"
+        The provider exposes it as a re-tokenized decomposition of output_tokens.
 
 Anything not in the table defaults to ``unverified``. New providers and token fields must
 be registered explicitly before they can affect totals; silently counting an unfamiliar
@@ -51,17 +56,18 @@ _TABLE: dict[tuple[str, TokenType], tuple[Additivity, str | None]] = {
     ("gemini", TokenType.AUDIO_INPUT): (Additivity.SUBTOTAL_OF, "input"),
     ("gemini", TokenType.VIDEO_INPUT): (Additivity.SUBTOTAL_OF, "input"),
     ("gemini", TokenType.AUDIO_OUTPUT): (Additivity.SUBTOTAL_OF, "output"),
-    # --- Bedrock cache fields: still unverified until a real payload proves them ---
+    # AWS documents Bedrock cache read/write as separate from non-cached inputTokens.
     ("bedrock", TokenType.INPUT): (Additivity.TOTAL_CONTRIBUTING, None),
     ("bedrock", TokenType.OUTPUT): (Additivity.TOTAL_CONTRIBUTING, None),
-    ("bedrock", TokenType.CACHED_INPUT): (Additivity.UNVERIFIED, "input"),
-    ("bedrock", TokenType.CACHE_CREATION_INPUT): (Additivity.UNVERIFIED, "input"),
+    ("bedrock", TokenType.CACHED_INPUT): (Additivity.TOTAL_CONTRIBUTING, None),
+    ("bedrock", TokenType.CACHE_CREATION_INPUT): (Additivity.TOTAL_CONTRIBUTING, None),
     ("bedrock", TokenType.EMBEDDING): (Additivity.TOTAL_CONTRIBUTING, None),
     # Anthropic documents input/cache-read/cache-creation as separate input buckets.
     ("anthropic", TokenType.INPUT): (Additivity.TOTAL_CONTRIBUTING, None),
     ("anthropic", TokenType.OUTPUT): (Additivity.TOTAL_CONTRIBUTING, None),
     ("anthropic", TokenType.CACHED_INPUT): (Additivity.TOTAL_CONTRIBUTING, None),
     ("anthropic", TokenType.CACHE_CREATION_INPUT): (Additivity.TOTAL_CONTRIBUTING, None),
+    ("anthropic", TokenType.THINKING): (Additivity.SUBTOTAL_OF, "output"),
     # --- Mistral & Cohere chat: plain input/output (OpenAI-compatible accounting) ---
     ("mistral", TokenType.INPUT): (Additivity.TOTAL_CONTRIBUTING, None),
     ("mistral", TokenType.OUTPUT): (Additivity.TOTAL_CONTRIBUTING, None),

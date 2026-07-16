@@ -158,6 +158,35 @@ Dry-run without provider calls:
 scripts\tt-azure-smoke.cmd --dry-run --json
 ```
 
+### Bedrock cache smoke
+
+The Bedrock harness makes two identical Converse calls with a unique explicit cache checkpoint.
+It passes only when the first call reports a cache write, the second reports a cache read, and
+both responses reconcile. Audit artifacts contain usage and technical metadata only; prompts,
+generated content, and credentials are never written.
+
+```powershell
+$env:AWS_REGION = "us-east-1"
+$env:BEDROCK_MODEL_ID = "a-cache-capable-model-id"
+scripts\tt-bedrock-cache-smoke.cmd --dry-run --json
+scripts\tt-bedrock-cache-smoke.cmd --require-live
+```
+
+Live execution requires `pip install -e ".[bedrock]"` and AWS credentials available through the normal SDK credential
+chain or `AWS_BEARER_TOKEN_BEDROCK`. Cache minimums vary by model; the default static prefix is
+5,000 words and `--prefix-words` can be adjusted from the model documentation. This is a billed
+two-call test, although output is capped at eight tokens per call. See the official
+[Bedrock prompt-caching guide](https://docs.aws.amazon.com/bedrock/latest/userguide/prompt-caching.html)
+for supported models, Regions, checkpoint locations, and minimum cache sizes.
+
+### OpenTelemetry metric sink
+
+`tracker.export.otel_projection` exposes a dependency-free
+`gen_ai.client.token.usage` projection. An application with an existing Meter can attach it with
+`recorder_from_meter(meter)`. The optional `otel` extra also provides an isolated OTLP/HTTP
+runtime; neither path replaces JSONL or enters capture/storage code. See
+[`docs/OPENTELEMETRY.md`](docs/OPENTELEMETRY.md).
+
 ### Local check suite
 
 Run the local gate with:

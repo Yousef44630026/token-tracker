@@ -89,7 +89,7 @@ What this proves:
 
 - OpenAI/Azure cached input and reasoning subtotals cannot be counted twice.
 - Gemini thinking and cached content cannot inflate totals.
-- Bedrock unverified cache fields remain visible but excluded.
+- Bedrock cache read/write remain separate additive input buckets.
 
 ## Step 3 - Trace, Span, and Supersession Behavior
 
@@ -198,7 +198,7 @@ Expected result:
 - Azure OpenAI preserves the Azure provider label and deployment metadata.
 - Azure embeddings use the OpenAI embeddings usage shape but report provider `azure_openai`.
 - Anthropic cache creation/read fields are separate contributing input buckets.
-- Bedrock Converse extracts input/output and keeps unverified cache fields excluded.
+- Bedrock Converse extracts non-cached input, cache read/write, and output as additive buckets.
 - Bedrock InvokeModel handles multiple body families.
 - Gemini and Vertex AI extract prompt, candidates, cached content, thinking, and total.
 - Cohere, Mistral, and Voyage surfaces normalize their usage without fabricated totals.
