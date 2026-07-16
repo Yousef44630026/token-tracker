@@ -183,7 +183,23 @@ class StreamTracker:
         input_tokens: int | None = None,
         provider_total_tokens: int | None = None,
     ) -> TokenEvent:
-        """Clean completion: emit EXACT usage from the provider's final stream event."""
+        """Clean completion: emit EXACT usage from the provider's final stream event.
+
+        An input the provider already reported mid-stream is carried forward when the final
+        frame does not restate it (Anthropic sends the exact input once, in message_start, and
+        its final usage frame carries OUTPUT only). Explicit ``input_tokens`` wins; otherwise
+        the tracker falls back on ``observe_usage`` — the same "never throw away usage already
+        received" rule ``interrupt()`` (S1) and ``timeout()`` (S2) follow. Dropping it here is
+        silent, because a partial holding that input is superseded by this event (INV-5) and
+        contributes 0, so the tokens would vanish from the pair entirely (S3 regression).
+
+        Input is safe to carry forward — it does not grow during a stream, so a mid-stream input
+        count IS the request's final input. The OUTPUT has no such fallback on purpose: a
+        cumulative mid-stream output count is only ever a FLOOR for an estimate (see
+        ``interrupt()``) and must never be promoted into an EXACT final.
+        """
+        if input_tokens is None:
+            input_tokens = self._observed_input
         quantities = self._usage_quantities(
             output_tokens,
             input_tokens,

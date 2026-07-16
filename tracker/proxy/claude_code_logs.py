@@ -17,8 +17,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-from collections.abc import Iterable
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -42,6 +41,8 @@ class ClaudeImportReport:
     duplicate_request_ids: int = 0
     events_imported: int = 0
     io_errors: int = 0
+    rewound_files: int = 0
+    checkpoint: SessionSnapshot = field(default_factory=dict, repr=False)
 
     @property
     def warnings(self) -> list[str]:
@@ -54,6 +55,8 @@ class ClaudeImportReport:
             warnings.append("all_usage_objects_missing_request_id")
         if self.lines_scanned >= 10 and self.malformed_json_lines * 2 >= self.lines_scanned:
             warnings.append("high_malformed_json_rate")
+        if self.io_errors:
+            warnings.append("session_file_io_errors")
         return warnings
 
     @property
@@ -61,8 +64,10 @@ class ClaudeImportReport:
         return bool(self.warnings)
 
     def to_dict(self) -> dict[str, Any]:
+        values = asdict(self)
+        values.pop("checkpoint", None)
         return {
-            **asdict(self),
+            **values,
             "warnings": self.warnings,
             "format_drift_suspected": self.format_drift_suspected,
         }
@@ -99,14 +104,22 @@ def _line_events(
     start_offset: int,
     seen_request_ids: set[str],
     report: ClaudeImportReport,
-) -> Iterable[TokenEvent]:
+) -> tuple[list[TokenEvent], int]:
+    """Read complete lines from one byte offset and return the exact consumed offset."""
     adapter = AnthropicMessagesAdapter()
     first_line_number = _line_number_at_offset(path, start_offset)
-    with path.open("r", encoding="utf-8", errors="replace") as handle:
+    events: list[TokenEvent] = []
+    consumed_offset = start_offset
+    with path.open("rb") as handle:
         handle.seek(max(start_offset, 0))
-        for _line_number, raw_line in enumerate(handle, start=first_line_number):
+        for _line_number, raw_bytes in enumerate(handle, start=first_line_number):
+            # Claude writes transcripts concurrently. Never advance the checkpoint past an
+            # incomplete tail; the next run will retry it after the writer adds the newline.
+            if not raw_bytes.endswith(b"\n"):
+                break
+            consumed_offset = handle.tell()
             report.lines_scanned += 1
-            line = raw_line.strip()
+            line = raw_bytes.decode("utf-8", errors="replace").strip()
             if not line:
                 continue
             try:
@@ -168,7 +181,8 @@ def _line_events(
                 },
             )
             report.events_imported += 1
-            yield event
+            events.append(event)
+    return events, consumed_offset
 
 
 def import_new_claude_code_events(
@@ -201,7 +215,7 @@ def import_new_claude_code_events_with_report(
     """Import events and return canary counters for transcript-format drift."""
     home = Path(claude_home) if claude_home else default_claude_home()
     projects_root = home / "projects"
-    report = ClaudeImportReport()
+    report = ClaudeImportReport(checkpoint=dict(before or {}))
     if not projects_root.exists():
         return [], report
     prior = before or {}
@@ -214,17 +228,23 @@ def import_new_claude_code_events_with_report(
             continue
         start_offset = prior.get(str(path), 0)
         try:
-            if path.stat().st_size <= start_offset:
+            size = path.stat().st_size
+            if size < start_offset:
+                # Transcript rotation/truncation invalidates the old byte offset. Rewind;
+                # deterministic event ids and collector de-duplication make replay safe.
+                start_offset = 0
+                report.rewound_files += 1
+            if size == start_offset:
                 continue
             report.files_scanned += 1
-            events.extend(
-                _line_events(
-                    path=path,
-                    start_offset=start_offset,
-                    seen_request_ids=seen_request_ids,
-                    report=report,
-                )
+            file_events, consumed_offset = _line_events(
+                path=path,
+                start_offset=start_offset,
+                seen_request_ids=seen_request_ids,
+                report=report,
             )
+            events.extend(file_events)
+            report.checkpoint[str(path)] = consumed_offset
         except OSError:
             report.io_errors += 1
             continue

@@ -10,7 +10,8 @@ Routes:
     GET  /v1/stats     -> {"events": N, "total": T, "traces": {trace_id: total}}
     GET  /v1/stats?summary=1 -> cached {"events": N, "total": T}
     POST /v1/events    -> body is one event dict or a list; returns
-                          {"acked": [event_ids], "rejected": count}.
+                          {"acked": [valid event_ids], "persisted": [new event_ids],
+                           "rejected": count}.
                           Malformed JSON -> 400; a malformed item inside a batch is skipped
                           (the valid ones are still accepted), so one bad event never drops a
                           whole batch. When configured, rejected raw items are written to a
@@ -227,6 +228,7 @@ def _make_handler(
                 return
             events: list[TokenEvent] = []
             acked: list[str] = []
+            persisted: list[str] = []
             seen_ids: set[str] = set()
             rejected = 0
             rejected_items: list[dict[str, Any]] = []
@@ -255,11 +257,11 @@ def _make_handler(
                     return
             if events:
                 try:
-                    _append_unique(events)
+                    persisted = _append_unique(events)
                 except (OSError, ValueError, TypeError):
                     self._send(503, {"error": "storage_write_failed", "acked": [], "rejected": rejected})
                     return
-            self._send(200, {"acked": acked, "rejected": rejected})
+            self._send(200, {"acked": acked, "persisted": persisted, "rejected": rejected})
 
     return _Handler
 

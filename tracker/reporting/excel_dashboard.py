@@ -503,7 +503,15 @@ def build_summary_frames(data: pd.DataFrame) -> dict[str, Any]:
             "use_cases": empty,
         }
 
-    cost_rows = data[data["derived_cost"].notna() & (data["cost_quality"] != "excluded_event")]
+    # A zero-token component can have a mathematically known zero cost even when every
+    # token-bearing component lacks a price. It must not turn an entirely unpriced workload
+    # into a misleading known total of 0. Only positively billable, priced rows participate
+    # in known-cost summaries; pricing_coverage below quantifies the omitted magnitude.
+    cost_rows = data[
+        data["derived_cost"].notna()
+        & (data["billing_tokens"].fillna(0) > 0)
+        & (data["cost_quality"] != "excluded_event")
+    ]
     currencies = sorted(value for value in cost_rows["currency"].dropna().unique() if value)
     if len(currencies) > 1:
         raise ValueError("dashboard cannot aggregate multiple currencies; filter the price table to one currency")
@@ -545,14 +553,15 @@ def build_summary_frames(data: pd.DataFrame) -> dict[str, Any]:
         else pd.DataFrame(columns=["date", "model", "average_latency_ms", "p95_latency_ms"])
     )
 
-    use_cases = (
-        data.groupby("use_case", as_index=False)
-        .agg(
-            derived_cost=("derived_cost", lambda values: values.sum(min_count=1)),
-            contributing_tokens=("event_contributing_tokens_once", "sum"),
-            requests=("request_count_once", "sum"),
-        )
-        .sort_values(["derived_cost", "contributing_tokens"], ascending=[False, False], na_position="last")
+    use_case_usage = data.groupby("use_case", as_index=False).agg(
+        contributing_tokens=("event_contributing_tokens_once", "sum"),
+        requests=("request_count_once", "sum"),
+    )
+    use_case_cost = cost_rows.groupby("use_case", as_index=False)["derived_cost"].sum()
+    use_cases = use_case_usage.merge(use_case_cost, on="use_case", how="left").sort_values(
+        ["derived_cost", "contributing_tokens"],
+        ascending=[False, False],
+        na_position="last",
     )
     return {
         "currency": currency,

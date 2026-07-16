@@ -21,6 +21,7 @@ from tracker.models.enums import Additivity, PrecisionLevel, TokenType, UsageSou
 from tracker.models.token_event import TokenEvent  # noqa: E402
 from tracker.models.token_quantity import TokenQuantity  # noqa: E402
 from tracker.ops.doctor import (  # noqa: E402
+    _claude_import_evidence_check,
     _durability_check,
     _health_evidence_check,
     _python_check,
@@ -119,6 +120,39 @@ with open(health_log, "a", encoding="utf-8") as handle:
 check(
     _health_evidence_check(health_log, max_age_seconds=300, now=health_now).status == "fail",
     "doctor fails health evidence with material future clock skew",
+)
+
+claude_import_log = os.path.join(root, "claude-import.log")
+check(
+    _claude_import_evidence_check(claude_import_log, now=health_now).status == "warn",
+    "doctor warns before scheduled Claude import evidence exists",
+)
+with open(claude_import_log, "w", encoding="utf-8") as handle:
+    handle.write(
+        '{"timestamp":"2026-07-15T09:30:00Z","status":"ok",'
+        '"import_report":{"format_drift_suspected":false}}\n'
+    )
+check(
+    _claude_import_evidence_check(claude_import_log, max_age_seconds=7200, now=health_now).status == "pass",
+    "doctor accepts a fresh healthy Claude import run",
+)
+with open(claude_import_log, "a", encoding="utf-8") as handle:
+    handle.write(
+        '{"timestamp":"2026-07-15T09:45:00Z","status":"format_drift",'
+        '"import_report":{"format_drift_suspected":true}}\n'
+    )
+check(
+    _claude_import_evidence_check(claude_import_log, max_age_seconds=7200, now=health_now).status == "fail",
+    "doctor fails a fresh import run that detects format drift",
+)
+with open(claude_import_log, "a", encoding="utf-8") as handle:
+    handle.write(
+        '{"timestamp":"2026-07-15T06:00:00Z","status":"ok",'
+        '"import_report":{"format_drift_suspected":false}}\n'
+    )
+check(
+    _claude_import_evidence_check(claude_import_log, max_age_seconds=7200, now=health_now).status == "fail",
+    "doctor dead-man fails stale Claude import evidence",
 )
 
 foundry_checks = run_checks(

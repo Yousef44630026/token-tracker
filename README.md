@@ -86,8 +86,9 @@ For streaming, `track_stream(context=..., provider=..., api_surface=...)` create
 
 Before running real provider traffic, run the doctor. It checks the local Python/runtime,
 Excel dependency, storage/derived invariant, collector network posture, local secret leaks,
-Azure/Foundry env profiles, store writability, and whether an existing JSONL/partitioned
-store can be read by streaming over events.
+Azure/Foundry env profiles, collector-health freshness, scheduled Claude-import freshness,
+store writability, and whether an existing JSONL/partitioned store can be read by streaming
+over events.
 
 ```console
 scripts\tt-doctor.cmd --store real_call_events.jsonl
@@ -314,6 +315,25 @@ Codex with ChatGPT authentication should not be forced through the proxy: the Ch
 login path can fail on missing API scopes. For Codex, use the local `token_count` import
 flow documented in `docs/CODEX_TRACKING.md`; it tracks Codex usage after each run without
 storing raw prompts or credentials.
+
+Claude Code can also be imported from its local usage-bearing transcripts without storing
+prompt or assistant content:
+
+```console
+scripts\tt-claude-import.cmd
+scripts\tt-claude-import-task.ps1 -Mode Plan
+scripts\tt-claude-import-task.ps1 -Mode Install
+scripts\tt-claude-import-task.ps1 -Mode Status
+```
+
+The scheduled importer maintains an atomic byte checkpoint at
+`<store-parent>\health\claude-import-state.json`, advances it only after complete collector
+acknowledgement, and defers an incomplete transcript tail until its newline arrives. It exits
+`2` on suspected transcript-format drift and does not advance the checkpoint or post events.
+When collector authentication is enabled, set `TRACKER_AUTH_TOKEN` in the task user's
+environment; the token is sent as a bearer header at runtime and is never written into the
+task definition, checkpoint, or log. The collector response distinguishes valid `acked` ids
+from newly `persisted` ids, so duplicate replay is explicit rather than reported as new data.
 
 The exact provider input remains the contributing quantity. The estimate is attached under
 the input quantity's `metadata.prompt_estimate`, including the estimator name and the

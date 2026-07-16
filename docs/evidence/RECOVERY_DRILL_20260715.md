@@ -1,5 +1,8 @@
 # Retention and Recovery Drill - 2026-07-15
 
+> Superseded by the strict 2026-07-16 drill in `RECOVERY_DRILL_20260716.md`. This earlier
+> run used the repository's tolerant read defaults and is retained only as historical evidence.
+
 ## Scope
 
 - live store under test: `C:\ai-token-tracker-data\collector_events.jsonl`

@@ -151,6 +151,16 @@ check(data["cache_read_tokens_active"].sum() == 20, "cache KPI is additive witho
 check(data["unknown_quantity_active"].sum() == 0, "unknown quantity KPI excludes superseded estimates")
 check(abs(float(summaries["pricing_coverage"]) - 1.0) < 1e-12, "pricing coverage is complete")
 
+unpriced_data = build_data_frame(events, load_prices(None))
+unpriced_summaries = build_summary_frames(unpriced_data)
+check(unpriced_summaries["total_cost"] is None, "an entirely unpriced workload has unknown cost, never zero")
+check(unpriced_summaries["pricing_coverage"] == 0.0, "unpriced token magnitude has zero pricing coverage")
+check(unpriced_summaries["cost_by_day"].empty, "unpriced workload does not fabricate zero-valued cost trends")
+check(
+    unpriced_summaries["use_cases"]["derived_cost"].isna().all(),
+    "unpriced use-case costs remain unknown",
+)
+
 output = root / "dashboard.xlsx"
 write_dashboard(data, summaries, report, output)
 workbook = load_workbook(output, data_only=False)

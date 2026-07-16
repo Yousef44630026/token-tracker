@@ -7,42 +7,58 @@ param(
 )
 
 # Periodically import REAL local Claude Code usage into the running collector. The import is
-# idempotent (store de-duplicates by deterministic event_id), so re-running every hour only
-# ever adds genuinely new assistant turns and never double-counts. At-logon and at-startup
-# triggers plus StartWhenAvailable let it catch up after the machine was off or asleep.
+# incremental and idempotent (atomic byte checkpoint + deterministic event_id), so hourly
+# runs scan only appended transcript bytes and crash replay cannot double-count. At-logon and
+# periodic triggers plus StartWhenAvailable catch up after the machine was off or asleep.
 
 $ErrorActionPreference = "Stop"
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $root = (Resolve-Path (Join-Path $scriptDir "..")).Path
 $runner = (Resolve-Path (Join-Path $scriptDir "tt-claude-import.cmd")).Path
+$taskRunner = (Resolve-Path (Join-Path $scriptDir "tt-claude-import-task-run.ps1")).Path
 $store = if ($env:TRACKER_STORE) { $env:TRACKER_STORE } else { "C:\ai-token-tracker-data\collector_events.jsonl" }
 $runtimeDir = Split-Path -Parent $store
 $logDir = Join-Path $runtimeDir "health"
 $taskLog = Join-Path $logDir "claude-import.log"
+$stateFile = if ($env:TRACKER_CLAUDE_IMPORT_STATE) { $env:TRACKER_CLAUDE_IMPORT_STATE } else { Join-Path $logDir "claude-import-state.json" }
 
 $plan = [ordered]@{
     task_name = $TaskName
     runner = $runner
+    task_runner = $taskRunner
     source_root = $root
     working_directory = $runtimeDir
-    triggers = @("at_startup", "at_logon", "every_${IntervalMinutes}_minutes")
+    triggers = @("at_logon", "every_${IntervalMinutes}_minutes")
     start_when_available = $true
+    dont_stop_on_idle_end = $true
     interval_minutes = $IntervalMinutes
     task_log = $taskLog
+    state_file = $stateFile
 }
 
 function Write-ImportTaskStatus {
     $task = $null
-    try { $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction Stop } catch {}
+    $inspectionError = $null
+    try {
+        $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction Stop
+    } catch [Microsoft.Management.Infrastructure.CimException] {
+        $inspectionError = $_.Exception.GetType().Name
+    } catch {
+        if ($_.FullyQualifiedErrorId -notlike "*NoMatchingMSFT_ScheduledTask*") {
+            $inspectionError = $_.Exception.GetType().Name
+        }
+    }
     $info = if ($task) { Get-ScheduledTaskInfo -TaskName $TaskName } else { $null }
     [ordered]@{
         task_name = $TaskName
-        installed = [bool]$task
-        task_state = if ($task) { [string]$task.State } else { "NotInstalled" }
+        installed = if ($inspectionError) { $null } else { [bool]$task }
+        task_state = if ($task) { [string]$task.State } elseif ($inspectionError) { "Unknown" } else { "NotInstalled" }
+        inspection_error = $inspectionError
         last_run_time = if ($info) { $info.LastRunTime } else { $null }
         next_run_time = if ($info) { $info.NextRunTime } else { $null }
         last_task_result = if ($info) { $info.LastTaskResult } else { $null }
         task_log = $taskLog
+        state_file = $stateFile
     } | ConvertTo-Json -Depth 4
 }
 
@@ -50,9 +66,12 @@ if ($Mode -eq "Plan") { $plan | ConvertTo-Json -Depth 4; exit 0 }
 
 if ($Mode -eq "Install") {
     New-Item -ItemType Directory -Force -Path $logDir | Out-Null
-    $cmd = "$env:SystemRoot\System32\cmd.exe"
-    $arguments = "/c `"`"$runner`" >> `"$taskLog`" 2>&1`""
-    $action = New-ScheduledTaskAction -Execute $cmd -Argument $arguments -WorkingDirectory $runtimeDir
+    $powerShell = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
+    $arguments = (
+        "-NoProfile -NonInteractive -ExecutionPolicy Bypass " +
+        "-File `"$taskRunner`" -TaskLog `"$taskLog`" -StateFile `"$stateFile`""
+    )
+    $action = New-ScheduledTaskAction -Execute $powerShell -Argument $arguments -WorkingDirectory $runtimeDir
     $userId = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
     # No AtStartup trigger: it runs in the pre-logon system context and a standard (non-admin)
     # user is denied registering it. This task only makes sense while the user is logged in
@@ -70,6 +89,7 @@ if ($Mode -eq "Install") {
     $settings = New-ScheduledTaskSettingsSet `
         -AllowStartIfOnBatteries `
         -DontStopIfGoingOnBatteries `
+        -DontStopOnIdleEnd `
         -StartWhenAvailable `
         -ExecutionTimeLimit (New-TimeSpan -Minutes 10) `
         -MultipleInstances IgnoreNew
@@ -79,7 +99,7 @@ if ($Mode -eq "Install") {
         -Trigger $triggers `
         -Principal $principal `
         -Settings $settings `
-        -Description "Idempotent hourly import of local Claude Code usage into the AI token collector" `
+        -Description "Incremental hourly import of local Claude Code usage into the AI token collector" `
         -Force | Out-Null
     Start-ScheduledTask -TaskName $TaskName
     Start-Sleep -Seconds 3

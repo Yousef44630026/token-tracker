@@ -12,10 +12,10 @@ A green unit-test suite must not promote an unobserved provider or workload to "
 | Collector supervision | Crash recovery, alerting, stale-health dead-man, watchdog self-heal, and reboot auto-start passed; sleep/resume pending | Auto-start, restart-on-failure, downtime alert, and stale-monitor detection verified | `docs/evidence/COLLECTOR_SUPERVISION_20260714.md` |
 | Collector soak | Harness and three-sample recovery proof passed; 72 hours pending | 72 hours with 100% successful probes, monotonic counters, and unchanged starting store prefix | `collector_soak` summary JSON |
 | Storage substrate | Live ledger moved off sync | Live ledger resides on a non-synced local volume; exports may be synced | `tt-doctor --strict-warnings` output |
-| Claude transcript importer | Canary implemented | Import report has no format-drift warnings and expected extraction ratio | `ClaudeImportReport` JSON |
+| Claude transcript importer | Incremental authenticated task demonstrated (2026-07-16): checkpointed run scanned 16 appended lines, accepted 3 events, and newly persisted 3; format-drift and stale-task dead-men pass | Fresh scheduled JSON result, no format-drift/IO warnings, atomic checkpoint advances only after complete acknowledgement | `C:\ai-token-tracker-data\health\claude-import.log` + `tt-doctor --strict-warnings` |
 | Estimator quality | Backend disclosed | `tiktoken` active or fallback explicitly accepted; error distribution measured by content class | Doctor output and estimate-vs-provider report |
-| Dashboard consumption | Excel dashboard built from the live ledger (2026-07-15, 3364 events / 13361 quantity rows); scheduled+monitored refresh still pending the import/export task | Scheduled export refreshes a connected dashboard and freshness is monitored | `tt-dashboard.cmd` output `dashboard.xlsx` (manual run) |
-| Retention and recovery | Drill passed on real ledger (2026-07-15, 3364 events); offsite backup rotation still an operator task | Rotation, backup, restore, and duplicate-recovery drill pass | `docs/evidence/RECOVERY_DRILL_20260715.md` |
+| Dashboard consumption | Excel dashboard refreshed from the live ledger (2026-07-16, 3588 events, 0 skipped/duplicate rows); absent prices now report `total_cost=null`, never false zero; scheduled+monitored refresh remains pending | Scheduled export refreshes a connected dashboard and freshness is monitored | `C:\ai-token-tracker-data\dashboard.xlsx` + `tt-dashboard.cmd --json` |
+| Retention and recovery | Strict drill passed on real ledger (2026-07-16, 3586 events); malformed/truncated/schema-invalid source rows now fail before backup claims; offsite rotation remains an operator task | Strict source validation, rotation, backup, restore, and duplicate-recovery drill pass | `docs/evidence/RECOVERY_DRILL_20260716.md` |
 
 ## Provider verification
 
@@ -60,6 +60,7 @@ only when its real fixture, soak/reliability evidence, and storage path are all 
 scripts\tt-doctor.cmd --store C:\ai-token-tracker-data\collector_events.jsonl --strict-warnings
 scripts\tt-check.cmd
 scripts\tt-verify.cmd
+scripts\tt-claude-import-task.ps1 -Mode Status
 scripts\tt-collector-soak.cmd --duration-seconds 259200 --interval-seconds 60
 ```
 
