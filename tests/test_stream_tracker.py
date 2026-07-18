@@ -1,6 +1,6 @@
 """Phase 7 — streaming tracker lifecycle (INV-3 / INV-5 / INV-6).
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_stream_tracker.py
+Run: python tests/test_stream_tracker.py
 
 A streamed call has four terminal states, and the tracker assigns the right precision and
 flags for each — never a forbidden token_type (output stays "output" throughout, INV-3):

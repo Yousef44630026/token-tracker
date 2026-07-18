@@ -1,6 +1,6 @@
 """Verification audit - guard against raw quantity double counting.
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_double_count_guard.py
+Run: python tests/test_double_count_guard.py
 
 Builds deliberately crowded OpenAI and Anthropic events. The derived total must equal only
 the additive buckets, never the raw sum of all visible usage quantities.

@@ -1,6 +1,6 @@
 """Phase 1 / step 2 — cross-service header inject/extract.
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_context_headers.py
+Run: python tests/test_context_headers.py
 
 Serialize a TraceContext to X-TokenTracker-* headers and rehydrate it:
   - round-trip fidelity (inject -> extract == original) for root and child contexts

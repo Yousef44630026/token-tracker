@@ -6,7 +6,7 @@ JSONL FileRepository, and answers the ``transport(batch) -> acked_ids`` contract
 expects. Built on ``http.server`` only — per the hard constraint, no FastAPI/Flask.
 
 Routes:
-    GET  /healthz      -> {"status": "ok"}
+    GET  /healthz      -> {"status": "ok", "runtime_fingerprint": "..."}
     GET  /v1/stats     -> {"events": N, "total": T, "traces": {trace_id: total}}
     GET  /v1/stats?summary=1 -> cached {"events": N, "total": T}
     POST /v1/events    -> body is one event dict or a list; returns
@@ -43,11 +43,14 @@ if __package__ in (None, ""):
 from tracker.derive.derived_fields import event_contributing_tokens  # noqa: E402
 from tracker.derive.effective_events import iter_effective_events  # noqa: E402
 from tracker.models.token_event import TokenEvent  # noqa: E402
+from tracker.ops.auth_token import load_auth_token  # noqa: E402
+from tracker.ops.runtime_fingerprint import runtime_fingerprint  # noqa: E402
 from tracker.storage.file_repository import FileRepository, PartitionedFileRepository  # noqa: E402
 
 EVENTS_PATH = "/v1/events"
 DEFAULT_MAX_BODY_BYTES = 1_048_576
 DEFAULT_MAX_BATCH_SIZE = 1000
+DEFAULT_MAX_JSON_DEPTH = 128
 DEFAULT_REQUEST_TIMEOUT_S = 30.0
 
 
@@ -65,27 +68,49 @@ def _is_loopback_host(host: str | None) -> bool:
 Repository = FileRepository | PartitionedFileRepository
 
 
+def _json_nesting_exceeds(raw_body: bytes, max_depth: int) -> bool:
+    """Return whether JSON containers exceed ``max_depth`` without parsing or recursion."""
+    depth = 0
+    in_string = False
+    escaped = False
+    for byte in raw_body:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif byte == 0x5C:  # backslash
+                escaped = True
+            elif byte == 0x22:  # quote
+                in_string = False
+            continue
+        if byte == 0x22:
+            in_string = True
+        elif byte in (0x5B, 0x7B):  # [ or {
+            depth += 1
+            if depth > max_depth:
+                return True
+        elif byte in (0x5D, 0x7D) and depth:  # ] or }
+            depth -= 1
+    return False
+
+
 def _make_handler(
     repo: Repository,
     *,
     max_body_bytes: int,
     max_batch_size: int,
+    max_json_depth: int,
     auth_token: str | None,
     request_timeout_s: float,
     dead_letter_path: str | None,
 ) -> type[BaseHTTPRequestHandler]:
+    runtime_code_fingerprint = runtime_fingerprint()
     dead_letter_lock = threading.Lock()
     summary_lock = threading.Lock()
     summary_cache: dict[str, int] | None = None
     summary_signature: tuple[int, int] | None = None
 
     def _store_signature() -> tuple[int, int]:
-        signature_path = repo.index_path if isinstance(repo, PartitionedFileRepository) else repo.path
-        try:
-            stat = os.stat(signature_path)
-        except FileNotFoundError:
-            return (0, 0)
-        return (stat.st_size, stat.st_mtime_ns)
+        return repo.storage_signature()
 
     def _scan_summary() -> dict[str, int]:
         raw_count = 0
@@ -168,7 +193,7 @@ def _make_handler(
             parsed = urlsplit(self.path)
             path = parsed.path
             if path == "/healthz":
-                self._send(200, {"status": "ok"})
+                self._send(200, {"status": "ok", "runtime_fingerprint": runtime_code_fingerprint})
             elif path == "/v1/stats":
                 if not self._authorized():
                     self._send(401, {"error": "unauthorized"})
@@ -235,6 +260,10 @@ def _make_handler(
                 self._send(400, {"error": "invalid_json"})
                 return
 
+            if _json_nesting_exceeds(raw_body, max_json_depth):
+                self._send(400, {"error": "json_too_deep"})
+                return
+
             try:
                 data = json.loads(raw_body)
             except (ValueError, TypeError, UnicodeError, RecursionError):
@@ -297,6 +326,7 @@ def create_server(
     *,
     max_body_bytes: int = DEFAULT_MAX_BODY_BYTES,
     max_batch_size: int = DEFAULT_MAX_BATCH_SIZE,
+    max_json_depth: int = DEFAULT_MAX_JSON_DEPTH,
     auth_token: str | None = None,
     request_timeout_s: float = DEFAULT_REQUEST_TIMEOUT_S,
     dead_letter_path: str | None = None,
@@ -305,7 +335,7 @@ def create_server(
 
     Use port 0 for an OS-assigned ephemeral port; read it back from ``server_address``.
     """
-    if max_body_bytes <= 0 or max_batch_size <= 0:
+    if max_body_bytes <= 0 or max_batch_size <= 0 or max_json_depth <= 0:
         raise ValueError("server limits must be positive")
     if request_timeout_s <= 0:
         raise ValueError("request_timeout_s must be positive")
@@ -317,6 +347,7 @@ def create_server(
             repo,
             max_body_bytes=max_body_bytes,
             max_batch_size=max_batch_size,
+            max_json_depth=max_json_depth,
             auth_token=auth_token,
             request_timeout_s=request_timeout_s,
             dead_letter_path=dead_letter_path,
@@ -394,7 +425,13 @@ def _parser(environment: dict[str, str] | None = None) -> argparse.ArgumentParse
         default=_environment_flag(env, "TRACKER_PARTITIONED", default=False),
         help="treat --store as a date/trace-partitioned ledger root",
     )
-    parser.add_argument("--auth-token", default=env.get("TRACKER_AUTH_TOKEN"))
+    parser.add_argument(
+        "--auth-token",
+        default=load_auth_token(
+            env,
+            allow_default_file=environment is None or bool(env.get("TRACKER_AUTH_TOKEN_FILE")),
+        ),
+    )
     return parser
 
 

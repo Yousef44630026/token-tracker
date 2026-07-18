@@ -1,8 +1,9 @@
 # Codex Agent Playbook
 
-These are local Codex operating roles for the token tracker. They do not replace Claude's
-agents and they are not a separate runtime. They are layer-specific expert modes Codex should
-apply when reviewing, fixing, or hardening this repository.
+These are project-scoped Codex custom agents for the token tracker. Each `*.toml` file is a
+spawnable read-only specialist pinned to `gpt-5.6-sol` with `ultra` reasoning; the matching
+Markdown file is its detailed domain playbook. They complement Claude's agents without
+changing the tracker's application runtime or Azure Foundry deployment configuration.
 
 The goal is not "many agents". The goal is a repeatable expert review system where every
 domain has:
@@ -35,6 +36,17 @@ domain has:
 | `storage-collector-warden` | Collector, JSONL repository, proxy delivery, dead-letter | `api`, `tracker/storage`, `tracker/collector`, `tracker/proxy` |
 | `analytics-export-auditor` | TrustReport, metrics, CSV/Excel/Power BI parity | `tracker/analytics`, `tracker/export` |
 | `ops-release-verifier` | Doctor, Azure smoke, CI, docs, local release readiness | `tracker/ops`, `scripts`, `.github`, docs |
+| `domain-scorecards` | Evidence-based rating after specialist reviews | Cross-domain scores and prioritized gaps |
+
+Codex loads the agents from `.codex/agents/*.toml` when the project is trusted. The shared
+`.codex/config.toml` allows one complete seven-specialist pass, prevents recursive fan-out,
+and leaves implementation to the parent task. A typical request is:
+
+```text
+Review operational readiness with core_accounting_auditor,
+storage_collector_warden, and ops_release_verifier in parallel. Wait for all
+three, then consolidate only evidence-backed findings.
+```
 
 ## Shared Protocol
 

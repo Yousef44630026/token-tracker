@@ -2,7 +2,7 @@
 tracker/normalization/supersession.py), framed as a realistic at-least-once webhook incident
 on a substantial legal-summary completion, with real token counts.
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_scenario_e_duplicate_delivery.py
+Run: python tests/test_scenario_e_duplicate_delivery.py
 
 Split out of the original test_realistic_scenarios_deep.py — see test_scenario_a_rag_conversation.py
 for the sibling scenarios and the reasoning behind the split.

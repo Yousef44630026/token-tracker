@@ -5,7 +5,7 @@ models, mini vs full-size contexts, embedding-only calls) and confirms the no-do
 rule (retrieved-context estimate + vector-search metrics + rerank cost + generation cost)
 holds regardless of which model is used at each stage.
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_rag_multimodel_deep.py
+Run: python tests/test_rag_multimodel_deep.py
 
 Three parts:
   1. Full RAG pipeline, once per (embedding model, generation model) combination drawn from

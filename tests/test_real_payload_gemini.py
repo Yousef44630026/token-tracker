@@ -1,6 +1,6 @@
 """GROUND TRUTH — the Gemini adapter against a REAL captured payload.
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_real_payload_gemini.py
+Run: python tests/test_real_payload_gemini.py
 
 Unlike the SIMULATED fixtures, this runs the adapter on a payload captured from a real Gemini
 call (examples/capture_gemini.py). It asserts the RECONCILIATION property — input + output +

@@ -1,7 +1,7 @@
 """DEEP realistic scenario A — 4-turn RAG support conversation with a real policy document
 and GROWING OpenAI prompt-cache hits across turns.
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_scenario_a_rag_conversation.py
+Run: python tests/test_scenario_a_rag_conversation.py
 
 Split out of the original test_realistic_scenarios_deep.py (which held 5 unrelated scenarios
 in one 397-line file) so each narrative stands alone and is easier to navigate. See also:

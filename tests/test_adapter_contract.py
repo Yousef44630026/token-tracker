@@ -1,6 +1,6 @@
 """Phase 4 — adapter contract: BaseAPISurfaceAdapter + NormalizedUsage.
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_adapter_contract.py
+Run: python tests/test_adapter_contract.py
 
 Pins the contract WITHOUT any provider logic (that arrives in Phase 5 with real payloads):
   - the base is abstract until response and stream extraction are implemented;

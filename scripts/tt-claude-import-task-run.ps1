@@ -3,13 +3,18 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$TaskLog,
     [Parameter(Mandatory = $true)]
-    [string]$StateFile
+    [string]$StateFile,
+    [string]$AuthTokenFile
 )
 
 $ErrorActionPreference = "Stop"
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $runner = Join-Path $scriptDir "tt-claude-import.cmd"
 $logDir = Split-Path -Parent $TaskLog
+if (-not $AuthTokenFile) {
+    $AuthTokenFile = Join-Path (Join-Path (Split-Path -Parent $logDir) "config") "collector-auth.token"
+}
+$env:TRACKER_AUTH_TOKEN_FILE = $AuthTokenFile
 
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 

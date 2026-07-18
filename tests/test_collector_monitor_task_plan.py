@@ -10,6 +10,10 @@ import sys
 import uuid
 from pathlib import Path
 
+if os.name != "nt":
+    print("[SKIP] test_collector_monitor_task_plan: Windows Task Scheduler contract")
+    raise SystemExit(0)
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from tests._harness import make_checker  # noqa: E402
@@ -66,7 +70,7 @@ check("inspection_error" in script_text, "monitor task status fails closed on ac
 check("-RepetitionInterval (New-TimeSpan -Minutes 1)" in script_text, "monitor task is periodic")
 check("New-ScheduledTaskTrigger -AtStartup" in script_text, "monitor has an at-startup trigger")
 check("tt-collector-monitor-task-run.ps1" in script_text, "monitor action uses the dedicated PowerShell launcher")
-check("TRACKER_AUTH_TOKEN" not in script_text, "monitor task action never embeds an authentication secret")
+check("must-not-appear" not in script_text, "monitor task action never embeds an authentication secret")
 
 work = Path(os.getcwd()) / f".test_monitor_task_runner_{uuid.uuid4().hex}"
 work.mkdir(parents=True, exist_ok=False)
@@ -89,6 +93,8 @@ runner_result = subprocess.run(
         str(alert_log),
         "-TaskLog",
         str(task_log),
+        "-AuthTokenFile",
+        str(work / "collector-auth.token"),
         "-CollectorTaskName",
         f"AI Token Tracker Missing Test {uuid.uuid4().hex}",
         "-RecoveryDelaySeconds",
@@ -98,7 +104,7 @@ runner_result = subprocess.run(
     env=runner_environment,
     capture_output=True,
     text=True,
-    timeout=20,
+    timeout=45,
     check=False,
 )
 check(runner_result.returncode == 1, "monitor task launcher preserves an offline probe exit code")

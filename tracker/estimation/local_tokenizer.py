@@ -4,9 +4,9 @@ A coarse, dependency-free token estimate used ONLY for partial-stream output whe
 provider's exact usage is not available. Any quantity produced from this is precision
 ``estimate`` / source ``partial_stream_tokenizer`` (or ``local_tokenizer``) — never ``exact``.
 
-``tiktoken`` with ``cl100k_base`` is preferred when installed. A dependency-free
-four-characters-per-token heuristic remains as a named fallback; callers can persist the
-backend name so estimate drift is attributable instead of looking like provider drift.
+``tiktoken`` with ``cl100k_base`` is a required runtime dependency. A dependency-free
+four-characters-per-token heuristic remains only as an emergency capture guard; callers
+persist its backend name and the Doctor treats its activation as a readiness failure.
 """
 
 from __future__ import annotations

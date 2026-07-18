@@ -1,6 +1,6 @@
 """Verification audit - every realistic fixture reconciles through normalize().
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_reconciliation_audit.py
+Run: python tests/test_reconciliation_audit.py
 
 Discovers every *.SIMULATED.json and *.REAL.json fixture under tests/fixtures/realistic.
 Each fixture must be explicitly mapped to an adapter so future fixtures cannot escape the

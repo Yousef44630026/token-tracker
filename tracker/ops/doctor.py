@@ -23,7 +23,10 @@ from tracker.models.enums import Additivity, PrecisionLevel, TokenType, UsageSou
 from tracker.models.token_event import TokenEvent
 from tracker.models.token_quantity import TokenQuantity
 from tracker.observability.observation import Observation
+from tracker.ops.auth_token import default_auth_token_file, load_auth_token
+from tracker.ops.runtime_fingerprint import runtime_fingerprint
 from tracker.storage.file_repository import FileRepository, PartitionedFileRepository
+from tracker.storage.retention import DEFAULT_MAX_AGE_DAYS, DEFAULT_MAX_STORE_BYTES, inspect_retention
 
 _DERIVED_EVENT_KEYS = {
     "event_contributing_tokens",
@@ -142,8 +145,8 @@ def _tokenizer_check() -> DoctorCheck:
         )
     return _check(
         "tokenizer-backend",
-        "warn",
-        "tiktoken is unavailable; interrupted-stream estimates use the coarse char4 fallback",
+        "fail",
+        "required tiktoken backend is unavailable; interrupted-stream estimates degraded to the emergency char4 fallback",
         **status,
     )
 
@@ -237,6 +240,7 @@ def _health_evidence_check(
         "max_age_seconds": max_age_seconds,
         "healthy": sample.get("healthy"),
         "collector_status": sample.get("status"),
+        "runtime_fingerprint": sample.get("runtime_fingerprint"),
     }
     if age_seconds < -60:
         return _check(
@@ -257,6 +261,23 @@ def _health_evidence_check(
             "collector-health-evidence",
             "fail",
             "latest collector health probe reports the collector unavailable",
+            **common,
+        )
+    expected_fingerprint = runtime_fingerprint()
+    observed_fingerprint = sample.get("runtime_fingerprint")
+    common["expected_runtime_fingerprint"] = expected_fingerprint
+    if not isinstance(observed_fingerprint, str) or not observed_fingerprint:
+        return _check(
+            "collector-health-evidence",
+            "warn",
+            "collector health evidence has no runtime fingerprint; restart collector and monitor",
+            **common,
+        )
+    if observed_fingerprint != expected_fingerprint:
+        return _check(
+            "collector-health-evidence",
+            "fail",
+            "collector runtime fingerprint differs from the code on disk; restart required",
             **common,
         )
     return _check(
@@ -318,6 +339,7 @@ def _claude_import_evidence_check(
     status = sample.get("status")
     report = sample.get("import_report")
     format_drift = isinstance(report, dict) and report.get("format_drift_suspected") is True
+    provider_schema_drift_events = report.get("provider_schema_drift_events", 0) if isinstance(report, dict) else 0
     common = {
         "path": str(path),
         "timestamp": raw_timestamp,
@@ -325,6 +347,7 @@ def _claude_import_evidence_check(
         "max_age_seconds": max_age_seconds,
         "import_status": status,
         "format_drift_suspected": format_drift,
+        "provider_schema_drift_events": provider_schema_drift_events,
     }
     if age_seconds < -60:
         return _check(
@@ -340,7 +363,7 @@ def _claude_import_evidence_check(
             f"latest Claude import evidence is stale ({age_seconds:.0f}s old)",
             **common,
         )
-    if status != "ok" or format_drift:
+    if status != "ok" or format_drift or provider_schema_drift_events:
         return _check(
             "claude-import-evidence",
             "fail",
@@ -568,11 +591,42 @@ def _store_check(path: str, *, partitioned: bool) -> DoctorCheck:
     )
 
 
-def _network_posture_check(environment: dict[str, str]) -> DoctorCheck:
+def _network_posture_check(
+    environment: dict[str, str],
+    *,
+    allow_default_auth_file: bool = False,
+) -> DoctorCheck:
     host = environment.get("TRACKER_HOST", "127.0.0.1")
-    auth_token = environment.get("TRACKER_AUTH_TOKEN")
+    try:
+        auth_token = load_auth_token(
+            environment,
+            allow_default_file=allow_default_auth_file or bool(environment.get("TRACKER_AUTH_TOKEN_FILE")),
+        )
+    except ValueError as exc:
+        return _check(
+            "collector-network",
+            "fail",
+            str(exc),
+            host=host,
+            auth_token_file=str(default_auth_token_file(environment)),
+        )
     if _is_loopback(host):
-        return _check("collector-network", "pass", "collector host is loopback by default", host=host)
+        if auth_token:
+            return _check(
+                "collector-network",
+                "pass",
+                "collector is loopback-only and bearer-authenticated",
+                host=host,
+                authenticated=True,
+            )
+        return _check(
+            "collector-network",
+            "warn",
+            "loopback collector has no bearer; local processes can write audit events",
+            host=host,
+            authenticated=False,
+            recommendation="run scripts/tt-local-auth.ps1 -Mode Configure and reinstall operational tasks",
+        )
     if auth_token:
         return _check("collector-network", "warn", "collector is non-loopback; ensure TLS/reverse-proxy protection", host=host)
     return _check("collector-network", "fail", "collector is non-loopback without TRACKER_AUTH_TOKEN", host=host)
@@ -688,6 +742,48 @@ def _azure_env_check(environment: dict[str, str]) -> DoctorCheck:
     )
 
 
+def _retention_check(
+    store: str,
+    *,
+    partitioned: bool,
+    max_store_bytes: int = DEFAULT_MAX_STORE_BYTES,
+    max_age_days: float = DEFAULT_MAX_AGE_DAYS,
+    now: dt.datetime | None = None,
+) -> DoctorCheck:
+    """Inspect retention evidence and physical thresholds without mutating data."""
+    try:
+        status = inspect_retention(store, partitioned=partitioned, now=now)
+    except (OSError, TypeError, ValueError) as exc:
+        return _check(
+            "storage-retention",
+            "fail",
+            f"retention status is unreadable: {type(exc).__name__}: {exc}",
+            store=os.path.abspath(os.path.expanduser(store)),
+        )
+
+    breaches: list[str] = []
+    if not status.retention_has_run:
+        breaches.append("retention has never run")
+    if status.total_size_bytes > max_store_bytes:
+        breaches.append(f"store size {status.total_size_bytes} exceeds {max_store_bytes} bytes")
+    if status.oldest_active_event_age_days is not None and status.oldest_active_event_age_days > max_age_days:
+        breaches.append(f"oldest active event is {status.oldest_active_event_age_days:.1f} days old (limit {max_age_days:g})")
+
+    data = {
+        **asdict(status),
+        "max_store_bytes": max_store_bytes,
+        "max_age_days": max_age_days,
+    }
+    if breaches:
+        return _check("storage-retention", "warn", "; ".join(breaches), **data)
+    return _check(
+        "storage-retention",
+        "pass",
+        f"retention has run; {status.segment_count} segment(s), {status.total_size_bytes} bytes",
+        **data,
+    )
+
+
 def run_checks(
     *,
     store: str,
@@ -701,6 +797,8 @@ def run_checks(
     max_claude_import_age_seconds: float = _DEFAULT_MAX_CLAUDE_IMPORT_AGE_SECONDS,
     dashboard_evidence_file: str | None = None,
     max_dashboard_age_seconds: float = _DEFAULT_MAX_DASHBOARD_AGE_SECONDS,
+    retention_max_store_bytes: int = DEFAULT_MAX_STORE_BYTES,
+    retention_max_age_days: float = DEFAULT_MAX_AGE_DAYS,
 ) -> list[DoctorCheck]:
     """Run operational readiness checks."""
     env = dict(os.environ if environment is None else environment)
@@ -726,7 +824,7 @@ def run_checks(
         _import_check("openpyxl", required=True),
         _import_check("ruff", required=False),
         _storage_contract_check(),
-        _network_posture_check(env),
+        _network_posture_check(env, allow_default_auth_file=environment is None),
         _durability_check(env),
         _tokenizer_check(),
         _storage_substrate_check(store),
@@ -743,6 +841,14 @@ def run_checks(
         _azure_env_check(env),
     ]
     if not skip_store:
+        checks.append(
+            _retention_check(
+                store,
+                partitioned=partitioned_store,
+                max_store_bytes=retention_max_store_bytes,
+                max_age_days=retention_max_age_days,
+            )
+        )
         checks.append(_write_probe(store, partitioned=partitioned_store))
         checks.append(_store_check(store, partitioned=partitioned_store))
     return checks
@@ -822,6 +928,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         ),
         help="fail when the latest dashboard refresh evidence is older than this age",
     )
+    parser.add_argument(
+        "--retention-max-store-bytes",
+        type=int,
+        default=os.environ.get("TRACKER_RETENTION_MAX_STORE_BYTES", str(DEFAULT_MAX_STORE_BYTES)),
+        help="warn when active plus archived JSONL exceeds this size",
+    )
+    parser.add_argument(
+        "--retention-max-age-days",
+        type=float,
+        default=os.environ.get("TRACKER_RETENTION_MAX_AGE_DAYS", str(DEFAULT_MAX_AGE_DAYS)),
+        help="warn when the oldest retained event exceeds this age",
+    )
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--strict-warnings", action="store_true", help="return non-zero when warnings are present")
     args = parser.parse_args(argv)
@@ -837,6 +955,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         max_claude_import_age_seconds=args.max_claude_import_age_seconds,
         dashboard_evidence_file=args.dashboard_evidence_file,
         max_dashboard_age_seconds=args.max_dashboard_age_seconds,
+        retention_max_store_bytes=args.retention_max_store_bytes,
+        retention_max_age_days=args.retention_max_age_days,
     )
     failures = sum(1 for item in checks if item.failed)
     warnings = sum(1 for item in checks if item.warned)

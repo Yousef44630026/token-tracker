@@ -1,7 +1,7 @@
 """DEEP logic test — property-based fuzzing of the core counting algebra + adversarial
 supersession edge cases discovered by reading normalization/supersession.py closely.
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_core_logic_deep.py
+Run: python tests/test_core_logic_deep.py
 
 Part 1 (fuzz): thousands of randomly-constructed, but validation-legal, TokenEvents/Traces
 are checked against the EXACT algebra the model promises:

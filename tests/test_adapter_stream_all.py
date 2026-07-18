@@ -1,6 +1,6 @@
 """Extra — stream extraction + contract methods for the remaining adapters.
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_adapter_stream_all.py
+Run: python tests/test_adapter_stream_all.py
 
 Covers Azure (Responses + Chat), Anthropic Messages, and Bedrock InvokeModel — the adapters
 not exercised by test_adapter_methods — for stream-final extraction and the common contract.

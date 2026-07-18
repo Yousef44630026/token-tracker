@@ -1,6 +1,6 @@
 """Phase 1 / step 4 — async + thread concurrency proof.
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_context_propagation_async.py
+Run: python tests/test_context_propagation_async.py
 
 One root trace with many PARALLEL async LLM calls and a streaming span. The point is
 to falsify the "highest risk" failure mode: under concurrent interleaving every unit of

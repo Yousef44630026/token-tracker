@@ -1,6 +1,6 @@
 """Phase 10 — Bedrock Converse adapter (cache buckets are additive). (INV-4)
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_bedrock_converse_adapter.py
+Run: python tests/test_bedrock_converse_adapter.py
 
 SIMULATED fixture based on AWS's documented prompt-caching formula. Payload provenance stays
 visible, but fixture provenance does not alter the documented accounting rule.

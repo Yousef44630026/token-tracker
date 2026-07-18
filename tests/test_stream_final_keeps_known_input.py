@@ -25,7 +25,7 @@ input — so a recovered input is EXACT/provider-final data, not a floor. (The r
 true for OUTPUT: a cumulative mid-stream output count is only ever a floor for an estimate and
 must never be promoted into a final, which is why complete() still requires output_tokens.)
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_stream_final_keeps_known_input.py
+Run: python tests/test_stream_final_keeps_known_input.py
 """
 
 import os

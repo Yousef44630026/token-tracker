@@ -2,7 +2,7 @@
 the Python analytics layer, reintroduced here because this exporter reimplements its own
 copies of _cloud_provider/_is_error/cache-rate logic instead of reusing the fixed modules.
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_powerbi_exporter_regression.py
+Run: python tests/test_powerbi_exporter_regression.py
 
 1. _cloud_provider() merged direct Gemini and Vertex AI under "gcp" (same bug as
    service_attribution.py, independently duplicated here).

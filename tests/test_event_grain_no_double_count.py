@@ -1,6 +1,6 @@
 """Phase 3 — superseded event contributes 0 at the event grain (INV-5).
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_event_grain_no_double_count.py
+Run: python tests/test_event_grain_no_double_count.py
 
 A superseded event contributes 0 everywhere. The trace rollup must count the live event
 only, never the superseded one — proving event-grain totals don't double count a retry.

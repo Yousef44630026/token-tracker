@@ -5,17 +5,19 @@ A green unit-test suite must not promote an unobserved provider or workload to "
 
 | Evidence | Current state | Pass criterion | Artifact |
 |---|---|---|---|
-| Permanent accounting falsifiers | v9 workflow green on clean CI (`c614b1c`, 2026-07-16), after Ruff plus 170/170 isolated test scripts and 24,878 deep-fuzz assertions passed locally | Whole `tracker-check` workflow (all steps) green in GitHub Actions for the candidate commit | https://github.com/Yousef44630026/token-tracker/actions/runs/29497484410 + local `tests/run_all.py` / `tt-check` output |
+| Permanent accounting falsifiers | v9 workflow green on clean CI (`c614b1c`, 2026-07-16, 170/170 scripts). Current local candidate passed Ruff plus 185/185 isolated test scripts and 24,878 deep-fuzz assertions (2026-07-17); this newer result is not yet claimed as remote CI evidence. `tt-check.cmd` now delegates to the same isolated canonical runner instead of maintaining a divergent in-repo manifest. | Whole `tracker-check` workflow (all steps) green in GitHub Actions for the candidate commit | https://github.com/Yousef44630026/token-tracker/actions/runs/29497484410 + local `tests/run_all.py` / `tt-check` output |
 | Provider payload semantics | Partial — see "Provider verification" below | Real redacted capture for every supported surface and usage mode | `tracker/validation/fixture_manifest.py` + `tt-provider-matrix` |
 | Billing reconciliation | Not demonstrated | Tracker totals reconciled to a provider invoice for a fixed window | Signed reconciliation summary |
 | Proxy soak | Not demonstrated | 72 hours under representative streaming load with bounded memory/handles and zero silent loss | Soak report plus event store hash |
 | Collector supervision | Crash recovery, alerting, stale-health dead-man, watchdog self-heal, and reboot auto-start passed; sleep/resume pending | Auto-start, restart-on-failure, downtime alert, and stale-monitor detection verified | `docs/evidence/COLLECTOR_SUPERVISION_20260714.md` |
 | Collector soak | Harness and three-sample recovery proof passed; 72 hours pending | 72 hours with 100% successful probes, monotonic counters, and unchanged starting store prefix | `collector_soak` summary JSON |
-| Storage substrate | Live ledger moved off sync; strict doctor passed 17 checks with zero warnings (2026-07-16, 3,672 readable events, observed total 1,010,711,836) | Live ledger resides on a non-synced local volume; exports may be synced | `tt-doctor --strict-warnings` output |
+| Storage substrate | Live ledger moved off sync; full Doctor read completed in 5.61s (2026-07-17, 3,714 readable events, observed total 1,032,205,653); all storage checks passed | Live ledger resides on a non-synced local volume; exports may be synced | `tt-doctor --strict-warnings` output |
 | Claude transcript importer | Incremental authenticated task demonstrated (2026-07-16): checkpointed run scanned 16 appended lines, accepted 3 events, and newly persisted 3; format-drift and stale-task dead-men pass | Fresh scheduled JSON result, no format-drift/IO warnings, atomic checkpoint advances only after complete acknowledgement | `C:\ai-token-tracker-data\health\claude-import.log` + `tt-doctor --strict-warnings` |
-| Estimator quality | Backend disclosed | `tiktoken` active or fallback explicitly accepted; error distribution measured by content class | Doctor output and estimate-vs-provider report |
-| Dashboard consumption | Hourly Windows task installed and first atomic refresh demonstrated (2026-07-16, 3,672 events, 0 skipped/duplicate rows, task result 0); doctor freshness dead-man passed; actual next-logon catch-up remains to be observed | Scheduled export refreshes a connected dashboard and freshness is monitored | `C:\ai-token-tracker-data\dashboard.xlsx` + `C:\ai-token-tracker-data\health\dashboard-refresh.json` + `tt-dashboard-task.ps1 -Mode Status` |
-| Retention and recovery | Strict drill passed on real ledger (2026-07-16, 3586 events); malformed/truncated/schema-invalid source rows now fail before backup claims; offsite rotation remains an operator task | Strict source validation, rotation, backup, restore, and duplicate-recovery drill pass | `docs/evidence/RECOVERY_DRILL_20260716.md` |
+| Doctor watchdog | Live hourly standard-user task installed; scheduled run persisted a real dashboard-refresh failure to alert history, then published a clean recovery result with 17 checks, 0 failures, and 0 warnings after the dashboard recovered (2026-07-17); project-root secret scan passed. Deliberate stale/corrupt import and sleep catch-up drills remain pending | Scheduled strict Doctor run is fresh, a deliberately stale/corrupt import produces one JSON alert, and the task catches up after sleep | `doctor-watchdog.json` + `doctor-watchdog.jsonl` + `doctor-alerts.jsonl` |
+| Local collector authentication | Live ACL-restricted token configured outside the repo; collector and clients authenticate; unauthenticated stats and event POST both returned 401 (2026-07-17). Rotation drill remains pending | ACL-restricted token exists outside the repo, all collector clients authenticate, unauthenticated POST/stats return 401, rotation followed by task restart succeeds | `tt-local-auth.ps1 -Mode Status` + authenticated collector probe |
+| Estimator quality | Required `tiktoken` backend disclosed; emergency char4 activation fails Doctor readiness | `tiktoken` active and error distribution measured by content class | Doctor output and estimate-vs-provider report |
+| Dashboard consumption | Hourly Windows task installed; atomic refresh and lock recovery demonstrated (2026-07-17, 3,714 events, 0 skipped/duplicate rows, task result 0). The Doctor watchdog surfaced the Excel-lock failure and returned green after the workbook was released. Actual next-logon catch-up remains to be observed | Scheduled export refreshes a connected dashboard and freshness is monitored | `C:\ai-token-tracker-data\dashboard.xlsx` + `C:\ai-token-tracker-data\health\dashboard-refresh.json` + `tt-dashboard-task.ps1 -Mode Status` |
+| Retention and recovery | Strict backup/restore and copy-based archive drills passed on the real ledger. One live archive-first rotation then preserved 3,714 events and the canonical total 1,032,205,653 with purge 0 (2026-07-17). The stale pre-deployment collector was detected during the drill, restarted, and fully reconciled; runtime code/disk skew is now a Doctor failure. No automatic schedule or off-host copy is claimed. | Strict source validation, live archive-first rotation with before/after identity and total reconciliation, backup, restore, duplicate-recovery, and runtime-freshness checks pass | `docs/evidence/RETENTION_DRILL_20260717.md` + `docs/evidence/RECOVERY_DRILL_20260716.md` + Doctor `storage-retention` and runtime fingerprint checks |
 
 ## Provider verification
 
@@ -58,10 +60,12 @@ only when its real fixture, soak/reliability evidence, and storage path are all 
 
 ```powershell
 scripts\tt-doctor.cmd --store C:\ai-token-tracker-data\collector_events.jsonl --strict-warnings
+scripts\tt-local-auth.ps1 -Mode Status
 scripts\tt-check.cmd
 scripts\tt-verify.cmd
 scripts\tt-claude-import-task.ps1 -Mode Status
 scripts\tt-dashboard-task.ps1 -Mode Status
+scripts\tt-doctor-watchdog-task.ps1 -Mode Status
 scripts\tt-collector-soak.cmd --duration-seconds 259200 --interval-seconds 60
 ```
 

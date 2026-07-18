@@ -2,7 +2,7 @@
 (estimate from real accumulated text, sanity-checked against the true final length), then
 reconnected.
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_scenario_c_stream_interrupted.py
+Run: python tests/test_scenario_c_stream_interrupted.py
 
 Split out of the original test_realistic_scenarios_deep.py — see test_scenario_a_rag_conversation.py
 for the sibling scenarios and the reasoning behind the split.

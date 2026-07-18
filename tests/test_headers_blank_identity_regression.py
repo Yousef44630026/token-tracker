@@ -1,6 +1,6 @@
 """Regression — extract() must return None (never raise) on a blank/whitespace-only required id.
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_headers_blank_identity_regression.py
+Run: python tests/test_headers_blank_identity_regression.py
 
 Found during a rigorous review of the proxy path (tracker/proxy/server.py -> _measurement ->
 extract_context). extract()'s guard used truthiness (`not values[field]`), which an all-spaces

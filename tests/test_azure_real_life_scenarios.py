@@ -1,6 +1,6 @@
 """REAL-LIFE SCENARIOS — the tracker under production-shaped flows, on real Azure payloads.
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_azure_real_life_scenarios.py
+Run: python tests/test_azure_real_life_scenarios.py
 
 Unit tests check ONE mechanism in isolation. Production combines them — a RAG agent that also
 caches, reasons, streams, retries and serves several tenants at once. That is exactly where a

@@ -1,6 +1,6 @@
 """Extra — RAG/agent span helpers, full coverage (Phase 11).
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_rag_spans_all.py
+Run: python tests/test_rag_spans_all.py
 
 Builds each RAG span type, records context by explicit estimate vs text (hash present only
 with text), checks agent-span defaults, and the tool-result annotation by explicit estimate.

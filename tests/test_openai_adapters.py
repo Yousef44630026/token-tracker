@@ -1,6 +1,6 @@
 """Phase 5 — OpenAI adapters (Responses + Chat Completions). (INV-4 / no double count)
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_openai_adapters.py
+Run: python tests/test_openai_adapters.py
 
 NOTE: fixtures are SIMULATED (marked _SIMULATED), built to the documented OpenAI usage shape
 because no API credit is available to capture a real payload. They exercise the real

@@ -1,6 +1,6 @@
 """Regression — the 3-bullet quality check must recognize the real Unicode bullet "•".
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_quality_bullets_regression.py
+Run: python tests/test_quality_bullets_regression.py
 
 Found during a rigorous review of tracker/proxy/quality.py: _three_bullets_exact matched the
 mojibake string "â€¢" (U+2022's UTF-8 bytes E2 80 A2 misdecoded as Latin-1) instead of the real

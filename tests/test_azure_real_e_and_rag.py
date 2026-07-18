@@ -1,6 +1,6 @@
 """GROUND TRUTH — the proxy==direct audit property and the RAG no-double-count, locked in CI.
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_azure_real_e_and_rag.py
+Run: python tests/test_azure_real_e_and_rag.py
 
 Replays the REAL Azure payloads captured by examples/azure_matrix_family_e.py and
 examples/azure_rag_agent.py, entirely offline, so two more pillars become permanent

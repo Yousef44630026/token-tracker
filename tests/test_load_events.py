@@ -1,6 +1,6 @@
 """Extra — load: many events roll up and export correctly (and quickly).
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_load_events.py
+Run: python tests/test_load_events.py
 
 Builds 10k events (every 10th is a partial superseded by its correlated final), checks the rollup / coverage / CSV export all
 agree on the contributing total at scale, and that it completes well under a generous bound.

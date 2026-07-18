@@ -1,7 +1,7 @@
 """LIVE — real OpenAI Responses API call through the local tracker proxy.
 
 Run:
-  & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\live\\test_live_openai_proxy.py
+  python tests/live/test_live_openai_proxy.py
 
 This is intentionally NOT part of the default suite. It makes a REAL, billable
 OpenAI API call only when OPENAI_API_KEY is present; otherwise it skips cleanly

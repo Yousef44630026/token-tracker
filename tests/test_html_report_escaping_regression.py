@@ -1,6 +1,6 @@
 """Regression — HTML report must escape `status` before interpolating it into an attribute.
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_html_report_escaping_regression.py
+Run: python tests/test_html_report_escaping_regression.py
 
 Found during a rigorous review of tracker/export/html_report.py: `_rows_table()` built the
 `<tr class="status-...">` attribute directly from `row.get("status")` without html.escape(),

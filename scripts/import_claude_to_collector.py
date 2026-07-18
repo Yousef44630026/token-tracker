@@ -25,6 +25,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, ROOT)
 
+from tracker.ops.auth_token import load_auth_token  # noqa: E402
 from tracker.proxy.claude_code_logs import (  # noqa: E402
     SessionSnapshot,
     default_claude_home,
@@ -205,7 +206,13 @@ def main() -> int:
     url = args.collector.rstrip("/") + "/v1/events"
     acked_total = 0
     persisted_total = 0
-    auth_token = os.environ.get("TRACKER_AUTH_TOKEN") or None
+    try:
+        auth_token = load_auth_token()
+    except ValueError as exc:
+        summary["status"] = "auth_configuration_invalid"
+        summary["detail"] = str(exc)
+        _emit(summary, as_json=args.json)
+        return 1
     for index, batch in enumerate(batches, start=1):
         try:
             response = _post(url, batch, auth_token=auth_token)

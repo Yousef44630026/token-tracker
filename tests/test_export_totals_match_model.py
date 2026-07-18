@@ -1,6 +1,6 @@
 """Phase 9 — exported CSV totals must equal the model (the core falsifier).
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_export_totals_match_model.py
+Run: python tests/test_export_totals_match_model.py
 
 Materialized export columns must agree with the in-memory model and with each other:
 

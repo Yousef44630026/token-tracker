@@ -1,6 +1,6 @@
 """Extra — reconcile_events: refresh quality flags AND apply supersession together.
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_reconciler_events.py
+Run: python tests/test_reconciler_events.py
 
 reconcile_events first re-derives the normalizer-owned flags for each event (dropping a now-
 stale one, keeping foreign flags) and then applies correlation-based supersession across the

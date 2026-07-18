@@ -1,6 +1,6 @@
 """Extra — collector server auth (401) + storage failure codes (500/503).
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_api_auth_and_errors.py
+Run: python tests/test_api_auth_and_errors.py
 
 With a bearer token configured, ingestion and stats require it (401 otherwise) while /healthz
 stays public. A failing storage backend surfaces 500 (read) / 503 (write) without crashing.

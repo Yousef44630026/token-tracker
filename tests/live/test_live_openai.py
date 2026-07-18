@@ -1,6 +1,6 @@
 """LIVE — real OpenAI API call -> capture real payload -> run the adapter.
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\live\\test_live_openai.py
+Run: python tests/live/test_live_openai.py
 
 NOT part of the default suite (it lives under tests/live/, which the suite glob skips). It
 makes a REAL, billable API call, so it only runs when OPENAI_API_KEY is set; otherwise it

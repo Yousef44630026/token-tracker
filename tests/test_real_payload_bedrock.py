@@ -1,6 +1,6 @@
 """GROUND TRUTH — the Bedrock Converse adapter against a REAL captured payload.
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_real_payload_bedrock.py
+Run: python tests/test_real_payload_bedrock.py
 
 Mirrors test_real_payload_gemini.py / test_real_payload_azure.py. Runs the adapter on a
 payload captured from a real AWS Bedrock Converse call (examples/capture_bedrock_converse.py).

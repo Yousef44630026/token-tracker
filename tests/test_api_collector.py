@@ -1,6 +1,6 @@
 """Extra — collector HTTP endpoint (stdlib http.server), full pipeline.
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_api_collector.py
+Run: python tests/test_api_collector.py
 
 Spins the stdlib collector server on an ephemeral loopback port and checks the whole loop:
 CollectorClient -> HTTP transport -> api.main -> FileRepository (JSONL), plus /healthz,

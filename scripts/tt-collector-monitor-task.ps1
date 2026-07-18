@@ -17,6 +17,11 @@ $healthLog = if ($env:TRACKER_HEALTH_LOG) { $env:TRACKER_HEALTH_LOG } else { Joi
 $alertLog = if ($env:TRACKER_ALERT_LOG) { $env:TRACKER_ALERT_LOG } else { Join-Path $healthDir "collector-alerts.jsonl" }
 $taskLog = Join-Path $healthDir "collector-monitor-launcher.log"
 $runtimeDir = Split-Path -Parent $store
+$authTokenFile = if ($env:TRACKER_AUTH_TOKEN_FILE) {
+    $env:TRACKER_AUTH_TOKEN_FILE
+} else {
+    Join-Path (Join-Path $runtimeDir "config") "collector-auth.token"
+}
 $recoveryDelaySeconds = 15
 
 $plan = [ordered]@{
@@ -34,6 +39,7 @@ $plan = [ordered]@{
     health_log = $healthLog
     alert_log = $alertLog
     task_log = $taskLog
+    auth_token_file = $authTokenFile
 }
 
 function Write-MonitorTaskStatus {
@@ -68,12 +74,16 @@ if ($Mode -eq "Plan") {
 }
 
 if ($Mode -eq "Install") {
+    if (-not (Test-Path -LiteralPath $authTokenFile -PathType Leaf)) {
+        throw "Collector auth is not configured. Run scripts\tt-local-auth.ps1 -Mode Configure first."
+    }
     New-Item -ItemType Directory -Force -Path $healthDir | Out-Null
     $powerShell = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
     $arguments = (
         "-NoProfile -NonInteractive -ExecutionPolicy Bypass " +
         "-File `"$taskRunner`" " +
         "-HealthLog `"$healthLog`" -AlertLog `"$alertLog`" -TaskLog `"$taskLog`" " +
+        "-AuthTokenFile `"$authTokenFile`" " +
         "-CollectorTaskName `"$CollectorTaskName`" -RecoveryDelaySeconds $recoveryDelaySeconds"
     )
     $action = New-ScheduledTaskAction -Execute $powerShell -Argument $arguments -WorkingDirectory $runtimeDir

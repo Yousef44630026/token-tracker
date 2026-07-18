@@ -1,6 +1,6 @@
 """GROUND TRUTH — the Azure OpenAI adapter against a REAL captured payload.
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_real_payload_azure.py
+Run: python tests/test_real_payload_azure.py
 
 Mirrors test_real_payload_gemini.py. Runs the adapter on a payload captured from a real Azure
 OpenAI Responses call (examples/capture_azure_openai_responses.py). Asserts the

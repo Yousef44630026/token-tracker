@@ -4,7 +4,7 @@ is a realistic scenario (a multi-deployment helpdesk tenant, a mutation fuzzer a
 OWN real captured payload, hand-crafted Azure-specific adversarial shapes, and a shuffle/
 concurrency stress) built to find real problems, not to restate the obvious.
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_azure_limits_fuzz.py
+Run: python tests/test_azure_limits_fuzz.py
 Seed sweep: $env:FUZZ_SEED = "<n>" before running, or see SEEDS_TO_SWEEP below.
 
 Azure-specific realities exercised here:

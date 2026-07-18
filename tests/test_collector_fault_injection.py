@@ -1,6 +1,6 @@
 """Phase 8 — safe-failure collector under fault injection.
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_collector_fault_injection.py
+Run: python tests/test_collector_fault_injection.py
 
 The collector is non-blocking and fail-safe: a tracker/transport failure must NEVER raise
 into the caller. Covers: collector down, slow (timeout), buffer full (drop policy), network

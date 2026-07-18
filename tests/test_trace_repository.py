@@ -1,6 +1,6 @@
 """Extra — whole-trace snapshot store (TraceFileRepository).
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_trace_repository.py
+Run: python tests/test_trace_repository.py
 
 Atomically saves a complete Trace (spans + events + metadata) as JSON and reloads it: the
 snapshot round-trips, stores no derived totals, leaves no temp file behind, and rejects an

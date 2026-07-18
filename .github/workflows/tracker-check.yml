@@ -9,7 +9,11 @@ on:
 
 jobs:
   tracker-check:
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
@@ -51,6 +55,7 @@ jobs:
         run: python tests/run_all.py --skip-lint
 
       - name: Pin interpreter for cmd wrapper scripts
+        if: runner.os == 'Windows'
         shell: pwsh
         run: |
           # tt-verify.cmd resolves Python through scripts/_python.cmd, which prefers the Windows
@@ -62,5 +67,10 @@ jobs:
           "AI_TOKEN_TRACKER_PYTHON=$((Get-Command python).Source)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Provider and export verification
+        if: runner.os == 'Windows'
         shell: cmd
         run: scripts\tt-verify.cmd
+
+      - name: Provider and export verification (POSIX)
+        if: runner.os != 'Windows'
+        run: sh scripts/tt-verify.sh

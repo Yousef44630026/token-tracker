@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gzip
 import importlib.util
 import json
 import os
@@ -124,10 +125,20 @@ pd.DataFrame(
 ).to_csv(prices_path, index=False)
 
 events, report = load_jsonl_events(data_dir)
+check(Path(f"{events_path}.lock").exists(), "dashboard reads JSONL under the repository interprocess lock")
 check(report.valid_events == 3, "three valid events survive JSONL validation")
 check(report.malformed_lines == 1, "malformed JSONL is logged and skipped")
 check(report.schema_invalid_lines == 1, "schema-invalid JSON object is logged and skipped")
 check(next(item.event for item in events if item.event.event_id == "partial").superseded, "final usage supersedes partial stream")
+
+archive_dir = data_dir / "events.jsonl.archive"
+archive_dir.mkdir()
+with gzip.open(archive_dir / "segment.jsonl.gz", "wt", encoding="utf-8") as handle:
+    handle.write(json.dumps(final_two.to_dict()) + "\n")
+archived_events, archived_report = load_jsonl_events(data_dir)
+check(archived_report.files_read == 2, "dashboard discovers active and archived JSONL segments")
+check(archived_report.duplicate_event_ids == 1, "dashboard deduplicates archive/active crash overlap")
+check(len(archived_events) == 3, "dashboard archive discovery does not double count")
 
 data = build_data_frame(events, load_prices(prices_path))
 summaries = build_summary_frames(data)

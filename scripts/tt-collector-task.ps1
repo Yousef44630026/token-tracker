@@ -16,6 +16,11 @@ $port = if ($env:TRACKER_PORT) { [int]$env:TRACKER_PORT } else { 8787 }
 $logDir = Join-Path (Split-Path -Parent $store) "logs"
 $logPath = Join-Path $logDir "collector-service.log"
 $runtimeDir = Split-Path -Parent $store
+$authTokenFile = if ($env:TRACKER_AUTH_TOKEN_FILE) {
+    $env:TRACKER_AUTH_TOKEN_FILE
+} else {
+    Join-Path (Join-Path $runtimeDir "config") "collector-auth.token"
+}
 $durable = if ($env:TRACKER_DURABLE) {
     $env:TRACKER_DURABLE.Trim().ToLowerInvariant() -in @("1", "true", "yes", "on")
 } else {
@@ -39,6 +44,7 @@ $plan = [ordered]@{
     durable = $durable
     partitioned = $partitioned
     log = $logPath
+    auth_token_file = $authTokenFile
     triggers = @("at_startup", "at_logon")
     start_when_available = $true
     dont_stop_on_idle_end = $true
@@ -49,9 +55,15 @@ $plan = [ordered]@{
 
 function Get-CollectorHealth {
     $baseUri = "http://${hostAddress}:$port"
+    $headers = @{}
+    if ($env:TRACKER_AUTH_TOKEN) {
+        $headers["Authorization"] = "Bearer $($env:TRACKER_AUTH_TOKEN)"
+    } elseif (Test-Path -LiteralPath $authTokenFile -PathType Leaf) {
+        $headers["Authorization"] = "Bearer $((Get-Content -LiteralPath $authTokenFile -Raw).Trim())"
+    }
     try {
         $health = Invoke-RestMethod -Uri "$baseUri/healthz" -TimeoutSec 3
-        $stats = Invoke-RestMethod -Uri "$baseUri/v1/stats" -TimeoutSec 3
+        $stats = Invoke-RestMethod -Uri "$baseUri/v1/stats?summary=1" -Headers $headers -TimeoutSec 3
         return [ordered]@{
             reachable = $true
             status = $health.status
@@ -125,12 +137,18 @@ if ($Mode -eq "Plan") {
 }
 
 if ($Mode -eq "Install") {
+    if (-not (Test-Path -LiteralPath $authTokenFile -PathType Leaf)) {
+        throw "Collector auth is not configured. Run scripts\tt-local-auth.ps1 -Mode Configure first."
+    }
     Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
     Start-Sleep -Milliseconds 500
     Stop-ManagedCollectorProcesses
     New-Item -ItemType Directory -Force -Path $logDir | Out-Null
     $powerShell = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
-    $arguments = "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$taskRunner`" -LogPath `"$logPath`""
+    $arguments = (
+        "-NoProfile -NonInteractive -ExecutionPolicy Bypass " +
+        "-File `"$taskRunner`" -LogPath `"$logPath`" -AuthTokenFile `"$authTokenFile`""
+    )
     $action = New-ScheduledTaskAction -Execute $powerShell -Argument $arguments -WorkingDirectory $runtimeDir
     $userId = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
     $triggers = @(

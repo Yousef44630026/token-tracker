@@ -1,6 +1,6 @@
 """A schema-invalid (but JSON-valid) row must not make the whole store unreadable.
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_repository_tolerates_invalid_row.py
+Run: python tests/test_repository_tolerates_invalid_row.py
 
 Historical JSONL can contain a row written by an older schema (e.g. a legacy 'status' value
 that no longer validates). One such row must not crash read_all / iter_events and take every

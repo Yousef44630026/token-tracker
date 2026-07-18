@@ -1,6 +1,6 @@
 """P0 hardening — proxy capture for a provider WITHOUT a dedicated adapter.
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_proxy_unknown_provider_fallback.py
+Run: python tests/test_proxy_unknown_provider_fallback.py
 
 Before this change, ``_surface`` only knew openai/anthropic paths and ``create_adapter`` was
 strict, so proxying any other provider (groq, together, an OpenAI-compatible gateway...)

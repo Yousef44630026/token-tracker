@@ -1,6 +1,6 @@
 """Extra — concurrency: thread isolation of the propagation context (INV-5).
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_concurrency_context.py
+Run: python tests/test_concurrency_context.py
 
 The active context lives in a ContextVar, so each thread gets its own. Many threads opening
 their own trace/span and normalizing concurrently must never cross-contaminate identity:

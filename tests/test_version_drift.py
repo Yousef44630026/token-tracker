@@ -1,7 +1,7 @@
 """Extra — version-drift defense: a provider renaming/dropping fields is DETECTED, not
 silently miscounted.
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_version_drift.py
+Run: python tests/test_version_drift.py
 
 The adapters pin documented field names. When a provider drifts (renames or drops a field),
 the system must FAIL SAFE: either ``raw_usage_missing`` (nothing recognized) or

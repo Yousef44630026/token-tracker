@@ -1,6 +1,6 @@
 """Regression — reliability success_rate must not default to a confident 100%.
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_reliability_unmeasured_regression.py
+Run: python tests/test_reliability_unmeasured_regression.py
 
 Found during a rigorous logic/relevance review of tracker/analytics/reliability.py: `observation`
 is optional and defaults to {} — nothing in tracker/workflows/agent_tracker.py or rag_tracker.py

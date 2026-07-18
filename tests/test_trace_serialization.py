@@ -1,6 +1,6 @@
 """Extra — Trace.to_dict / from_dict round-trip (INV-2).
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_trace_serialization.py
+Run: python tests/test_trace_serialization.py
 
 A trace serializes its labels, spans (with metadata), and events losslessly, stores no derived
 totals, and reloads to an equal Trace that re-derives its totals.

@@ -1,6 +1,6 @@
 """Extra — CoverageExactness numeric correctness (Phase 9 analytics).
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_coverage_exactness_numbers.py
+Run: python tests/test_coverage_exactness_numbers.py
 
 Crafts a trace with a known mix (exact / estimate / unknown quantities, some events with a
 provider total, some without) and pins every coverage/exactness number.

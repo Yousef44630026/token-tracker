@@ -1,6 +1,6 @@
 """Extra — adapter contract methods across all providers.
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_adapter_methods.py
+Run: python tests/test_adapter_methods.py
 
 Exercises the non-response methods every adapter must implement: stream-event extraction
 (final usage -> provider_stream_final), local input counting, partial-output estimation,

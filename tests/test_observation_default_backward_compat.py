@@ -1,6 +1,6 @@
 """Regression — legacy missing authority stays readable but fails closed.
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_observation_default_backward_compat.py
+Run: python tests/test_observation_default_backward_compat.py
 
 The explicit-``authoritative`` requirement (INV-7) guards both against typos and omitted
 authority. Live ingestion rejects omission. Historical JSONL remains readable, but missing

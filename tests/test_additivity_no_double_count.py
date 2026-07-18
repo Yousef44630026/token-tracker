@@ -1,6 +1,6 @@
 """Phase 3 — additivity must not double-count (INV-4).
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_additivity_no_double_count.py
+Run: python tests/test_additivity_no_double_count.py
 
 An OpenAI-style response carries input + output (both total_contributing), plus
 cached_input (subtotal_of input) and reasoning (subtotal_of output). The contributing

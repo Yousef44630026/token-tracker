@@ -25,7 +25,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, ROOT)
 
+from tracker.derive.effective_events import effective_events  # noqa: E402
 from tracker.storage.file_repository import FileRepository  # noqa: E402
+from tracker.storage.retention import RetentionPolicy, inspect_retention, run_retention  # noqa: E402
 
 
 def _sha256(path: str) -> str:
@@ -46,6 +48,13 @@ def _strict_repository(path: str) -> FileRepository:
         recover_truncated_tail=False,
         skip_invalid_records=False,
     )
+
+
+def _accounting_identity(path: str) -> tuple[tuple[str, ...], int]:
+    events = list(_strict_repository(path).iter_events())
+    event_ids = tuple(sorted(event.event_id for event in events))
+    canonical_total = sum(event.event_contributing_tokens for event in effective_events(events))
+    return event_ids, canonical_total
 
 
 def _summary(
@@ -105,6 +114,7 @@ def main() -> int:
     try:
         snapshot = os.path.join(drill_dir, "snapshot.jsonl")
         backup = os.path.join(drill_dir, "backup.jsonl")
+        retention_copy = os.path.join(drill_dir, "retention.jsonl")
         rotated = os.path.join(drill_dir, "rotated.jsonl")
         primary = os.path.join(drill_dir, "primary.jsonl")
 
@@ -134,12 +144,37 @@ def main() -> int:
         shutil.copy2(snapshot, backup)
         check("backup_integrity", _sha256(backup) == base_sha, "backup sha == snapshot sha")
 
-        # 3. ROTATION / COMPACTION: produce a compacted copy (drops superseded); must be readable.
+        # 3. ARCHIVE-FIRST RETENTION: rotate a disposable byte copy. The source snapshot and
+        #    live ledger remain untouched; source identity and canonical accounting must match.
+        shutil.copy2(snapshot, retention_copy)
+        before_ids, before_total = _accounting_identity(retention_copy)
+        retention_report = run_retention(
+            retention_copy,
+            RetentionPolicy(max_store_bytes=1, max_age_days=None),
+        )
+        after_ids, after_total = _accounting_identity(retention_copy)
+        retention_status = inspect_retention(retention_copy)
+        archive_rotation_ok = (
+            retention_report.rotated_segment_count == 1
+            and retention_report.purged_segment_count == 0
+            and os.path.getsize(retention_copy) == 0
+            and before_ids == after_ids
+            and before_total == after_total
+            and retention_status.retention_has_run
+            and retention_status.archive_segment_count == 1
+        )
+        check(
+            "archive_first_retention",
+            archive_rotation_ok,
+            f"events {len(before_ids)} -> {len(after_ids)}, canonical total {before_total} -> {after_total}, purge 0",
+        )
+
+        # 4. ROTATION / COMPACTION: produce a compacted copy (drops superseded); must be readable.
         rotated_kept = _strict_repository(snapshot).write_compacted(rotated, drop_superseded=True)
         rotated_readback = _count(rotated)
         check("rotation_compaction", rotated_kept == rotated_readback, f"kept {rotated_kept}, read back {rotated_readback}")
 
-        # 4. SIMULATED LOSS then RESTORE from backup; restored store must match the baseline.
+        # 5. SIMULATED LOSS then RESTORE from backup; restored store must match the baseline.
         shutil.copy2(snapshot, primary)
         os.remove(primary)
         check("simulated_loss", not os.path.exists(primary), "primary deleted")
@@ -149,7 +184,7 @@ def main() -> int:
         check("restore_integrity", restored_sha == base_sha and restored_count == snap_count,
               f"restored {restored_count} events, sha match={restored_sha == base_sha}")
 
-        # 5. DUPLICATE-RECOVERY: re-append every restored event; the store must persist ZERO
+        # 6. DUPLICATE-RECOVERY: re-append every restored event; the store must persist ZERO
         #    duplicates and stay byte-identical (dedup by deterministic event_id).
         repo = _strict_repository(primary)
         events = repo.read_all()
@@ -159,7 +194,7 @@ def main() -> int:
         check("duplicate_recovery", newly == [] and after_count == snap_count and after_sha == base_sha,
               f"re-appended {len(events)}, newly persisted {len(newly)}, count {after_count}, sha unchanged={after_sha == base_sha}")
 
-        # 6. READABILITY: full streaming read of the restored store.
+        # 7. READABILITY: full streaming read of the restored store.
         check("readability", _count(primary) == snap_count, f"streamed {snap_count} events")
 
         summary = _summary(

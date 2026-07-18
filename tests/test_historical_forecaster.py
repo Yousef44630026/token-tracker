@@ -1,6 +1,6 @@
 """Extra — historical token forecaster (estimation).
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_historical_forecaster.py
+Run: python tests/test_historical_forecaster.py
 
 forecast_tokens returns the rounded median of recent non-negative integer observations, honors
 a rolling window, and rejects bad input (negatives -> ValueError, non-ints/bools -> TypeError).

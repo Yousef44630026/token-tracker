@@ -1,6 +1,6 @@
 """Extra — collector functional behaviour (Phase 8, beyond fault injection).
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_collector_functional.py
+Run: python tests/test_collector_functional.py
 
 Exercises the happy paths and policies: record/flush, dedup by event_id, drop_oldest vs
 drop_newest, offline_mode / no transport, partial-ack requeue, and the never-raise guarantee

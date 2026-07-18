@@ -1,6 +1,6 @@
 """Extra — stream tracker, additional paths (Phase 7).
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_stream_tracker_more.py
+Run: python tests/test_stream_tracker_more.py
 
 Text accumulation, output-only completion, a late final with no prior partial (no crash),
 an interrupt on empty text (estimate 0), and provider/model passthrough onto the event.

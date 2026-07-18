@@ -1,6 +1,6 @@
 """Extra — public façade -> collector -> real HTTP server -> repository (full e2e).
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_facade_http_e2e.py
+Run: python tests/test_facade_http_e2e.py
 
 Ties the highest-level API to the running server: track_response() fans out to a
 CollectorClient whose transport POSTs to a live api.main server; after flush the events are

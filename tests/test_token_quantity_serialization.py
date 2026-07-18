@@ -1,6 +1,6 @@
 """Extra — TokenQuantity serialization round-trip across every token type (INV-1 / INV-2).
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_token_quantity_serialization.py
+Run: python tests/test_token_quantity_serialization.py
 
 to_dict/from_dict round-trips all stored fields for every TokenType (incl. None quantity with
 an unknown_reason and metadata), and the derived keys never appear in the serialized dict.

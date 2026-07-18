@@ -11,7 +11,7 @@ The contract for timeout is unchanged for OUTPUT (INV-6: a lost output is None/U
 reason stream_timeout, a surfaced count and never a confident zero). What changes is that a
 KNOWN exact input — unambiguous provider data — is kept, exactly as interrupt() keeps it.
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_stream_timeout_keeps_known_input.py
+Run: python tests/test_stream_timeout_keeps_known_input.py
 """
 
 import os

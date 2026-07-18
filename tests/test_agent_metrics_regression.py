@@ -1,6 +1,6 @@
 """Regression — tokens_per_successful_agent_run must not absorb failed runs' cost.
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_agent_metrics_regression.py
+Run: python tests/test_agent_metrics_regression.py
 
 Found during a rigorous logic/relevance review of tracker/analytics/agent.py: the numerator
 (``agent_tokens``, ALL runs' tokens) and the denominator (``successful_runs``, only successful

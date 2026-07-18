@@ -1,6 +1,6 @@
 """Anthropic Messages adapter: cache buckets contribute separately from fresh input.
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_anthropic_messages_adapter.py
+Run: python tests/test_anthropic_messages_adapter.py
 
 Anthropic reports input/output and separate cache_* counts but no provider total. Official
 prompt-caching semantics and a real Claude Code capture confirm that input, cache read, and

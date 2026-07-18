@@ -1,6 +1,6 @@
 """Extra — the canonical derived-field functions (INV-2 / INV-4 / INV-6).
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_derived_fields.py
+Run: python tests/test_derived_fields.py
 
 derive/derived_fields delegates to the model @property, so the rule lives in one place.
 Verifies every export_warning branch and the event-grain derivations.

@@ -2,7 +2,7 @@
 lookup) feeding an Anthropic conversation whose cache grows as tool results accumulate in
 context, plus a max-steps-reached variant.
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_scenario_b_agent_tool_calls.py
+Run: python tests/test_scenario_b_agent_tool_calls.py
 
 Split out of the original test_realistic_scenarios_deep.py — see test_scenario_a_rag_conversation.py
 for the sibling scenarios and the reasoning behind the split.

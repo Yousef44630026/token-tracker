@@ -1,6 +1,6 @@
 """AWS / Bedrock simulated coverage — Converse streaming, embeddings, robustness.
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_aws_simulated.py
+Run: python tests/test_aws_simulated.py
 
 SIMULATED but realistic Bedrock shapes: the ConverseStream metadata event, an embeddings
 InvokeModel response (header token count), and the no-usage robustness paths.

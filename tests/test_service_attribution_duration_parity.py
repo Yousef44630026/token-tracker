@@ -1,6 +1,6 @@
 """Regression — duration must be read the same way in every analytics view.
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_service_attribution_duration_parity.py
+Run: python tests/test_service_attribution_duration_parity.py
 
 The observation contract recognizes THREE duration keys (duration_ms, total_duration_ms,
 provider_duration_ms). LatencySummary reads all three, but ServiceAttribution read only

@@ -1,6 +1,6 @@
 """Extra — CollectorConfig validation (fail fast on bad tunables).
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_collector_config.py
+Run: python tests/test_collector_config.py
 
 The config validates at construction so a misconfigured collector is caught immediately rather
 than misbehaving silently under load.

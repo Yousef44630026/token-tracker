@@ -1,6 +1,6 @@
 """Extra — trace rollup totals + counts (INV-2 / INV-5).
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_trace_rollup.py
+Run: python tests/test_trace_rollup.py
 
 The rollup sums event_contributing_tokens (superseded and unknown contribute 0) and reports
 event-grain counts, all recomputed, nothing stored.

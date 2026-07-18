@@ -1,6 +1,6 @@
 """Extra — robustness: malformed / junk responses never crash the tracker.
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_robustness_malformed.py
+Run: python tests/test_robustness_malformed.py
 
 Every adapter, driven through the normalizer, must turn garbage (None, wrong types, empty or
 partial usage) into a flagged TokenEvent that contributes 0 — never an exception, never a

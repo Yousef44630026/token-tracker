@@ -10,7 +10,7 @@ Codex's local session usage instead, without storing raw prompts or credentials.
 ## Interactive Codex
 
 ```powershell
-& "C:\Users\yerabhaoui\python-portable\Scripts\ai-token-tracker-proxy.exe" codex `
+ai-token-tracker-proxy codex `
   --store ".\codex_events.jsonl" `
   --live-budget-tokens 50000
 ```
@@ -21,7 +21,7 @@ Type prompts normally in Codex. When you exit Codex, the tracker imports the new
 ## One prompt
 
 ```powershell
-& "C:\Users\yerabhaoui\python-portable\Scripts\ai-token-tracker-proxy.exe" codex `
+ai-token-tracker-proxy codex `
   --store ".\codex_events.jsonl" `
   --live-budget-tokens 50000 `
   -- --no-alt-screen -a never exec --skip-git-repo-check -s read-only "Reply with exactly one word: OK"
@@ -30,7 +30,7 @@ Type prompts normally in Codex. When you exit Codex, the tracker imports the new
 ## Repeatable prompt suite
 
 ```powershell
-& "C:\Users\yerabhaoui\python-portable\Scripts\ai-token-tracker-proxy.exe" codex-suite `
+ai-token-tracker-proxy codex-suite `
   --store ".\codex_events.jsonl" `
   --prompts ".\CODEX_VARIED_TESTS.md" `
   --live-budget-tokens 150000 `
@@ -49,8 +49,8 @@ events appended to already-open Codex sessions.
 ## Reports and privacy audit
 
 ```powershell
-& "C:\Users\yerabhaoui\python-portable\Scripts\ai-token-tracker-proxy.exe" report --store ".\codex_events.jsonl"
-& "C:\Users\yerabhaoui\python-portable\Scripts\ai-token-tracker-proxy.exe" privacy-audit --store ".\codex_events.jsonl"
+ai-token-tracker-proxy report --store ".\codex_events.jsonl"
+ai-token-tracker-proxy privacy-audit --store ".\codex_events.jsonl"
 ```
 
 The stored JSONL contains token usage and metadata only. It does not store raw

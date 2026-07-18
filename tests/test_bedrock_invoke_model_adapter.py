@@ -1,6 +1,6 @@
 """Extra — Bedrock InvokeModel adapter (token counts from Bedrock HTTP headers).
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_bedrock_invoke_model_adapter.py
+Run: python tests/test_bedrock_invoke_model_adapter.py
 
 SIMULATED fixture. InvokeModel bodies are model-specific, but Bedrock returns model-agnostic
 token counts in the response headers (x-amzn-bedrock-input/output-token-count). The adapter

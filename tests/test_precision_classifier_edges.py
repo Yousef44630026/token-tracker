@@ -1,6 +1,6 @@
 """Extra — precision classifier is a TOTAL mapping over every usage source (INV-3 / INV-6).
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_precision_classifier_edges.py
+Run: python tests/test_precision_classifier_edges.py
 
 Pins classify_precision for every UsageSource member, both with a known quantity and with
 None (which is always UNKNOWN). Guards against a new source silently defaulting wrong.

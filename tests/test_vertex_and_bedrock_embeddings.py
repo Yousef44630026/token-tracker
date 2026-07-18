@@ -1,6 +1,6 @@
 """Extra — Vertex AI (Gemini wire format) + Bedrock embeddings.
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_vertex_and_bedrock_embeddings.py
+Run: python tests/test_vertex_and_bedrock_embeddings.py
 
 Vertex AI reuses the Gemini usageMetadata (provider label differs, aliased in the table).
 Bedrock embeddings read the input-token-count header into an `embedding` quantity.

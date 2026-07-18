@@ -1,6 +1,6 @@
 """Regression — the generic fallback must fail CLOSED even for a KNOWN provider.
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_fallback_known_provider_unverified.py
+Run: python tests/test_fallback_known_provider_unverified.py
 
 The generic fallback exists for capture paths that hit a (provider, surface) pair WITHOUT a
 dedicated, tested adapter. Its documented contract (see generic_fallback_adapter.py and

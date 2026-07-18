@@ -21,6 +21,7 @@ from tests.run_all import (  # noqa: E402
 
 check = make_checker()
 root = Path(tempfile.mkdtemp(prefix="tracker-runner-cleanup-test-"))
+repo_root = Path(os.environ.get("TRACKER_REPO_ROOT", Path(__file__).resolve().parents[1]))
 
 try:
     ordinary = root / ".test_ordinary"
@@ -61,6 +62,13 @@ try:
     check(run_root.parent == configured_parent.resolve(), "test run workspaces honor an out-of-repo temp root")
     check("ai-token-tracker-tests-" in run_root.name, "temporary run roots have a recognizable bounded prefix")
     shutil.rmtree(run_root)
+
+    cmd_wrapper = (repo_root / "scripts" / "tt-check.cmd").read_text(encoding="utf-8").lower()
+    check("tests\\run_all.py %*" in cmd_wrapper, "Windows check wrapper delegates to the isolated canonical runner")
+    check(
+        "tests\\test_operational_doctor.py" not in cmd_wrapper,
+        "Windows check wrapper does not maintain a divergent in-repo test manifest",
+    )
 finally:
     shutil.rmtree(root, ignore_errors=True)
 

@@ -1,12 +1,23 @@
 # AI Token Tracker (Architecture v9)
 
 Token tracking layer for GenAI, RAG, and agentic systems, built on the standard library
-(+ `openpyxl` for Excel). Capture and accounting contain **no pricing and no SQL/DB**.
+(+ `openpyxl` for Excel and `tiktoken` for local estimates). Capture and accounting contain
+**no pricing and no SQL/DB**.
 The optional reporting extra may derive presentation-only cost from an external price table.
 
 > Status: the accounting core, operational collector, exports, and non-live regression suite
 > are implemented. Provider readiness remains evidence-based: consult
 > `docs/OPERATIONAL_EVIDENCE.md` and the provider matrix before claiming a surface validated.
+
+## Scope
+
+This system is observation and measurement only, by design. It captures, normalizes,
+attributes, and reports token usage; it does not enforce budgets, throttle requests, block
+traffic, or send alerts. Enforcement and alerting may become a separate future layer, but
+they are deliberately out of scope today.
+
+Completeness is bounded by capture coverage: the tracker measures only traffic that flows
+through its configured capture paths. Calls and spend outside those paths are invisible to it.
 
 ## Core idea — storage vs. derived
 
@@ -84,9 +95,10 @@ For streaming, `track_stream(context=..., provider=..., api_surface=...)` create
 
 Before running real provider traffic, run the doctor. It checks the local Python/runtime,
 Excel dependency, storage/derived invariant, collector network posture, local secret leaks,
-Azure/Foundry env profiles, collector-health freshness, scheduled Claude-import freshness,
-store writability, and whether an existing JSONL/partitioned store can be read by streaming
-over events.
+Azure/Foundry env profiles, collector-health freshness and startup code fingerprint, scheduled
+Claude-import freshness, store writability, and whether an existing JSONL/partitioned store can
+be read by streaming over events. A fingerprint mismatch fails readiness and requires a collector
+restart before the running service can be trusted to reflect the code on disk.
 
 ```console
 scripts\tt-doctor.cmd --store real_call_events.jsonl
@@ -109,9 +121,39 @@ ai-token-tracker-proxy powerbi-export --store runs\events --partitioned-store --
 The collector supports the same mode with `--partitioned-store` or
 `TRACKER_PARTITIONED=true`; in that mode `TRACKER_STORE` names the partition root.
 
+### Explicit retention
+
+Retention is an operator action, never an ingestion side effect. By default it rotates a
+non-empty active segment after 256 MiB or when its oldest event exceeds 30 days, writes a
+crash-safe gzip archive first, and never purges. Archived segments remain part of the JSONL
+source of truth and are included by repository reads, collector statistics, deduplication,
+the partition index, and the Excel dashboard.
+
+```console
+scripts\tt-retention.cmd --store C:\ai-token-tracker-data\collector_events.jsonl
+scripts\tt-retention.cmd --store runs\events --partitioned-store
+```
+
+Deletion requires both an explicit enable switch and an age:
+
+```console
+scripts\tt-retention.cmd --store events.jsonl --enable-purge --purge-after-days 90
+```
+
+The Doctor reports whether retention has ever run, physical segment count and size, the oldest
+retained event age, and the oldest event still in the active segment. Only the active segment age
+drives the rotation warning; deliberately retained archives do not create a permanent false alarm.
+Override its warning thresholds with `--retention-max-store-bytes` and
+`--retention-max-age-days`.
+
 The Power BI exporter consumes the repository iterator once into a temporary, event-id
 deduplicated SQLite snapshot. Fact CSVs are then written from replayable iterators, avoiding
 an in-memory copy of the full event history; the temporary snapshot is deleted afterward.
+
+On POSIX systems, use the `.sh` siblings for collector supervision, Doctor, verification,
+reporting, and Power BI export. Windows Scheduled Task automation is intentionally not copied;
+[`docs/POSIX_OPERATIONS.md`](docs/POSIX_OPERATIONS.md) provides the `cron` equivalent and its
+operational verification steps. CI runs the non-live suite on both Windows and Ubuntu.
 
 Exit code is non-zero only for blockers (`FAIL`), unless `--strict-warnings` is used.
 `WARN` means the tracker can run but something deserves attention, e.g. no store exists yet,
@@ -195,8 +237,10 @@ Run the local gate with:
 scripts\tt-check.cmd
 ```
 
-It runs Ruff plus the core storage/accounting, Azure adapter, smoke harness, proxy, API,
-Power BI, collector rejection, invalid-row tolerance, and deep fuzz regressions.
+It delegates to the same isolated full-suite runner used by CI: Ruff plus every non-live test
+script. Each script gets its own workspace under the system temporary directory, keeping test
+artifacts and transient Windows handles out of the synced repository. For a targeted run, pass a
+glob through the wrapper, for example `scripts\tt-check.cmd --pattern test_storage_*.py`.
 
 ### Thread pools
 
@@ -247,9 +291,20 @@ Collector transports are at-least-once after an in-flight timeout expires, so cu
 transports should preserve the same `event_id` idempotency contract as the bundled HTTP
 collector.
 
-Set `TRACKER_AUTH_TOKEN` (or pass `--auth-token`) to require bearer authentication for
-ingestion and stats. Keep the collector on loopback or behind TLS when used beyond the
-local machine.
+Operational Windows tasks require bearer authentication even on loopback. Generate a strong
+token outside the repository, restrict its ACL to the current user and SYSTEM, and inspect its
+redacted status with:
+
+```powershell
+scripts\tt-local-auth.ps1 -Mode Configure
+scripts\tt-local-auth.ps1 -Mode Status
+```
+
+The services receive only `TRACKER_AUTH_TOKEN_FILE`; the bearer itself is never serialized in
+a task definition or log. `TRACKER_AUTH_TOKEN` and `--auth-token` remain available for
+ephemeral/manual runs. Keep the collector on loopback or behind TLS when used beyond the local
+machine. Authentication limits accidental or untrusted local API writes, but it is not a
+security boundary against another process already running as the same Windows user.
 
 On Windows, inspect and install the per-user supervised task with:
 
@@ -259,9 +314,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\tt-collector-task.ps
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\tt-collector-task.ps1 -Mode Status
 ```
 
-The task starts at Windows startup and logon, supervises and restarts a failed collector child, keeps logs beside
-the non-synced event store, and never serializes `TRACKER_AUTH_TOKEN`. Use `-Mode Stop` for maintenance and
-`-Mode Uninstall` to remove the task.
+The task starts at Windows startup and logon, supervises and restarts a failed collector child,
+keeps logs beside the non-synced event store, and loads the external bearer file at runtime.
+Installation fails closed until `tt-local-auth.ps1 -Mode Configure` has succeeded. Use `-Mode
+Stop` for maintenance and `-Mode Uninstall` to remove the task.
 
 Install the independent one-minute health monitor with:
 
@@ -269,6 +325,20 @@ Install the independent one-minute health monitor with:
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\tt-collector-monitor-task.ps1 -Mode Plan
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\tt-collector-monitor-task.ps1 -Mode Install
 ```
+
+Install the strict Doctor watchdog after the importer and dashboard tasks. It consumes all
+freshness dead-men every hour, atomically publishes its latest result, and appends failed runs
+to an alert ledger:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\tt-doctor-watchdog-task.ps1 -Mode Plan
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\tt-doctor-watchdog-task.ps1 -Mode Install
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\tt-doctor-watchdog-task.ps1 -Mode Status
+```
+
+Evidence is written under `<store-parent>\health` as `doctor-watchdog.json`,
+`doctor-watchdog.jsonl`, and `doctor-alerts.jsonl`. The task is standard-user, runs at logon and
+every hour, and catches missed runs after sleep with `StartWhenAvailable`.
 
 Run a strict 72-hour availability and append-only integrity soak with:
 
@@ -329,15 +399,17 @@ adapter instead of passing through unmeasured:
 ai-token-tracker-proxy serve --provider groq --upstream https://api.groq.com/openai --store groq_events.jsonl
 ```
 
-Install the optional tokenizer to reproduce TokenTap's `cl100k_base` measurement:
+`tiktoken` is a required dependency and a normal install provides the `cl100k_base` local
+estimator:
 
 ```console
-pip install -e ".[proxy]"
+pip install -e .
 ```
 
 Keep the live append-only event store on a non-synced local volume. OneDrive, Dropbox, and
 Google Drive can hold exported copies, but should not own the JSONL ledger or its lock/index
-sidecars. `tt-doctor` reports the active tokenizer backend and warns when the configured
+sidecars. `tt-doctor` reports the active tokenizer backend and fails readiness if the emergency
+char4 estimator is active. It warns when the configured
 store resolves inside a recognized sync folder.
 
 Run Claude Code through the proxy and save events to JSONL:
@@ -378,10 +450,13 @@ The scheduled importer maintains an atomic byte checkpoint at
 `<store-parent>\health\claude-import-state.json`, advances it only after complete collector
 acknowledgement, and defers an incomplete transcript tail until its newline arrives. It exits
 `2` on suspected transcript-format drift and does not advance the checkpoint or post events.
-When collector authentication is enabled, set `TRACKER_AUTH_TOKEN` in the task user's
-environment; the token is sent as a bearer header at runtime and is never written into the
-task definition, checkpoint, or log. The collector response distinguishes valid `acked` ids
-from newly `persisted` ids, so duplicate replay is explicit rather than reported as new data.
+Provider usage is routed through the same normalizer as proxy traffic, so renamed token fields
+raise `provider_schema_drift`; fully unreadable usage also raises `raw_usage_missing`. Event
+identity is derived from `sessionId + requestId`, never an absolute file path. The repository
+uses the same source identity to reject a stable replay against path-derived events written by
+older versions. The shared bearer file is loaded at runtime and is never written into the task
+definition, checkpoint, or log. The collector response distinguishes valid `acked` ids from
+newly `persisted` ids, so duplicate replay is explicit rather than reported as new data.
 
 The exact provider input remains the contributing quantity. The estimate is attached under
 the input quantity's `metadata.prompt_estimate`, including the estimator name and the
@@ -502,7 +577,7 @@ For Codex/Claude smoke suites used during live testing, see `CODEX_VARIED_TESTS.
 Tests run as plain scripts with the configured Python:
 
 ```
-& "C:\Users\yerabhaoui\python-portable\python.exe" tests\run_all.py
+python tests/run_all.py
 ```
 
 Each test prints `[PASS]/[FAIL]` lines and exits non-zero on failure. The six core

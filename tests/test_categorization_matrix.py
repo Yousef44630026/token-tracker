@@ -1,6 +1,6 @@
 """Verification audit - provider token categorization matrix.
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_categorization_matrix.py
+Run: python tests/test_categorization_matrix.py
 
 Pins the central additivity table as the audited source of truth. Unknown provider/type
 pairs must fail closed as unverified, contribute 0, and raise the normalizer flag.

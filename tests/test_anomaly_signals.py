@@ -1,6 +1,6 @@
 """Extra — derived anomaly signals (analytics).
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_anomaly_signals.py
+Run: python tests/test_anomaly_signals.py
 
 detect_anomalies materializes one signal per non-zero provider/derived mismatch and one per
 data-quality flag (de-duplicating the mismatch flag against the derived mismatch signal). All

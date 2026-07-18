@@ -1,6 +1,6 @@
 """P0 hardening — generic fallback adapter: open capture, closed counting (INV-4 / INV-6).
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_generic_fallback_adapter.py
+Run: python tests/test_generic_fallback_adapter.py
 
 Today an unknown provider dies in ``create_adapter`` with a ValueError: the observed call is
 LOST — the one remaining way usage could vanish without a flag. The fallback adapter closes

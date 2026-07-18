@@ -18,6 +18,11 @@ $runner = (Resolve-Path (Join-Path $scriptDir "tt-claude-import.cmd")).Path
 $taskRunner = (Resolve-Path (Join-Path $scriptDir "tt-claude-import-task-run.ps1")).Path
 $store = if ($env:TRACKER_STORE) { $env:TRACKER_STORE } else { "C:\ai-token-tracker-data\collector_events.jsonl" }
 $runtimeDir = Split-Path -Parent $store
+$authTokenFile = if ($env:TRACKER_AUTH_TOKEN_FILE) {
+    $env:TRACKER_AUTH_TOKEN_FILE
+} else {
+    Join-Path (Join-Path $runtimeDir "config") "collector-auth.token"
+}
 $logDir = Join-Path $runtimeDir "health"
 $taskLog = Join-Path $logDir "claude-import.log"
 $stateFile = if ($env:TRACKER_CLAUDE_IMPORT_STATE) { $env:TRACKER_CLAUDE_IMPORT_STATE } else { Join-Path $logDir "claude-import-state.json" }
@@ -34,6 +39,7 @@ $plan = [ordered]@{
     interval_minutes = $IntervalMinutes
     task_log = $taskLog
     state_file = $stateFile
+    auth_token_file = $authTokenFile
 }
 
 function Write-ImportTaskStatus {
@@ -65,11 +71,15 @@ function Write-ImportTaskStatus {
 if ($Mode -eq "Plan") { $plan | ConvertTo-Json -Depth 4; exit 0 }
 
 if ($Mode -eq "Install") {
+    if (-not (Test-Path -LiteralPath $authTokenFile -PathType Leaf)) {
+        throw "Collector auth is not configured. Run scripts\tt-local-auth.ps1 -Mode Configure first."
+    }
     New-Item -ItemType Directory -Force -Path $logDir | Out-Null
     $powerShell = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
     $arguments = (
         "-NoProfile -NonInteractive -ExecutionPolicy Bypass " +
-        "-File `"$taskRunner`" -TaskLog `"$taskLog`" -StateFile `"$stateFile`""
+        "-File `"$taskRunner`" -TaskLog `"$taskLog`" -StateFile `"$stateFile`" " +
+        "-AuthTokenFile `"$authTokenFile`""
     )
     $action = New-ScheduledTaskAction -Execute $powerShell -Argument $arguments -WorkingDirectory $runtimeDir
     $userId = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name

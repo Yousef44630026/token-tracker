@@ -7,7 +7,7 @@ the expected result, and the reason the test matters.
 Use the portable Python when available:
 
 ```cmd
-set PY=C:\Users\yerabhaoui\python-portable\python.exe
+set PY=python
 ```
 
 If that path is not available on another machine, replace `%PY%` with `python`.
@@ -300,6 +300,10 @@ Commands:
 %PY% tests\test_api_collector.py
 %PY% tests\test_api_auth_and_errors.py
 %PY% tests\test_api_server_errors.py
+%PY% tests\test_local_collector_auth.py
+%PY% tests\test_doctor_watchdog.py
+%PY% tests\test_doctor_watchdog_task_plan.py
+%PY% tests\test_claude_import_integrity.py
 ```
 
 Expected result:
@@ -309,6 +313,9 @@ Expected result:
 - Partial failures remain observable.
 - Concurrent submissions do not corrupt state.
 - API auth and error paths return explicit failure responses.
+- Operational tasks share only an external secret-file path and fail closed on malformed auth.
+- Imported Claude usage cannot bypass provider schema-drift detection or change identity after a path move.
+- The scheduled Doctor consumer turns stale/corrupt dead-men into persistent JSON alerts.
 
 What this proves:
 
@@ -326,6 +333,7 @@ Commands:
 %PY% tests\test_load_events.py
 %PY% tests\test_load_collector.py
 %PY% tests\test_end_to_end_pipeline.py
+%PY% tests\test_effective_snapshot_scale.py
 ```
 
 Expected result:
@@ -335,6 +343,7 @@ Expected result:
 - Truncated tail recovery is handled.
 - Loaded traces still derive totals instead of reading stored totals.
 - End-to-end pipeline exports consistent totals.
+- The disk-backed effective projection reconciles 4,000 independent correlations without an unbounded scan.
 
 What this proves:
 
@@ -520,6 +529,7 @@ Commands:
 Expected result:
 
 - Local token estimates are marked with estimate precision and local source.
+- The required `tiktoken` backend is active; emergency char4 fallback fails Doctor readiness.
 - Historical forecast values are not confused with exact provider response usage.
 
 What this proves:

@@ -1,6 +1,6 @@
 """Phase 1 / step 3 — propagation core (contextvars, span managers, header resume).
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_context_core.py
+Run: python tests/test_context_core.py
 
 Single-threaded semantics + strict set/reset discipline (real concurrency is step 4):
   - current() is None outside any context

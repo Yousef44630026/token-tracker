@@ -1,6 +1,6 @@
 """Extra — cross-service header inject/extract round-trip (Phase 1).
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_headers_roundtrip.py
+Run: python tests/test_headers_roundtrip.py
 
 Every field survives inject -> extract; optional fields are omitted when None; extract is
 case-insensitive, ignores unrelated headers, and returns None when the required identity is

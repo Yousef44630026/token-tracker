@@ -1,6 +1,6 @@
 """Phase 3 — correlated stream supersession (INV-5).
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_stream_supersession_no_double_count.py
+Run: python tests/test_stream_supersession_no_double_count.py
 
 An interrupted stream yields a partial output ESTIMATE; the final usage arrives later with
 the SAME request_correlation_id. The reconciler matches them by request_correlation_id

@@ -1,6 +1,6 @@
 """Regression — direct Gemini and Vertex AI must not be attributed to the same "cloud".
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_service_attribution_cloud_regression.py
+Run: python tests/test_service_attribution_cloud_regression.py
 
 Found during a rigorous logic/relevance review of tracker/analytics/service_attribution.py:
 `_CLOUD_BY_PROVIDER` mapped both "vertex_ai" and "gemini" to "gcp". Direct Gemini (Google AI

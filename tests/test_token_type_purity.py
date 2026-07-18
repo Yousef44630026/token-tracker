@@ -1,6 +1,6 @@
 """Phase 3 — token_type purity (INV-3).
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_token_type_purity.py
+Run: python tests/test_token_type_purity.py
 
 token_type encodes WHAT the tokens are, never how well they were measured. The forbidden
 "measurement-leaking" types must not exist as members and must not be constructible.

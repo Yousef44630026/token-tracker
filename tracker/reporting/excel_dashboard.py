@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import gzip
 import json
 import logging
 import os
@@ -29,6 +30,7 @@ from openpyxl.worksheet.table import Table, TableStyleInfo
 
 from tracker.derive.effective_events import effective_events
 from tracker.models.token_event import TokenEvent
+from tracker.storage._locking import lock_for
 
 LOGGER = logging.getLogger("tracker.reporting.excel_dashboard")
 
@@ -183,41 +185,48 @@ def load_jsonl_events(
 ) -> tuple[list[LoadedEvent], LoadReport]:
     """Read and validate every JSONL row, logging malformed content without exposing it."""
     root = Path(data_dir)
-    files = sorted(root.rglob("*.jsonl") if recursive else root.glob("*.jsonl")) if root.exists() else []
+    if root.exists():
+        active_files = sorted(root.rglob("*.jsonl") if recursive else root.glob("*.jsonl"))
+        archive_files = sorted(root.rglob("*.jsonl.gz") if recursive else root.glob("*.jsonl.archive/*.jsonl.gz"))
+        files = [*archive_files, *active_files]
+    else:
+        files = []
     selected: dict[str, LoadedEvent] = {}
     lines_read = malformed = invalid = duplicates = sequence = 0
 
     for path in files:
-        with path.open(encoding="utf-8") as handle:
-            for line_number, line in enumerate(handle, start=1):
-                lines_read += 1
-                if not line.strip():
-                    continue
-                try:
-                    payload = json.loads(line)
-                except (json.JSONDecodeError, UnicodeError) as exc:
-                    malformed += 1
-                    LOGGER.warning("skip malformed JSONL: %s:%d (%s)", path, line_number, type(exc).__name__)
-                    continue
-                if not isinstance(payload, dict):
-                    invalid += 1
-                    LOGGER.warning("skip non-object JSONL: %s:%d", path, line_number)
-                    continue
-                try:
-                    event = TokenEvent.from_dict(payload)
-                except (KeyError, TypeError, ValueError, AttributeError) as exc:
-                    invalid += 1
-                    LOGGER.warning("skip schema-invalid event: %s:%d (%s)", path, line_number, type(exc).__name__)
-                    continue
-
-                sequence += 1
-                loaded = LoadedEvent(event, str(path.resolve()), line_number, sequence)
-                previous = selected.get(event.event_id)
-                if previous is not None:
-                    duplicates += 1
-                    if not _newer(loaded, previous):
+        with lock_for(str(path)):
+            opener = gzip.open if path.name.endswith(".jsonl.gz") else open
+            with opener(path, mode="rt", encoding="utf-8") as handle:
+                for line_number, line in enumerate(handle, start=1):
+                    lines_read += 1
+                    if not line.strip():
                         continue
-                selected[event.event_id] = loaded
+                    try:
+                        payload = json.loads(line)
+                    except (json.JSONDecodeError, UnicodeError) as exc:
+                        malformed += 1
+                        LOGGER.warning("skip malformed JSONL: %s:%d (%s)", path, line_number, type(exc).__name__)
+                        continue
+                    if not isinstance(payload, dict):
+                        invalid += 1
+                        LOGGER.warning("skip non-object JSONL: %s:%d", path, line_number)
+                        continue
+                    try:
+                        event = TokenEvent.from_dict(payload)
+                    except (KeyError, TypeError, ValueError, AttributeError) as exc:
+                        invalid += 1
+                        LOGGER.warning("skip schema-invalid event: %s:%d (%s)", path, line_number, type(exc).__name__)
+                        continue
+
+                    sequence += 1
+                    loaded = LoadedEvent(event, str(path.resolve()), line_number, sequence)
+                    previous = selected.get(event.event_id)
+                    if previous is not None:
+                        duplicates += 1
+                        if not _newer(loaded, previous):
+                            continue
+                    selected[event.event_id] = loaded
 
     loaded_events = sorted(selected.values(), key=lambda item: item.sequence)
     projected = {event.event_id: event for event in effective_events([item.event for item in loaded_events])}

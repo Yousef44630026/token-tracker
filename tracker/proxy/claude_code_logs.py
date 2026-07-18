@@ -22,7 +22,10 @@ from pathlib import Path
 from typing import Any
 
 from tracker.adapters.anthropic_messages_adapter import AnthropicMessagesAdapter
+from tracker.context.model import TraceContext
+from tracker.models.enums import DataQualityFlag
 from tracker.models.token_event import TokenEvent
+from tracker.normalization.normalizer import normalize
 
 SessionSnapshot = dict[str, int]
 
@@ -42,6 +45,7 @@ class ClaudeImportReport:
     events_imported: int = 0
     io_errors: int = 0
     rewound_files: int = 0
+    provider_schema_drift_events: int = 0
     checkpoint: SessionSnapshot = field(default_factory=dict, repr=False)
 
     @property
@@ -86,8 +90,9 @@ def snapshot_sessions(claude_home: str | os.PathLike[str] | None = None) -> Sess
     return {str(path): path.stat().st_size for path in projects_root.rglob("*.jsonl")}
 
 
-def _event_id(path: Path, request_id: str) -> str:
-    payload = json.dumps({"path": str(path), "request_id": request_id}, sort_keys=True)
+def _event_id(session_id: str, request_id: str) -> str:
+    """Return a source-stable id that survives project, home, and machine moves."""
+    payload = json.dumps({"session_id": session_id, "request_id": request_id}, sort_keys=True)
     return "claude-code-" + hashlib.sha256(payload.encode("utf-8")).hexdigest()[:32]
 
 
@@ -145,29 +150,28 @@ def _line_events(
                 # risk counting the same turn more than once.
                 report.missing_request_ids += 1
                 continue
-            dedup_key = f"{path}:{request_id}"
+            session_id = str(item.get("sessionId") or path.stem)
+            request_id = str(request_id)
+            dedup_key = f"{session_id}:{request_id}"
             if dedup_key in seen_request_ids:
                 report.duplicate_request_ids += 1
                 continue
             seen_request_ids.add(dedup_key)
 
-            normalized = adapter.extract_usage_from_response({"model": message.get("model"), "usage": usage})
             timestamp = item.get("timestamp")
-            session_id = item.get("sessionId") or path.stem
-            event_id = _event_id(path, request_id)
-            event = TokenEvent(
+            event_id = _event_id(session_id, request_id)
+            event = normalize(
+                {"model": message.get("model"), "usage": usage},
+                adapter,
                 event_id=event_id,
-                request_correlation_id=event_id,
-                trace_id=session_id,
-                span_id=f"claude-code-{request_id}",
-                workflow="claude_code_local_usage",
-                environment="local",
-                provider=normalized.provider,
-                model=normalized.model,
-                api_surface=normalized.api_surface,
-                quantities=normalized.quantities,
-                provider_total_tokens=normalized.provider_total_tokens,
-                data_quality_flags=[*normalized.data_quality_flags, "claude_code_local_usage"],
+                context=TraceContext(
+                    trace_id=session_id,
+                    span_id=f"claude-code-{request_id}",
+                    request_correlation_id=event_id,
+                    workflow="claude_code_local_usage",
+                    environment="local",
+                ),
+                extra_flags=["claude_code_local_usage"],
                 timestamp=timestamp if isinstance(timestamp, str) else None,
                 observation={
                     "authoritative": True,
@@ -176,10 +180,13 @@ def _line_events(
                     "session_id": session_id,
                     "session_file": path.name,
                     "request_id": request_id,
+                    "source_event_id": dedup_key,
                     "is_sidechain": bool(item.get("isSidechain", False)),
                     "entrypoint": item.get("entrypoint"),
                 },
             )
+            if DataQualityFlag.PROVIDER_SCHEMA_DRIFT.value in event.data_quality_flags:
+                report.provider_schema_drift_events += 1
             report.events_imported += 1
             events.append(event)
     return events, consumed_offset

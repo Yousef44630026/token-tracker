@@ -1,6 +1,6 @@
 """Phase 9 — Excel export materializes the same totals as the model.
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_csv_excel_export.py
+Run: python tests/test_csv_excel_export.py
 
 Writes a real .xlsx (openpyxl), reopens it, and asserts the TokenEvents / TokenQuantities /
 CoverageExactness sheets all carry the same trace total as the in-memory model — and that a

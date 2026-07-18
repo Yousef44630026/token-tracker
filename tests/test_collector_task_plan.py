@@ -8,6 +8,10 @@ import subprocess
 import sys
 from pathlib import Path
 
+if os.name != "nt":
+    print("[SKIP] test_collector_task_plan: Windows Task Scheduler contract")
+    raise SystemExit(0)
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from tests._harness import make_checker  # noqa: E402
@@ -63,9 +67,14 @@ runner_text = runner.read_text(encoding="utf-8")
 check("-m api.main" in runner_text, "runner starts the supported collector entry point")
 check("TRACKER_DURABLE=true" in runner_text, "runner explicitly defaults to durable writes")
 check(":supervise" in runner_text and "goto supervise" in runner_text, "runner restarts a failed collector child")
-check("TRACKER_AUTH_TOKEN" not in runner_text, "runner never embeds an authentication secret")
+check("must-not-appear" not in runner_text, "runner never embeds an authentication secret")
+check(
+    "TRACKER_AUTH_TOKEN_FILE" in (root / "scripts" / "tt-collector-task-run.ps1").read_text(encoding="utf-8"),
+    "task passes only the external secret-file path",
+)
 
 task_script_text = script.read_text(encoding="utf-8")
+check("/v1/stats?summary=1" in task_script_text, "task status uses the bounded cacheable stats probe")
 check("inspection_error" in task_script_text, "status distinguishes inaccessible state from not installed")
 check("Get-ScheduledTask -TaskName $TaskName -ErrorAction Stop" in task_script_text, "task inspection fails closed")
 check("New-ScheduledTaskTrigger -AtStartup" in task_script_text, "collector has an at-startup trigger")

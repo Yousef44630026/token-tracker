@@ -1,6 +1,6 @@
 """Operational doctor command/readiness checks.
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_operational_doctor.py
+Run: python tests/test_operational_doctor.py
 """
 
 from __future__ import annotations
@@ -31,6 +31,7 @@ from tracker.ops.doctor import (  # noqa: E402
     run_checks,
 )
 from tracker.ops.doctor import main as doctor_main  # noqa: E402
+from tracker.ops.runtime_fingerprint import runtime_fingerprint  # noqa: E402
 from tracker.storage.file_repository import FileRepository, PartitionedFileRepository  # noqa: E402
 
 check = make_checker()
@@ -70,7 +71,7 @@ check(by_name["store-writable"].status == "pass", "doctor verifies store directo
 check(by_name["store-read"].status == "warn", "missing store is a warning, not a failure")
 check(by_name["azure-openai-env"].status == "info", "missing Azure/Foundry env is informational")
 check(by_name["durable-persistence"].status == "pass", "durable persistence is the operational default")
-check(_tokenizer_check().status in {"pass", "warn"}, "doctor discloses the active tokenizer backend")
+check(_tokenizer_check().status == "pass", "doctor requires the installed tiktoken backend")
 check(
     _storage_substrate_check(r"C:\Users\operator\OneDrive\tracker\events.jsonl").status == "warn",
     "doctor warns when the append-only store is inside OneDrive",
@@ -95,7 +96,17 @@ check(
     "doctor warns when health evidence has not started",
 )
 with open(health_log, "w", encoding="utf-8") as handle:
-    handle.write('{"timestamp":"2026-07-15T09:59:00Z","healthy":true,"status":"ok"}\n')
+    handle.write(
+        json.dumps(
+            {
+                "timestamp": "2026-07-15T09:59:00Z",
+                "healthy": True,
+                "status": "ok",
+                "runtime_fingerprint": runtime_fingerprint(),
+            }
+        )
+        + "\n"
+    )
 check(
     _health_evidence_check(health_log, max_age_seconds=300, now=health_now).status == "pass",
     "doctor accepts fresh healthy collector evidence",
@@ -137,6 +148,15 @@ with open(claude_import_log, "w", encoding="utf-8") as handle:
 check(
     _claude_import_evidence_check(claude_import_log, max_age_seconds=7200, now=health_now).status == "pass",
     "doctor accepts a fresh healthy Claude import run",
+)
+with open(claude_import_log, "a", encoding="utf-8") as handle:
+    handle.write(
+        '{"timestamp":"2026-07-15T09:40:00Z","status":"ok",'
+        '"import_report":{"format_drift_suspected":false,"provider_schema_drift_events":1}}\n'
+    )
+check(
+    _claude_import_evidence_check(claude_import_log, max_age_seconds=7200, now=health_now).status == "fail",
+    "doctor fails a nominal import run that stored provider schema drift",
 )
 with open(claude_import_log, "a", encoding="utf-8") as handle:
     handle.write(

@@ -1,6 +1,6 @@
 """Extra — multimodal token breakdown (audio / image / video attribution).
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_modality_breakdown.py
+Run: python tests/test_modality_breakdown.py
 
 Audio (OpenAI) and per-modality (Gemini promptTokensDetails) counts are SUBTOTALS of input /
 output: they attribute how much of the prompt/completion was each modality, WITHOUT changing

@@ -2,7 +2,7 @@
 loop_count, step tracking) driven by the REAL Bedrock Converse adapter, extending Scenario B
 (which used Anthropic) to the AWS provider we just validated against a real payload.
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_agent_bedrock_deep.py
+Run: python tests/test_agent_bedrock_deep.py
 
 Bedrock-specific realities this test respects (all previously confirmed):
   - cache fields (cacheReadInputTokens/cacheWriteInputTokens) are additive input buckets;

@@ -13,6 +13,7 @@ import os
 import sqlite3
 import tempfile
 from collections.abc import Iterable, Iterator, Sequence
+from itertools import groupby
 
 from tracker.models.token_event import TokenEvent
 from tracker.models.trace import Trace
@@ -69,6 +70,17 @@ class EffectiveEventSnapshot:
             """
         )
         self._connection.execute("CREATE INDEX idx_effective_correlation ON events(request_correlation_id, sequence)")
+        self._connection.execute(
+            """
+            CREATE TABLE effective_state (
+                sequence INTEGER PRIMARY KEY,
+                superseded INTEGER NOT NULL,
+                superseded_by TEXT,
+                quality_flags TEXT NOT NULL,
+                FOREIGN KEY(sequence) REFERENCES events(sequence)
+            )
+            """
+        )
         try:
             with self._connection:
                 for event in events:
@@ -93,42 +105,43 @@ class EffectiveEventSnapshot:
             raise
 
     def _reconcile(self) -> None:
-        correlations = self._connection.execute(
+        rows = self._connection.execute(
             """
-            SELECT request_correlation_id
+            SELECT sequence, request_correlation_id, payload
             FROM events
-            GROUP BY request_correlation_id
-            ORDER BY MIN(sequence)
+            ORDER BY request_correlation_id, sequence
             """
         )
         with self._connection:
-            for (correlation_id,) in correlations:
-                rows = list(
-                    self._connection.execute(
-                        "SELECT sequence, payload FROM events WHERE request_correlation_id = ? ORDER BY sequence",
-                        (correlation_id,),
-                    )
-                )
-                group = [TokenEvent.from_dict(json.loads(payload)) for _, payload in rows]
+            for _, correlation_rows in groupby(rows, key=lambda row: row[1]):
+                materialized_rows = list(correlation_rows)
+                group = [TokenEvent.from_dict(json.loads(payload)) for _, _, payload in materialized_rows]
                 reconcile_events(group)
-                for (sequence, _), event in zip(rows, group, strict=True):
-                    self._connection.execute(
-                        """
-                        UPDATE events
-                        SET superseded = ?, superseded_by = ?, quality_flags = ?
-                        WHERE sequence = ?
-                        """,
+                self._connection.executemany(
+                    """
+                    INSERT INTO effective_state(sequence, superseded, superseded_by, quality_flags)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    [
                         (
+                            sequence,
                             1 if event.superseded else 0,
                             event.superseded_by,
                             json.dumps(event.data_quality_flags, ensure_ascii=False, separators=(",", ":")),
-                            sequence,
-                        ),
-                    )
+                        )
+                        for (sequence, _, _), event in zip(materialized_rows, group, strict=True)
+                    ],
+                )
 
     def __iter__(self) -> Iterator[TokenEvent]:
         cursor = self._connection.execute(
-            "SELECT payload, superseded, superseded_by, quality_flags FROM events ORDER BY sequence"
+            """
+            SELECT events.payload, effective_state.superseded,
+                   effective_state.superseded_by, effective_state.quality_flags
+            FROM events
+            JOIN effective_state USING(sequence)
+            ORDER BY events.sequence
+            """
         )
         for payload, superseded, superseded_by, quality_flags in cursor:
             event = TokenEvent.from_dict(json.loads(payload))

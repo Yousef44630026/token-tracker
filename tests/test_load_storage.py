@@ -1,6 +1,6 @@
 """Extra — load: JSONL repository at scale (Phase 2).
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_load_storage.py
+Run: python tests/test_load_storage.py
 
 Appends 5k events, reads them back, and checks the count, the re-derived total, and that no
 derived key leaked onto disk — at scale.

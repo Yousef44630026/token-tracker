@@ -1,6 +1,6 @@
 """Phase 11 — RAG + agent span helpers and tool-result token-impact (INV-2/INV-3/INV-6).
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_rag_agent_tracking.py
+Run: python tests/test_rag_agent_tracking.py
 
 RAG and agent helpers annotate SPANS (metadata), they never mint contributing TokenEvents.
 Retrieved-context and tool-result token counts are ESTIMATES for visibility — the real cost

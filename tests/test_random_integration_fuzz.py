@@ -5,7 +5,7 @@ constructed but semantically valid payloads, and independently recomputes the ex
 by hand for every single case (no tautology: the check is never "does X equal what the code
 under test says X is").
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_random_integration_fuzz.py
+Run: python tests/test_random_integration_fuzz.py
 
 Five parts, all seeded (reproducible):
   1. Per-provider random payloads (all 15 registered adapters) x 40 iterations each — the

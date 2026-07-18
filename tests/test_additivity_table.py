@@ -1,6 +1,6 @@
 """Extra — exhaustive per-provider additivity table (INV-4).
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_additivity_table.py
+Run: python tests/test_additivity_table.py
 
 Pins every (provider, token_type) the table promises, the azure_openai alias, and the safe
 fail-closed default (unverified, no parent) for anything unlisted.

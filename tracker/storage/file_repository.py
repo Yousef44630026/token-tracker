@@ -7,6 +7,7 @@ gate that keeps derived totals out of storage.
 
 from __future__ import annotations
 
+import gzip
 import json
 import logging
 import os
@@ -22,6 +23,26 @@ from tracker.storage._locking import lock_for
 _logger = logging.getLogger(__name__)
 
 
+def _source_event_identity(event: TokenEvent) -> str | None:
+    """Return a stable external-source identity used in addition to ``event_id``.
+
+    New importers write ``source_event_id`` explicitly. The Claude fallback bridges ledgers
+    written before that field existed: those rows already contain session_id + request_id,
+    which prevents one path-derived legacy id from being replayed after a folder move.
+    """
+    observation = event.observation
+    source = observation.get("source")
+    source_event_id = observation.get("source_event_id")
+    if isinstance(source, str) and source and isinstance(source_event_id, str) and source_event_id:
+        return f"{source}\0{source_event_id}"
+    if source == "claude_code_session_log":
+        session_id = observation.get("session_id")
+        request_id = observation.get("request_id")
+        if isinstance(session_id, str) and session_id and isinstance(request_id, str) and request_id:
+            return f"{source}\0{session_id}:{request_id}"
+    return None
+
+
 class FileRepository:
     """Append-only JSONL store of TokenEvents."""
 
@@ -34,12 +55,14 @@ class FileRepository:
         skip_invalid_records: bool = True,
     ) -> None:
         self.path = os.path.abspath(path)
+        self.archive_dir = f"{self.path}.archive"
         self.durable = durable
         self.recover_truncated_tail = recover_truncated_tail
         self.skip_invalid_records = skip_invalid_records
         self._skipped_invalid_count = 0
         self._lock = lock_for(self.path)
         self._known_ids: set[str] | None = None
+        self._known_source_identities: set[str] | None = None
         self._known_signature: tuple[int, int] | None = None
         parent = os.path.dirname(self.path)
         os.makedirs(parent, exist_ok=True)
@@ -63,6 +86,10 @@ class FileRepository:
             self._append_lines_unlocked(lines)
             if self._known_ids is not None:
                 self._known_ids.update(event.event_id for event in materialized)
+                if self._known_source_identities is not None:
+                    self._known_source_identities.update(
+                        identity for event in materialized if (identity := _source_event_identity(event)) is not None
+                    )
                 self._known_signature = self._file_signature_unlocked()
 
     def append_unique(self, events: Iterable[TokenEvent]) -> list[str]:
@@ -71,18 +98,28 @@ class FileRepository:
         if any(not isinstance(event, TokenEvent) for event in materialized):
             raise TypeError("events must contain TokenEvent objects")
         with self._lock:
-            known = self._event_ids_unlocked()
+            known, known_sources = self._identities_unlocked()
             unique: list[TokenEvent] = []
             batch_ids: set[str] = set()
+            batch_sources: set[str] = set()
             for event in materialized:
-                if event.event_id in known or event.event_id in batch_ids:
+                source_identity = _source_event_identity(event)
+                if (
+                    event.event_id in known
+                    or event.event_id in batch_ids
+                    or source_identity is not None
+                    and (source_identity in known_sources or source_identity in batch_sources)
+                ):
                     continue
                 batch_ids.add(event.event_id)
+                if source_identity is not None:
+                    batch_sources.add(source_identity)
                 unique.append(event)
             if unique:
                 lines = [json.dumps(event.to_dict(), ensure_ascii=False) + "\n" for event in unique]
                 self._append_lines_unlocked(lines)
                 known.update(batch_ids)
+                known_sources.update(batch_sources)
                 self._known_signature = self._file_signature_unlocked()
             return [event.event_id for event in unique]
 
@@ -117,6 +154,11 @@ class FileRepository:
         """Return a snapshot of persisted event ids."""
         with self._lock:
             return set(self._event_ids_unlocked())
+
+    def storage_signature(self) -> tuple[int, int]:
+        """Return a cache signature covering the active JSONL and every archive segment."""
+        with self._lock:
+            return self._file_signature_unlocked() or (0, 0)
 
     def _append_lines_unlocked(self, lines: list[str]) -> None:
         self._repair_tail_unlocked()
@@ -173,27 +215,65 @@ class FileRepository:
                 os.fsync(handle.fileno())
 
     def _event_ids_unlocked(self) -> set[str]:
+        return self._identities_unlocked()[0]
+
+    def _identities_unlocked(self) -> tuple[set[str], set[str]]:
         signature = self._file_signature_unlocked()
-        if self._known_ids is None or signature != self._known_signature:
-            self._known_ids = {event.event_id for event in self._read_all_unlocked()}
+        if self._known_ids is None or self._known_source_identities is None or signature != self._known_signature:
+            events = self._read_all_unlocked()
+            self._known_ids = {event.event_id for event in events}
+            self._known_source_identities = {
+                identity for event in events if (identity := _source_event_identity(event)) is not None
+            }
             self._known_signature = signature
-        return self._known_ids
+        return self._known_ids, self._known_source_identities
 
     def _file_signature_unlocked(self) -> tuple[int, int] | None:
-        try:
-            stat = os.stat(self.path)
-        except FileNotFoundError:
+        paths = [*self._archive_paths_unlocked(), self.path]
+        signatures: list[tuple[int, int]] = []
+        for path in paths:
+            try:
+                stat = os.stat(path)
+            except FileNotFoundError:
+                continue
+            signatures.append((stat.st_size, stat.st_mtime_ns))
+        if not signatures:
             return None
-        return stat.st_size, stat.st_mtime_ns
+        return sum(item[0] for item in signatures), max(item[1] for item in signatures)
 
     def _read_all_unlocked(self) -> list[TokenEvent]:
         return list(self._iter_events_unlocked())
 
     def _iter_events_unlocked(self) -> Iterator[TokenEvent]:
         self._skipped_invalid_count = 0
-        if not os.path.exists(self.path):
-            return
-        with open(self.path, encoding="utf-8") as fh:
+        prior_source_ids: set[str] = set()
+        sources = [(path, True) for path in self._archive_paths_unlocked()]
+        if os.path.exists(self.path):
+            sources.append((self.path, False))
+        for source_path, compressed in sources:
+            source_ids: set[str] = set()
+            for event in self._iter_source_unlocked(source_path, compressed=compressed):
+                if event.event_id in prior_source_ids:
+                    continue
+                source_ids.add(event.event_id)
+                yield event
+            prior_source_ids.update(source_ids)
+
+    def _archive_paths_unlocked(self) -> list[str]:
+        try:
+            entries = os.scandir(self.archive_dir)
+        except FileNotFoundError:
+            return []
+        with entries:
+            return sorted(
+                entry.path
+                for entry in entries
+                if entry.is_file(follow_symlinks=False) and entry.name.endswith(".jsonl.gz")
+            )
+
+    def _iter_source_unlocked(self, source_path: str, *, compressed: bool) -> Iterator[TokenEvent]:
+        opener = gzip.open if compressed else open
+        with opener(source_path, mode="rt", encoding="utf-8") as fh:
             for index, raw_line in enumerate(fh):
                 line = raw_line.strip()
                 if not line:
@@ -201,7 +281,7 @@ class FileRepository:
                 try:
                     yield TokenEvent.from_dict(json.loads(line))
                 except json.JSONDecodeError:
-                    is_truncated_tail = not raw_line.endswith("\n")
+                    is_truncated_tail = not compressed and not raw_line.endswith("\n")
                     if is_truncated_tail:
                         # A crash-truncated tail is governed by recover_truncated_tail ALONE:
                         # strict mode must raise even when skip_invalid_records is on, or the
@@ -217,7 +297,7 @@ class FileRepository:
                             "from read_all (looks like a crash-truncated write); set "
                             "recover_truncated_tail=False to raise instead",
                             index + 1,
-                            self.path,
+                            source_path,
                         )
                         self._skipped_invalid_count += 1
                         break
@@ -226,7 +306,7 @@ class FileRepository:
                         _logger.warning(
                             "FileRepository: skipping malformed JSONL row %d in %s",
                             index + 1,
-                            self.path,
+                            source_path,
                         )
                         continue
                     raise
@@ -237,7 +317,7 @@ class FileRepository:
                     _logger.warning(
                         "FileRepository: skipping schema-invalid JSONL row %d in %s: %s: %s",
                         index + 1,
-                        self.path,
+                        source_path,
                         type(exc).__name__,
                         exc,
                     )
@@ -265,7 +345,7 @@ class PartitionedFileRepository:
     """Date/trace partitioned JSONL repository for higher-volume observability."""
 
     _INDEX_FILENAME = ".event-index.sqlite3"
-    _INDEX_SCHEMA_VERSION = "1"
+    _INDEX_SCHEMA_VERSION = "2"
 
     def __init__(
         self,
@@ -342,12 +422,25 @@ class PartitionedFileRepository:
                     connection,
                     [event.event_id for event in materialized],
                 )
+                requested_sources = {
+                    identity for event in materialized if (identity := _source_event_identity(event)) is not None
+                }
+                known_sources = self._known_source_identities_unlocked(connection, requested_sources)
                 unique: list[TokenEvent] = []
                 batch_ids: set[str] = set()
+                batch_sources: set[str] = set()
                 for event in materialized:
-                    if event.event_id in known or event.event_id in batch_ids:
+                    source_identity = _source_event_identity(event)
+                    if (
+                        event.event_id in known
+                        or event.event_id in batch_ids
+                        or source_identity is not None
+                        and (source_identity in known_sources or source_identity in batch_sources)
+                    ):
                         continue
                     batch_ids.add(event.event_id)
+                    if source_identity is not None:
+                        batch_sources.add(source_identity)
                     unique.append(event)
 
                 grouped: dict[str, list[TokenEvent]] = defaultdict(list)
@@ -382,6 +475,18 @@ class PartitionedFileRepository:
                 return {row[0] for row in connection.execute("SELECT DISTINCT event_id FROM event_locations")}
             finally:
                 connection.close()
+
+    def storage_signature(self) -> tuple[int, int]:
+        """Return a cache signature covering active and archived partition segments."""
+        with self._lock:
+            signatures = [
+                signature
+                for path in self._partition_paths()
+                if (signature := self._repo_for_path(path)._file_signature_unlocked()) is not None
+            ]
+            if not signatures:
+                return (0, 0)
+            return sum(item[0] for item in signatures), max(item[1] for item in signatures)
 
     def write_compacted(self, destination_root: str, *, drop_superseded: bool = True) -> int:
         """Write a partition-preserving compacted copy and return retained event count."""
@@ -447,6 +552,16 @@ class PartitionedFileRepository:
             );
             CREATE INDEX IF NOT EXISTS idx_event_locations_partition
                 ON event_locations(partition_path);
+            CREATE TABLE IF NOT EXISTS source_event_locations (
+                source_identity TEXT NOT NULL,
+                event_id TEXT NOT NULL,
+                partition_path TEXT NOT NULL,
+                PRIMARY KEY (source_identity, event_id, partition_path)
+            );
+            CREATE INDEX IF NOT EXISTS idx_source_event_identity
+                ON source_event_locations(source_identity);
+            CREATE INDEX IF NOT EXISTS idx_source_event_partition
+                ON source_event_locations(partition_path);
             """
         )
         row = connection.execute(
@@ -454,6 +569,7 @@ class PartitionedFileRepository:
         ).fetchone()
         if row is not None and row[0] != self._INDEX_SCHEMA_VERSION:
             connection.execute("DELETE FROM event_locations")
+            connection.execute("DELETE FROM source_event_locations")
             connection.execute("DELETE FROM indexed_partitions")
         connection.execute(
             "INSERT OR REPLACE INTO index_metadata(key, value) VALUES ('schema_version', ?)",
@@ -464,11 +580,10 @@ class PartitionedFileRepository:
     def _sync_index_unlocked(self, connection: sqlite3.Connection) -> None:
         current: dict[str, tuple[int, int]] = {}
         for path in self._partition_paths():
-            try:
-                stat = os.stat(path)
-            except FileNotFoundError:
+            signature = self._repo_for_path(path)._file_signature_unlocked()
+            if signature is None:
                 continue
-            current[self._relative_partition_path(path)] = (stat.st_size, stat.st_mtime_ns)
+            current[self._relative_partition_path(path)] = signature
 
         indexed = {
             row[0]: (row[1], row[2])
@@ -478,6 +593,7 @@ class PartitionedFileRepository:
         }
         for relative_path in indexed.keys() - current.keys():
             connection.execute("DELETE FROM event_locations WHERE partition_path = ?", (relative_path,))
+            connection.execute("DELETE FROM source_event_locations WHERE partition_path = ?", (relative_path,))
             connection.execute("DELETE FROM indexed_partitions WHERE partition_path = ?", (relative_path,))
         for relative_path, signature in current.items():
             if indexed.get(relative_path) == signature:
@@ -489,11 +605,24 @@ class PartitionedFileRepository:
         path = os.path.join(self.root_dir, relative_path)
         repository = self._repo_for_path(path)
         connection.execute("DELETE FROM event_locations WHERE partition_path = ?", (relative_path,))
+        connection.execute("DELETE FROM source_event_locations WHERE partition_path = ?", (relative_path,))
         with repository._lock:
-            rows = ((event.event_id, relative_path) for event in repository._iter_events_unlocked())
+            events = list(repository._iter_events_unlocked())
+            rows = ((event.event_id, relative_path) for event in events)
             connection.executemany(
                 "INSERT OR IGNORE INTO event_locations(event_id, partition_path) VALUES (?, ?)",
                 rows,
+            )
+            connection.executemany(
+                """
+                INSERT OR IGNORE INTO source_event_locations(source_identity, event_id, partition_path)
+                VALUES (?, ?, ?)
+                """,
+                (
+                    (identity, event.event_id, relative_path)
+                    for event in events
+                    if (identity := _source_event_identity(event)) is not None
+                ),
             )
             signature = repository._file_signature_unlocked()
         if signature is None:
@@ -518,13 +647,26 @@ class PartitionedFileRepository:
             "INSERT OR IGNORE INTO event_locations(event_id, partition_path) VALUES (?, ?)",
             ((event.event_id, relative_path) for event in events),
         )
-        stat = os.stat(path)
+        connection.executemany(
+            """
+            INSERT OR IGNORE INTO source_event_locations(source_identity, event_id, partition_path)
+            VALUES (?, ?, ?)
+            """,
+            (
+                (identity, event.event_id, relative_path)
+                for event in events
+                if (identity := _source_event_identity(event)) is not None
+            ),
+        )
+        signature = self._repo_for_path(path)._file_signature_unlocked()
+        if signature is None:
+            raise FileNotFoundError(path)
         connection.execute(
             """
             INSERT OR REPLACE INTO indexed_partitions(partition_path, size_bytes, mtime_ns)
             VALUES (?, ?, ?)
             """,
-            (relative_path, stat.st_size, stat.st_mtime_ns),
+            (relative_path, signature[0], signature[1]),
         )
 
     def _known_event_ids_unlocked(
@@ -541,6 +683,28 @@ class PartitionedFileRepository:
                 row[0]
                 for row in connection.execute(
                     f"SELECT DISTINCT event_id FROM event_locations WHERE event_id IN ({placeholders})",
+                    chunk,
+                )
+            )
+        return known
+
+    def _known_source_identities_unlocked(
+        self,
+        connection: sqlite3.Connection,
+        source_identities: Iterable[str],
+    ) -> set[str]:
+        distinct = list(dict.fromkeys(source_identities))
+        known: set[str] = set()
+        for offset in range(0, len(distinct), 900):
+            chunk = distinct[offset : offset + 900]
+            if not chunk:
+                continue
+            placeholders = ",".join("?" for _ in chunk)
+            known.update(
+                row[0]
+                for row in connection.execute(
+                    f"SELECT DISTINCT source_identity FROM source_event_locations "
+                    f"WHERE source_identity IN ({placeholders})",
                     chunk,
                 )
             )

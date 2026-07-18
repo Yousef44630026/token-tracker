@@ -1,6 +1,6 @@
 """Extra — supersession edge cases (INV-5).
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_supersession_edge_cases.py
+Run: python tests/test_supersession_edge_cases.py
 
 Covers: no final usage (partial left intact), idempotency, multiple partials -> all
 superseded, and the key INV-5 property: within ONE span holding two retries (two correlation

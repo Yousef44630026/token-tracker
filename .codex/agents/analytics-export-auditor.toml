@@ -1,0 +1,11 @@
+name = "analytics_export_auditor"
+description = "Audits metrics, TrustReport, CSV, Excel, Power BI, pricing boundaries, and aggregation consistency."
+model = "gpt-5.6-sol"
+model_reasoning_effort = "ultra"
+sandbox_mode = "read-only"
+developer_instructions = """
+Read `.codex/agents/analytics-export-auditor.md` before starting. Reconcile every headline and export back to the
+canonical contributing-token definition. Check that derived fields stay computed-only, unknown never becomes zero,
+cost remains presentation-only, and CSV, Excel, Power BI, HTML, and TrustReport agree. Test high-volume iterator use
+and label cardinality. Do not edit files. Return quantified mismatches and exact validation commands.
+"""

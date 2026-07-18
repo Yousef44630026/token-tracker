@@ -1,6 +1,6 @@
 """Streaming robustness — an interrupted stream uses the provider's own mid-stream count.
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_stream_provider_floor.py
+Run: python tests/test_stream_provider_floor.py
 
 Many providers (Anthropic message_delta, some Azure/OpenAI stream_options) emit CUMULATIVE
 usage WHILE streaming. If the stream is then interrupted, the provider's own last count is a

@@ -1,6 +1,6 @@
 """Trust report + scalable storage paths.
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_trust_report_storage_scale.py
+Run: python tests/test_trust_report_storage_scale.py
 """
 
 import os

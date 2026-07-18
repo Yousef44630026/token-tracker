@@ -1,6 +1,6 @@
 """Extra — shared event assembly (event_builder.build_event / deduplicate_flags).
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_event_builder.py
+Run: python tests/test_event_builder.py
 
 build_event is the single place both the normalizer and the stream tracker assemble an event:
 it wires identity from the context, applies the normalizer-owned flags exactly once, and

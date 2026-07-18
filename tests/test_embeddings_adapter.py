@@ -1,6 +1,6 @@
 """Extra — Embeddings adapters (the RAG token source that was missing).
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_embeddings_adapter.py
+Run: python tests/test_embeddings_adapter.py
 
 An embeddings call has no output: it produces a single EMBEDDING quantity (total_contributing)
 from usage.prompt_tokens, reconciling to total_tokens. Verified on a realistic full payload

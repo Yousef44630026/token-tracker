@@ -1,6 +1,6 @@
 """Verification audit - documented usage fields are mapped or explicitly ignored.
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_categorization_completeness.py
+Run: python tests/test_categorization_completeness.py
 
 For every concrete provider adapter, the usage/token fields it documents are listed here.
 Each field is either mapped to a TokenType, mapped to provider_total_tokens/metadata, or

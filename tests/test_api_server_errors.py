@@ -1,6 +1,6 @@
 """Extra — collector HTTP server error paths.
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_api_server_errors.py
+Run: python tests/test_api_server_errors.py
 
 Unknown routes -> 404, unknown methods -> 501, bad/empty bodies -> 400, a single (non-list)
 event is accepted, and an all-invalid batch acks nothing — the server stays up throughout.

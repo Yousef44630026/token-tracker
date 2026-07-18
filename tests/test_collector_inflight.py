@@ -1,6 +1,6 @@
 """Extra — collector in-flight resolution: a timed-out send is NOT resent.
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_collector_inflight.py
+Run: python tests/test_collector_inflight.py
 
 When a transport exceeds collector_timeout_ms, the collector records the send as in-flight and
 moves on (without blocking). A later flush resolves the in-flight result and applies the acks

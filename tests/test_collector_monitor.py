@@ -12,6 +12,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from tests._harness import make_checker  # noqa: E402
 from tracker.ops.collector_monitor import check_collector  # noqa: E402
+from tracker.ops.runtime_fingerprint import runtime_fingerprint  # noqa: E402
 
 check = make_checker()
 
@@ -33,7 +34,7 @@ class FakeResponse:
 def healthy_opener(req, timeout):
     check(req.get_header("Authorization") == "Bearer unit-secret", "monitor authenticates without persisting the token")
     if req.full_url.endswith("/healthz"):
-        return FakeResponse({"status": "ok"})
+        return FakeResponse({"status": "ok", "runtime_fingerprint": runtime_fingerprint()})
     if req.full_url.endswith("/v1/stats?summary=1"):
         return FakeResponse({"events": 3, "total": 42, "traces": {}})
     raise AssertionError(req.full_url)
@@ -56,6 +57,7 @@ healthy = check_collector(
 )
 check(healthy["healthy"] is True, "healthy collector produces a passing sample")
 check(healthy["events"] == 3 and healthy["total"] == 42, "monitor records bounded collector counters")
+check(healthy["runtime_fingerprint"] == runtime_fingerprint(), "monitor persists the collector runtime fingerprint")
 check(not os.path.exists(alert_log), "healthy probe does not create an alert")
 
 offline = check_collector(

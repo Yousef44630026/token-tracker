@@ -1,6 +1,6 @@
 """Regression — privacy audit severity split: fewer false positives, no false negatives.
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_privacy_audit_severity_regression.py
+Run: python tests/test_privacy_audit_severity_regression.py
 
 Found during a rigorous review of tracker/proxy/privacy.py:
   - FALSE POSITIVES: legitimate, secret-free operational text ("Authorization failed: invalid

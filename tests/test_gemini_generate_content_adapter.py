@@ -1,6 +1,6 @@
 """Phase 10 — Gemini Generate Content adapter (thinking = total_contributing). (INV-4)
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_gemini_generate_content_adapter.py
+Run: python tests/test_gemini_generate_content_adapter.py
 
 SIMULATED fixture (no API credit to capture a real payload). For Gemini, thinking
 (thoughtsTokenCount) is total_contributing and added ON TOP of output; cachedContent is a

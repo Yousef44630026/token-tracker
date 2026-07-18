@@ -1,6 +1,6 @@
 """Extra — Azure OpenAI adapters (same wire format as OpenAI, provider label differs).
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_azure_openai_adapters.py
+Run: python tests/test_azure_openai_adapters.py
 
 Azure OpenAI IS the OpenAI API on Azure infra: the response `usage` shape is identical, so
 the adapters subclass the OpenAI ones and only change provider -> "azure_openai". The

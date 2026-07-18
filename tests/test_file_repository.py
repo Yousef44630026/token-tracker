@@ -1,6 +1,6 @@
 """Extra — JSONL FileRepository round-trip (INV-1 / INV-2).
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_file_repository.py
+Run: python tests/test_file_repository.py
 
 The repository is append-only, stores SOURCE-OF-TRUTH fields only, and re-derives totals on
 read. Verifies no derived key ever lands on disk and that appends accumulate.

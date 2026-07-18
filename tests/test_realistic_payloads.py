@@ -1,6 +1,6 @@
 """Near-real adapter tests — full provider response payloads (SIMULATED but realistic).
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_realistic_payloads.py
+Run: python tests/test_realistic_payloads.py
 
 These fixtures mirror the COMPLETE documented response shape of each provider (id, choices /
 content / metrics / ResponseMetadata, the full usage object), not just a stripped usage blob.

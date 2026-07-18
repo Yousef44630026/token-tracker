@@ -1,6 +1,6 @@
 """Proxy capture for the /embeddings path shape (dedicated adapter or fallback).
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_proxy_embeddings_surface.py
+Run: python tests/test_proxy_embeddings_surface.py
 
 Before this change ``_surface`` did not map ``/embeddings`` at all, so an embeddings call
 through the proxy passed UNMEASURED — even for openai, which has a dedicated embeddings

@@ -1,6 +1,6 @@
 """Extra — concurrency: the collector under concurrent record() (Phase 8).
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_concurrency_collector.py
+Run: python tests/test_concurrency_collector.py
 
 Many threads recording into one collector (disjoint id ranges) must never crash, never lose
 an event, and never inflate. Flushing is done by the main thread after the recorders join

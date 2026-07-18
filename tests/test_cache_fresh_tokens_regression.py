@@ -1,6 +1,6 @@
 """Regression — fresh_input_tokens must mean the same thing regardless of cache additivity style.
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_cache_fresh_tokens_regression.py
+Run: python tests/test_cache_fresh_tokens_regression.py
 
 Found during a rigorous logic/relevance review of tracker/analytics/cache.py: the old formula
 read TokenType.INPUT directly. For OpenAI (cache is subtotal_of input), the raw input_tokens

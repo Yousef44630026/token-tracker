@@ -1,6 +1,6 @@
 """Extra — stream consumer: drive the StreamTracker from real provider stream events.
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_stream_consumer.py
+Run: python tests/test_stream_consumer.py
 
 Covers a clean OpenAI stream (final usage chunk -> EXACT), a clean Anthropic stream whose usage
 is SPLIT across message_start (input) and message_delta (output), an interrupted stream (no

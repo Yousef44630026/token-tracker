@@ -1,6 +1,6 @@
 """Regression — the HTML report's headline number must carry its epistemic status.
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_html_report_headline_status.py
+Run: python tests/test_html_report_headline_status.py
 
 The HTML report is the layer humans actually read, and its "Trace Summary" section is where the
 eye lands first: it shows ``observed_total_contributing_tokens`` prominently. But that number is

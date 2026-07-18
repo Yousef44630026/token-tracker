@@ -1,6 +1,6 @@
 """Extra — public façade tracker.service (track_response / track_stream).
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_service_facade.py
+Run: python tests/test_service_facade.py
 
 The façade is the high-level entry point: normalize a response, attach it to a trace, and
 fan out best-effort to a repository and/or collector — without ever throwing into the caller.

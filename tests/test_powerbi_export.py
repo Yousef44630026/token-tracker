@@ -1,6 +1,6 @@
 """Power BI integration base: CSV star schema, manifest, and DAX measures.
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_powerbi_export.py
+Run: python tests/test_powerbi_export.py
 """
 
 import csv

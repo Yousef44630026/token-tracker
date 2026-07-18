@@ -1,6 +1,6 @@
 """Phase 2 / step 3 — minimal Trace/Span source-of-truth models.
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_trace_span.py
+Run: python tests/test_trace_span.py
 
 Trace/Span store identity + the events that belong to them. They deliberately carry NO
 total: trace rollups are derived (derive/trace_rollup, Phase 3), so the model must not

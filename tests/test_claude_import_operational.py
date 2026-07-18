@@ -137,15 +137,21 @@ try:
     with session.open("a", encoding="utf-8") as handle:
         handle.write("\n")
     completed, completed_summary = run_import()
-    check(completed == 0 and completed_summary["sent"] == 1, "completed tail is imported on the next run")
+    check(
+        completed == 0 and completed_summary["sent"] == 1,
+        f"completed tail is imported on the next run ({completed_summary})",
+    )
     check(len(repository.read_all()) == 3, "completed tail is counted once")
 
     with session.open("a", encoding="utf-8") as handle:
         handle.write(assistant_line("request-drift", None) + "\n")
     pre_drift_state = state.read_bytes()
     drift, drift_summary = run_import()
-    check(drift == 2 and drift_summary["status"] == "format_drift", "format drift has a distinct failure exit")
-    check(state.read_bytes() == pre_drift_state, "format drift never advances the checkpoint")
+    check(
+        drift == 2 and drift_summary["status"] == "format_drift",
+        f"format drift has a distinct failure exit ({drift_summary})",
+    )
+    check(state.read_bytes() == pre_drift_state, f"format drift never advances the checkpoint ({drift_summary})")
     check(len(repository.read_all()) == 3, "format drift never fabricates or posts an event")
     check(first_state != state.read_bytes(), "checkpoint advances after later successful imports")
 finally:

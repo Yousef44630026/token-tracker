@@ -1,6 +1,6 @@
 """Extra — Claude Code session-log importer: de-duplication is the whole point.
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_claude_code_logs.py
+Run: python tests/test_claude_code_logs.py
 
 A real Claude Code transcript splits ONE API turn across multiple JSONL lines (one per
 content block), each repeating a verbatim copy of that turn's `usage` under the same

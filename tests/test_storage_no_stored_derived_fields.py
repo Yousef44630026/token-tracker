@@ -1,6 +1,6 @@
 """Phase 2 / step 2 — CORE FALSIFIER: derived fields never hit storage (INV-1 / INV-2).
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_storage_no_stored_derived_fields.py
+Run: python tests/test_storage_no_stored_derived_fields.py
 
 Round-trip a TokenEvent through real JSONL on disk and assert:
   - the serialized JSON contains ONLY source-of-truth keys (no derived keys at any depth)

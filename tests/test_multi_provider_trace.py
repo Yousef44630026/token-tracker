@@ -1,6 +1,6 @@
 """Extra — one trace mixing all providers, end-to-end (integration).
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_multi_provider_trace.py
+Run: python tests/test_multi_provider_trace.py
 
 Normalizes a real-shaped (SIMULATED) call from each provider through the keystone, drops them
 in one trace, and checks the contributing totals add up and survive export.

@@ -1,6 +1,6 @@
 """Phase keystone — the normalizer (single assembly point).
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_normalizer.py
+Run: python tests/test_normalizer.py
 
 normalize(response, adapter) is the one call that turns a raw provider response into a stored
 TokenEvent: it runs the adapter, pulls identity from the propagation context, applies the

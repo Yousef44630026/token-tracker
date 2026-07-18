@@ -8,15 +8,16 @@ version = "0.1.0"
 description = "AI token tracking for GenAI, RAG and agents; source-truth storage with optional presentation-layer cost reporting."
 requires-python = ">=3.11"
 readme = "README.md"
-# Core/runtime depends only on the standard library + openpyxl (Excel export).
+# Core/runtime depends only on the standard library, openpyxl, and tiktoken.
 # Pandas is isolated in the optional reporting extra and is not imported by capture/storage.
 # Provider SDKs are used ONLY to capture real test fixtures, never at runtime.
-dependencies = ["openpyxl>=3.1"]
+dependencies = ["openpyxl>=3.1", "tiktoken>=0.7"]
 
 [project.scripts]
 ai-token-tracker-collector = "api.main:main"
 ai-token-tracker-proxy = "tracker.proxy.cli:main"
 ai-token-tracker-doctor = "tracker.ops.doctor:main"
+ai-token-tracker-retention = "tracker.ops.retention:main"
 ai-token-tracker-azure-smoke = "tracker.ops.azure_smoke:main"
 ai-token-tracker-bedrock-cache-smoke = "tracker.ops.bedrock_cache_smoke:main"
 ai-token-tracker-dashboard = "tracker.reporting.excel_dashboard:main"
@@ -25,7 +26,6 @@ ai-token-tracker-dashboard = "tracker.reporting.excel_dashboard:main"
 # Dev toolchain. Tests are plain runnable scripts under tests/ (no pytest required
 # for the local gate); Ruff is the lint gate run by tests/run_all.py.
 dev = ["pytest>=8", "ruff>=0.5", "pandas>=2.0"]
-proxy = ["tiktoken>=0.7"]
 reporting = ["pandas>=2.0"]
 bedrock = ["boto3>=1.34,<2"]
 otel = [

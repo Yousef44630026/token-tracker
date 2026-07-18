@@ -1,6 +1,6 @@
 """Extra — normalizer extras (keystone).
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_normalizer_more.py
+Run: python tests/test_normalizer_more.py
 
 event_id override, hashes/timestamp passthrough, model passthrough, explicit context wins
 over ambient, and a clean fallback to a fresh root when there is no context at all.

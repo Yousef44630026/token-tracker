@@ -13,7 +13,7 @@ You are a **verification engineer** auditing an AI token-tracking library. Your 
 you found a real bug: fix the bug and document it.
 
 ## How to run (Windows, portable Python, no pytest)
-- One test: `& "C:\Users\yerabhaoui\python-portable\python.exe" tests\test_NAME.py`
+- One test: `python tests/test_NAME.py`
   (each test prints `[PASS]`/`[FAIL]` and exits non-zero on failure).
 - Full suite: loop every `tests\test_*.py` and assert 0 failures.
 

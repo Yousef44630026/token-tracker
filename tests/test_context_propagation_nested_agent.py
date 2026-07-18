@@ -1,6 +1,6 @@
 """Phase 1 / step 4 — nested agent topology proof.
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_context_propagation_nested_agent.py
+Run: python tests/test_context_propagation_nested_agent.py
 
 A realistic agentic shape under ONE root trace:
     root

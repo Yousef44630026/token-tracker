@@ -69,6 +69,9 @@ check(
     f"valid ledger passes the recovery drill ({valid_summary})",
 )
 check(valid_summary["checks"][0]["name"] == "source_validation", "strict source validation is the first gate")
+retention_check = next(item for item in valid_summary["checks"] if item["name"] == "archive_first_retention")
+check(retention_check["passed"] is True, "recovery drill proves archive-first retention on its strict snapshot")
+check("canonical total 7 -> 7" in retention_check["detail"], "retention drill reconciles the canonical total before and after")
 
 for label, corrupt_bytes in (
     ("malformed_middle", valid.read_bytes() + b"{not-json}\n"),

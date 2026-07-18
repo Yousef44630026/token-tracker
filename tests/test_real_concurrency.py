@@ -1,6 +1,6 @@
 """DEEP — real OS-thread concurrency proof for context propagation (not simulated interleaving).
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_real_concurrency.py
+Run: python tests/test_real_concurrency.py
 
 Every other concurrency-flavored test in this suite (test_concurrency_context.py,
 test_concurrency_collector.py, the async harnesses) proves properties by CONSTRUCTING a

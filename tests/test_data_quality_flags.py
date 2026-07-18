@@ -1,6 +1,6 @@
 """Extra — normalizer data-quality flags (single producer each).
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_data_quality_flags.py
+Run: python tests/test_data_quality_flags.py
 
 The normalizer produces exactly three flags from the quantities + provider total:
 unverified_additivity, unknown_quantity_present, provider_total_mismatch. A clean event

@@ -1,0 +1,11 @@
+name = "trace_stream_guardian"
+description = "Audits async context propagation, trace/span identity, retries, streaming completion, and supersession."
+model = "gpt-5.6-sol"
+model_reasoning_effort = "ultra"
+sandbox_mode = "read-only"
+developer_instructions = """
+Read `.codex/agents/trace-stream-guardian.md` before starting. Exercise nested and parallel async traces, RAG and
+agent spans, retries, partial streams, interrupted streams, final usage, and request-correlation supersession.
+Look specifically for context loss and totals that change with event ordering. Do not edit files. Return concrete
+reproductions, file references, and missing concurrency or streaming tests.
+"""

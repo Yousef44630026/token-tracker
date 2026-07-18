@@ -13,6 +13,11 @@ updates for the current repository:
 - Event schema v9 stores `overlap` and `trust`, not the redundant flat `additivity` view.
   Supersession and normalizer-owned quality flags are derived from source events on read.
   `observation.authoritative` is an explicit typed boolean and missing authority fails closed.
+- Imported external records use provider/session identities, never absolute file paths, for
+  idempotency. Storage may derive a disposable source-identity index from observation metadata
+  to bridge legacy event ids, but that index is not accounting source of truth.
+- Operational loopback tasks require a bearer loaded from an ACL-restricted file outside the
+  repository. Task definitions may contain the file path, never the bearer value.
 
 ## How to use
 1. Create an empty (or to-be-replaced) folder for the project.
@@ -55,7 +60,9 @@ HARD CONSTRAINTS (never violate)
   The optional reporting layer MAY derive cost from an external, effective-dated price table.
   Reporting prices/costs are presentation-only, never written back to TokenEvent/JSONL, never
   treated as source of truth, and missing prices or quantities remain unknown rather than zero.
-- Core/runtime dependencies remain standard library + openpyxl. Pandas is permitted only in the
+- Core/runtime dependencies remain standard library + openpyxl + tiktoken. Tiktoken is required
+  so interrupted-stream precision cannot degrade according to environment luck; the emergency
+  char4 capture fallback remains flagged and is a Doctor failure. Pandas is permitted only in the
   optional `reporting` extra and must never be imported by capture, storage, proxy, or collector paths.
   OpenTelemetry packages are permitted only in the optional `otel` extra and are lazy-imported by
   `tracker.export.otel_sdk`; core imports and source-of-truth accounting must work without them.

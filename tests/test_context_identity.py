@@ -1,6 +1,6 @@
 """Phase 1 / step 1 — context identity model (pure data, no concurrency yet).
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_context_identity.py
+Run: python tests/test_context_identity.py
 
 Asserts the trace/span/parent/request_correlation_id relationships that the whole
 tracker hangs off:

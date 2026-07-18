@@ -1,6 +1,6 @@
 """Extra — additional providers: Mistral, Cohere, Voyage rerank.
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_more_providers.py
+Run: python tests/test_more_providers.py
 
 Mistral is OpenAI-compatible; Cohere reports usage.tokens/billed_units; Voyage rerank reports
 usage.total_tokens -> a single rerank_input quantity. All registered total_contributing.

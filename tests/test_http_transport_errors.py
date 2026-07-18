@@ -1,6 +1,6 @@
 """Extra — make_http_transport safe-failure on network errors.
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_http_transport_errors.py
+Run: python tests/test_http_transport_errors.py
 
 The HTTP transport must never raise into the collector: an unreachable endpoint, a refused
 connection, or a garbage URL all return [] (nothing acked) so the client requeues the batch.

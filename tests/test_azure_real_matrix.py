@@ -1,6 +1,6 @@
 """GROUND TRUTH — the Azure confrontation matrix, locked as permanent regression.
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_azure_real_matrix.py
+Run: python tests/test_azure_real_matrix.py
 
 Loads the REAL Azure payloads captured by examples/azure_matrix_family_a.py and
 examples/azure_matrix_family_b.py (gpt-5-mini) and asserts, on real data, the two pillars the

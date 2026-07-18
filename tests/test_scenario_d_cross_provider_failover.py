@@ -2,7 +2,7 @@
 Anthropic takeover) with the SAME substantial context resent: both legitimately contribute
 (unlike a same-provider duplicate, this is genuinely two separate calls).
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_scenario_d_cross_provider_failover.py
+Run: python tests/test_scenario_d_cross_provider_failover.py
 
 Split out of the original test_realistic_scenarios_deep.py — see test_scenario_a_rag_conversation.py
 for the sibling scenarios and the reasoning behind the split.

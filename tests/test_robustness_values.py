@@ -1,6 +1,6 @@
 """Extra — robustness: edge values and empty containers.
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_robustness_values.py
+Run: python tests/test_robustness_values.py
 
 Zero / huge / negative token counts must not crash; empty traces roll up and export cleanly.
 Note: negative token counts are REJECTED as invalid (TokenQuantity raises -> the normalizer

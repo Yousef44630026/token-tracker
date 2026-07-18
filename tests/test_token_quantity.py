@@ -1,6 +1,6 @@
 """Phase 2 / step 1 — TokenQuantity stored-vs-derived (INV-1 / INV-2 / INV-4).
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_token_quantity.py
+Run: python tests/test_token_quantity.py
 
 A TokenQuantity STORES source-of-truth only; included_in_total / quantity_in_total /
 export_warning are DERIVED (@property) and must be absent from to_dict(). Verifies the

@@ -1,6 +1,6 @@
 """P0 hardening — context propagation across thread pools (INV-5 / Phase 1 companion).
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_context_thread_pool_propagation.py
+Run: python tests/test_context_thread_pool_propagation.py
 
 ContextVars do NOT flow into a raw ``ThreadPoolExecutor.submit()``: the worker thread runs
 with its own (empty) context, so an LLM call made inside the pool silently becomes its own

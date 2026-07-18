@@ -11,6 +11,7 @@ from collections.abc import Callable, Mapping
 from typing import Any
 from urllib import request
 
+from tracker.ops.auth_token import load_auth_token
 from tracker.storage._locking import lock_for
 
 Opener = Callable[..., Any]
@@ -77,6 +78,9 @@ def check_collector(
                 "total": int(stats.get("total", 0)),
             }
         )
+        observed_fingerprint = health.get("runtime_fingerprint")
+        if isinstance(observed_fingerprint, str) and observed_fingerprint:
+            sample["runtime_fingerprint"] = observed_fingerprint
         if not sample["healthy"]:
             sample["error_type"] = "unhealthy_status"
     except Exception as exc:  # noqa: BLE001 - operational monitor must emit a bounded signal
@@ -114,7 +118,7 @@ def main(argv: list[str] | None = None) -> None:
         base_url=args.base_url,
         health_log=args.health_log,
         alert_log=args.alert_log,
-        auth_token=environment.get("TRACKER_AUTH_TOKEN"),
+        auth_token=load_auth_token(),
         timeout=args.timeout,
         durable=not args.no_durable,
     )

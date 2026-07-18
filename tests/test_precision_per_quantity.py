@@ -1,6 +1,6 @@
 """Phase 6 — precision per quantity + unknown-reason classifier (INV-3 / INV-6).
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_precision_per_quantity.py
+Run: python tests/test_precision_per_quantity.py
 
 Precision is a per-quantity property, orthogonal to token_type (INV-3): one event may hold
 an EXACT input, an ESTIMATE output, and an UNKNOWN reasoning all at once. A None quantity is

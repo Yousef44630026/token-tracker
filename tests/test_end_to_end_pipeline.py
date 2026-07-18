@@ -1,6 +1,6 @@
 """Extra — full pipeline integration: payload -> adapter -> JSONL -> trace -> export.
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_end_to_end_pipeline.py
+Run: python tests/test_end_to_end_pipeline.py
 
 Drives one (SIMULATED) OpenAI payload through every layer and asserts the contributing total
 stays identical at each hop: adapter usage, assembled event, JSONL read-back, trace rollup,

@@ -1,6 +1,6 @@
 """Best-available local token estimator and disclosed fallback behavior.
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_local_tokenizer.py
+Run: python tests/test_local_tokenizer.py
 
 The runtime prefers tiktoken and falls back to a deterministic four-character heuristic.
 """

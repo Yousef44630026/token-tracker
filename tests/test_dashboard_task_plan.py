@@ -10,6 +10,10 @@ import sys
 import uuid
 from pathlib import Path
 
+if os.name != "nt":
+    print("[SKIP] test_dashboard_task_plan: Windows Task Scheduler contract")
+    raise SystemExit(0)
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from tests._harness import make_checker  # noqa: E402

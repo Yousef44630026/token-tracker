@@ -6,6 +6,7 @@ param(
     [string]$AlertLog,
     [Parameter(Mandatory = $true)]
     [string]$TaskLog,
+    [string]$AuthTokenFile,
     [string]$CollectorTaskName = "AI Token Tracker Collector",
     [ValidateRange(1, 300)]
     [int]$RecoveryDelaySeconds = 15
@@ -15,6 +16,10 @@ $ErrorActionPreference = "Stop"
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $runner = Join-Path $scriptDir "tt-collector-monitor.cmd"
 $logDir = Split-Path -Parent $TaskLog
+if (-not $AuthTokenFile) {
+    $AuthTokenFile = Join-Path (Join-Path (Split-Path -Parent $logDir) "config") "collector-auth.token"
+}
+$env:TRACKER_AUTH_TOKEN_FILE = $AuthTokenFile
 
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 

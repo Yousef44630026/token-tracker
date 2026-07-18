@@ -1,6 +1,6 @@
 """Extra — load: the collector under high volume (Phase 8).
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_load_collector.py
+Run: python tests/test_load_collector.py
 
 Drains 20k events through batched flushes (nothing lost), then checks dedup-at-scale and the
 bounded-buffer drop policy under a flood.

@@ -1,6 +1,6 @@
 """Azure OpenAI simulated coverage — content-filter noise, Responses, streaming.
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_azure_simulated.py
+Run: python tests/test_azure_simulated.py
 
 Azure adds content-filter fields around the usage object; the adapter must ignore them and
 still extract usage. Responses + streaming reuse the OpenAI wire format with the azure_openai

@@ -1,6 +1,6 @@
 """Collector must SURFACE rejected events, never drop them silently (INV-6 spirit).
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_collector_rejects_surfaced.py
+Run: python tests/test_collector_rejects_surfaced.py
 
 A malformed item inside a batch is skipped so one bad event never fails the whole batch —
 but a skipped event must be visible, not vanish. The response reports how many items were

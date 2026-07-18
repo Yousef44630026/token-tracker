@@ -1,6 +1,6 @@
 """Extra — the adapter registry covers EVERY concrete adapter (anti-drift guard).
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_registry_completeness.py
+Run: python tests/test_registry_completeness.py
 
 If a new adapter class exists but is not registered, `create_adapter` would wrongly report it
 as unsupported. This walks every concrete BaseAPISurfaceAdapter subclass and asserts it is

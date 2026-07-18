@@ -1,6 +1,6 @@
 """Extra — the shared adapter field accessor (base.field_value).
 
-Run: & "C:\\Users\\yerabhaoui\\python-portable\\python.exe" tests\\test_field_value.py
+Run: python tests/test_field_value.py
 
 field_value reads a field from either a decoded mapping (dict) or an SDK object (attribute),
 returning the default when absent. Every adapter relies on it, so its contract is pinned here.
