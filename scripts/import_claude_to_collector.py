@@ -56,12 +56,52 @@ def _batches(payloads: list[dict]) -> list[list[dict]]:
     return batches
 
 
+def _store_path() -> Path:
+    return Path(os.environ.get("TRACKER_STORE", r"C:\ai-token-tracker-data\collector_events.jsonl")).expanduser()
+
+
 def _default_state_file() -> Path:
     configured = os.environ.get("TRACKER_CLAUDE_IMPORT_STATE")
     if configured:
         return Path(configured).expanduser()
-    store = Path(os.environ.get("TRACKER_STORE", r"C:\ai-token-tracker-data\collector_events.jsonl"))
-    return store.parent / "health" / "claude-import-state.json"
+    return _store_path().parent / "health" / "claude-import-state.json"
+
+
+def filter_preexisting_turns(events: list, store: Path) -> tuple[list, int]:
+    """Drop turns whose (session_id, request_id) is already in the ledger, ANY id scheme.
+
+    The collector dedups by event_id only, and the import id scheme changed once (it was
+    derived from the transcript's absolute path; ~3,700 historical events carry those ids).
+    A rewind that re-reads pre-fix bytes — project-directory rename, checkpoint loss,
+    machine migration — would therefore re-import the whole pre-fix history under NEW ids,
+    silently doubling the ledger. Keying the guard on the observation's stable
+    (session_id, request_id) pair makes the import idempotent across id-scheme history.
+    The read is archive-aware (FileRepository.iter_events covers rotated segments), so
+    retention cannot reopen the hole. A missing store filters nothing; an event lacking
+    the pair is kept, never silently dropped.
+    """
+    if not store.exists():
+        return events, 0
+    from tracker.storage.file_repository import FileRepository
+
+    known: set[tuple[str, str]] = set()
+    for existing in FileRepository(str(store)).iter_events():
+        session_id = existing.observation.get("session_id")
+        request_id = existing.observation.get("request_id")
+        if session_id and request_id:
+            known.add((str(session_id), str(request_id)))
+    if not known:
+        return events, 0
+    kept = []
+    skipped = 0
+    for event in events:
+        session_id = event.observation.get("session_id")
+        request_id = event.observation.get("request_id")
+        if session_id and request_id and (str(session_id), str(request_id)) in known:
+            skipped += 1
+        else:
+            kept.append(event)
+    return kept, skipped
 
 
 def _load_checkpoint(path: Path) -> SessionSnapshot:
@@ -172,6 +212,7 @@ def main() -> int:
         return 1
 
     events, report = import_new_claude_code_events_with_report(before=before)
+    events, skipped_preexisting = filter_preexisting_turns(events, _store_path())
     summary: dict[str, Any] = {
         "status": "ok",
         "timestamp": datetime.now(UTC).isoformat(),
@@ -181,6 +222,7 @@ def main() -> int:
         "sent": 0,
         "acked": 0,
         "persisted": 0,
+        "skipped_preexisting": skipped_preexisting,
         "detail": "",
     }
     if report.format_drift_suspected:
