@@ -13,9 +13,40 @@ production capture yet.
 | **Google Gemini** (Developer API) | 1 real capture; cache not yet real-validated | Usage yes; treat cache figures as unverified. |
 | **Google Vertex AI** | Simulated fixtures only; wire/auth/region not captured | **No.** A Gemini capture does not certify Vertex. Label experimental. |
 
-## Two ways to connect
+## How to connect — pick by whether you control the app's code
 
-### A. Reverse proxy (no application code change)
+**The proxy is NOT required.** It is one of four ingestion paths; for an application whose code
+you own (most Deloitte services), in-code `track_response` is simpler and more robust — no
+`base_url` change, no per-provider proxy, no network hop, no TLS termination.
+
+| Path | Use when | Cost |
+|---|---|---|
+| **A. In-code `track_response` → file** (default) | You control the app's code | One line per call site; zero infra |
+| **B. In-code `track_response` → collector** | Several apps feed one shared ledger | The authenticated collector service |
+| **C. Reverse proxy** | You cannot touch the app's code | Network hop + one proxy per provider + TLS |
+| **D. Log import** | Neither code nor network is reachable (e.g. a CLI) | Needs a log/transcript source |
+
+### A/B. In-code `track_response` (recommended when you own the code)
+Wrap the SDK response; nothing is proxied. Pass `repository=` to write straight to a JSONL file,
+or `collector=` to send to the shared authenticated collector.
+
+```python
+from tracker import track_response
+from tracker.adapters import create_adapter
+from tracker.context.propagation import new_trace
+from tracker.storage.file_repository import FileRepository
+
+repo = FileRepository(r"C:\ai-token-tracker-data\collector_events.jsonl")
+adapter = create_adapter("azure_openai", "chat_completions")
+ctx = new_trace(workflow="invoice-rag", environment="prod", business_id="billing-team")
+
+response = client.chat.completions.create(...)          # your existing Azure call, unchanged
+track_response(response, adapter, repository=repo, context=ctx)   # the one line you add
+```
+For multi-app aggregation, replace `repository=repo` with `collector=<CollectorClient>` (the
+already-running authenticated collector). `track_response` never raises into the caller.
+
+### C. Reverse proxy (only when you cannot change the app)
 Point the app's provider `base_url` at the local proxy; it relays to the real upstream and
 records usage. One proxy instance per provider.
 
@@ -24,20 +55,6 @@ ai-token-tracker-proxy serve --provider azure_openai --upstream https://YOUR-RES
 ```
 Then set the SDK's `base_url` / endpoint to `http://127.0.0.1:8080`. Non-loopback binds require
 an auth token (see `tt-local-auth`).
-
-### B. In-code (`track_response`)
-Wrap the SDK call; nothing is proxied.
-
-```python
-from tracker import track_response
-from tracker.adapters import create_adapter
-from tracker.context.propagation import new_trace
-from tracker.models.trace import Trace
-
-ctx = new_trace(workflow="invoice-rag", environment="prod", business_id="billing-team")
-trace = Trace(trace_id=ctx.trace_id)
-result = track_response(sdk_response, create_adapter("azure_openai", "chat_completions"), context=ctx, trace=trace)
-```
 
 ## Per-service attribution — REQUIRED for useful dashboards
 
