@@ -22,12 +22,15 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from tracker.derive.trace_rollup import roll_up  # noqa: E402
 from tracker.models.enums import Additivity, PrecisionLevel, TokenType, UsageSource  # noqa: E402
 from tracker.models.token_event import TokenEvent  # noqa: E402
 from tracker.models.token_quantity import TokenQuantity  # noqa: E402
+from tracker.models.trace import Trace  # noqa: E402
 from tracker.normalization.supersession import (  # noqa: E402
     COLLISION_FLAG,
     SUPERSEDED_FLAG,
+    UNVERIFIED_DUPLICATE_FLAG,
     reconcile_supersession,
 )
 
@@ -74,6 +77,21 @@ check(
     "collision: 'correlation_id_collision' raised so the dropped real tokens are VISIBLE, not silent",
 )
 check(COLLISION_FLAG not in kept[0].data_quality_flags, "collision: the kept final is not itself flagged as a collision")
+collision_rollup = roll_up(Trace(trace_id="t-1", events=events))
+check(
+    (
+        collision_rollup.headline_floor_tokens,
+        collision_rollup.headline_estimate_tokens,
+        collision_rollup.headline_ceiling_tokens,
+    )
+    == (500, 500, 700),
+    "collision: headline keeps the conservative point and carries the dropped candidate in its ceiling",
+)
+check(
+    collision_rollup.total_is_lower_bound is True,
+    "collision: headline cannot claim an exact total after dropping a distinct measurement",
+)
+check(collision_rollup.headline_status == "bounded", "collision: uncertainty is finite and explicit")
 
 # --- TRUE DUPLICATE: two finals, same rcid, SAME hashes = one call delivered twice ---
 d1 = final("dup-1", "rc-dup", 300, request_hash="req-X", response_hash="resp-X", ts="2026-07-03T11:00:00")
@@ -87,7 +105,7 @@ check(
     "duplicate: NO collision flag when the content hashes match (a genuine at-least-once redelivery)",
 )
 
-# --- UNKNOWN hashes: cannot prove a collision -> stay quiet (no false alarm) ---
+# --- UNKNOWN hashes: cannot prove a duplicate -> widen uncertainty, never stay silent ---
 u1 = final("u-1", "rc-unk", 100, ts="2026-07-03T12:00:00")
 u2 = final("u-2", "rc-unk", 100, ts="2026-07-03T12:00:01")
 unk_events = [u1, u2]
@@ -96,8 +114,23 @@ unk_dropped = [e for e in unk_events if e.superseded]
 check(len(unk_dropped) == 1, "unknown-hash: exactly one superseded")
 check(
     COLLISION_FLAG not in unk_dropped[0].data_quality_flags,
-    "unknown-hash: no collision flag when hashes are absent (never a false alarm)",
+    "unknown-hash: no proven-collision label when hashes are absent",
 )
+check(
+    UNVERIFIED_DUPLICATE_FLAG in unk_dropped[0].data_quality_flags,
+    "unknown-hash: absence of duplicate evidence is explicit",
+)
+unknown_rollup = roll_up(Trace(trace_id="t-1", events=unk_events))
+check(
+    (
+        unknown_rollup.headline_floor_tokens,
+        unknown_rollup.headline_estimate_tokens,
+        unknown_rollup.headline_ceiling_tokens,
+    )
+    == (100, 100, 200),
+    "unknown-hash: dropped final expands the possible ceiling",
+)
+check(unknown_rollup.total_is_lower_bound is True, "unknown-hash: total cannot claim exactness")
 
 # --- a partial superseded by its final legitimately differs in content: NOT a collision ---
 part = TokenEvent(

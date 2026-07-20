@@ -33,6 +33,7 @@ from tracker.models.token_quantity import TokenQuantity
 from tracker.normalization.additivity import assign_additivity
 from tracker.normalization.event_builder import build_event
 from tracker.normalization.normalizer import normalize
+from tracker.normalization.usage_contract import inspect_usage_contract, usage_contract_observation
 from tracker.proxy.estimator import (
     PromptEstimate,
     estimate_prompt,
@@ -136,6 +137,7 @@ class _UsageAccumulator:
         self.model: str | None = None
         self.provider_response_id: str | None = None
         self.flags: list[str] = []
+        self.unmapped_usage_fields: set[str] = set()
 
     def feed(self, payload: Any) -> None:
         if not isinstance(payload, dict):
@@ -165,10 +167,12 @@ class _UsageAccumulator:
         if usage is None:
             return
 
+        usage_flags, unmapped_paths = inspect_usage_contract(self.adapter, usage)
+        self.unmapped_usage_fields.update(unmapped_paths)
         self.model = usage.model or self.model
         if usage.provider_total_tokens is not None:
             self.provider_total_tokens = usage.provider_total_tokens
-        for flag in usage.data_quality_flags:
+        for flag in usage_flags:
             if flag not in self.flags:
                 self.flags.append(flag)
         for quantity in usage.quantities:
@@ -184,6 +188,10 @@ class _UsageAccumulator:
     ) -> TokenEvent | None:
         if not self.quantities:
             return None
+        event_observation = dict(observation)
+        event_observation.update(
+            usage_contract_observation(sorted(self.unmapped_usage_fields))
+        )
         return build_event(
             context=context,
             provider=self.adapter.provider,
@@ -194,7 +202,7 @@ class _UsageAccumulator:
             leading_flags=self.flags,
             request_hash=request_hash,
             response_hash=response_hash,
-            observation=observation,
+            observation=event_observation,
         )
 
 
@@ -876,6 +884,9 @@ def _make_handler(
                     time_to_first_token_ms=time_to_first_token_ms,
                     duration_ms=duration_ms,
                 )
+                observation.update(
+                    usage_contract_observation(sorted(accumulator.unmapped_usage_fields))
+                )
                 event = accumulator.build_event(
                     context=measurement.context,
                     request_hash=measurement.request_hash,
@@ -888,6 +899,7 @@ def _make_handler(
                             measurement,
                             response_hash=response_hash,
                             flags=[
+                                *accumulator.flags,
                                 "provider_stream_usage_missing",
                                 *(["provider_http_error"] if upstream.status >= 400 else []),
                             ],

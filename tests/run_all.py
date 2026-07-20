@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import math
 import os
 import shutil
 import subprocess
@@ -14,20 +15,33 @@ from pathlib import Path
 CLEANUP_ATTEMPTS = 8
 CLEANUP_INITIAL_DELAY_SECONDS = 0.05
 TEST_WORKSPACE_PREFIX = "t"
+DEFAULT_TEST_TIMEOUT_SECONDS = 180.0
+DEFAULT_LINT_TIMEOUT_SECONDS = 120.0
+LINT_PATHS = ("tracker", "api", "scripts", "tests", "examples")
 
 
-def _run_lint_gate(repo_root: Path, environment: dict) -> list[str]:
+def _run_lint_gate(repo_root: Path, environment: dict, *, timeout_seconds: float) -> list[str]:
     """Run Ruff over the repository and return failure labels.
 
     A missing Ruff installation is reported as a visible skip instead of a silent pass.
     """
     failures: list[str] = []
-    for label, cmd in (("ruff", [sys.executable, "-m", "ruff", "check", "."]),):
-        print(f"\n=== lint: {label} ===")
+    for label, cmd in (("ruff", [sys.executable, "-m", "ruff", "check", *LINT_PATHS]),):
+        print(f"\n=== lint: {label} ===", flush=True)
         try:
-            result = subprocess.run(cmd, cwd=repo_root, env=environment, check=False)
+            result = subprocess.run(
+                cmd,
+                cwd=repo_root,
+                env=environment,
+                check=False,
+                timeout=timeout_seconds,
+            )
         except FileNotFoundError:
             print(f"[SKIP] {label} could not be launched (interpreter/module missing)")
+            continue
+        except subprocess.TimeoutExpired:
+            print(f"[TIMEOUT] {label} exceeded {timeout_seconds:g}s", flush=True)
+            failures.append(f"lint:{label}:timeout")
             continue
         if result.returncode == 0:
             continue
@@ -95,12 +109,49 @@ def _make_test_run_root() -> Path:
     return Path(tempfile.mkdtemp(prefix="ai-token-tracker-tests-", dir=parent)).resolve()
 
 
+def _run_test_script(
+    test: Path,
+    *,
+    workspace: Path,
+    environment: dict[str, str],
+    timeout_seconds: float,
+) -> tuple[int | None, bool]:
+    """Run one isolated test and fail closed when it stops making progress."""
+    try:
+        result = subprocess.run(
+            [sys.executable, str(test)],
+            cwd=workspace,
+            env=environment,
+            check=False,
+            timeout=timeout_seconds,
+        )
+    except subprocess.TimeoutExpired:
+        return None, True
+    return result.returncode, False
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--pattern", default="test_*.py")
     parser.add_argument("--include-live", action="store_true")
     parser.add_argument("--skip-lint", action="store_true", help="skip the Ruff gate")
+    parser.add_argument(
+        "--test-timeout-seconds",
+        type=float,
+        default=DEFAULT_TEST_TIMEOUT_SECONDS,
+        help="maximum runtime for one test script before the gate fails closed",
+    )
+    parser.add_argument(
+        "--lint-timeout-seconds",
+        type=float,
+        default=DEFAULT_LINT_TIMEOUT_SECONDS,
+        help="maximum runtime for each lint command before the gate fails closed",
+    )
     args = parser.parse_args()
+    if not math.isfinite(args.test_timeout_seconds) or args.test_timeout_seconds <= 0:
+        parser.error("--test-timeout-seconds must be a finite positive number")
+    if not math.isfinite(args.lint_timeout_seconds) or args.lint_timeout_seconds <= 0:
+        parser.error("--lint-timeout-seconds must be a finite positive number")
 
     tests_dir = Path(__file__).resolve().parent
     repo_root = tests_dir.parent
@@ -118,10 +169,11 @@ def main() -> int:
     run_root = _make_test_run_root()
     workspace_cleanup_failed = False
     if not args.skip_lint:
-        failures.extend(_run_lint_gate(repo_root, environment))
+        failures.extend(_run_lint_gate(repo_root, environment, timeout_seconds=args.lint_timeout_seconds))
     try:
         for test_index, test in enumerate(tests):
-            print(f"\n=== {test.relative_to(tests_dir)} ===")
+            relative_test = test.relative_to(tests_dir)
+            print(f"\n=== {relative_test} ===", flush=True)
             # Keep this deliberately short. Test scripts often create nested paths,
             # and verbose workspace names can exceed the Windows MAX_PATH boundary.
             test_workspace = run_root / f"{TEST_WORKSPACE_PREFIX}{test_index:03d}"
@@ -129,14 +181,20 @@ def main() -> int:
             test_environment = dict(environment)
             test_environment["TRACKER_TEST_NAME"] = str(test.relative_to(tests_dir))
             test_environment["TRACKER_TEST_WORKSPACE"] = str(test_workspace)
-            result = subprocess.run(
-                [sys.executable, str(test)],
-                cwd=test_workspace,
-                env=test_environment,
-                check=False,
+            returncode, timed_out = _run_test_script(
+                test,
+                workspace=test_workspace,
+                environment=test_environment,
+                timeout_seconds=args.test_timeout_seconds,
             )
-            if result.returncode:
-                failures.append(str(test.relative_to(tests_dir)))
+            if timed_out:
+                print(
+                    f"[TIMEOUT] {relative_test} exceeded {args.test_timeout_seconds:g}s",
+                    flush=True,
+                )
+                failures.append(f"{relative_test}:timeout")
+            elif returncode:
+                failures.append(str(relative_test))
             if not _remove_path_with_retry(test_workspace):
                 workspace_cleanup_failed = True
                 failures.append(f"cleanup:{test.name}:workspace")

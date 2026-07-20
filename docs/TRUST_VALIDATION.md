@@ -41,11 +41,33 @@ Write JSON:
 scripts\tt-provider-matrix.cmd --json --output provider_matrix.json
 ```
 
+Require a specific REAL proof as a release precondition:
+
+```cmd
+scripts\tt-provider-matrix.cmd --require-proven azure_openai:chat_completions:stream
+scripts\tt-provider-matrix.cmd --require-proven vertex_ai:embeddings:usage
+```
+
+The second command intentionally exits non-zero until a real Vertex embeddings fixture exists.
+Requirements use `provider:surface[:capability]`; shared adapter code never satisfies a different
+cloud's wire-format proof.
+
 Status meanings:
 
 - `pass`: has real fixture coverage and no currently visible validation warning.
 - `warn`: has partial coverage, simulated-only coverage, no stream fixture for a streamable surface, or cache coverage that is not real validated.
 - `fail`: adapter exists but no mapped realistic fixture proves it.
+
+Capability certification uses stricter evidence labels:
+
+- `proven`: at least one mapped REAL fixture exercised that exact capability.
+- `simulated`: only synthetic fixtures exercise it.
+- `unvalidated`: implemented or declared, but no mapped fixture exercises it.
+- `unsupported`: an explicit provider/product boundary, such as Cohere Embed on Bedrock not
+  returning a response token count.
+
+Run `scripts\tt-release-gate.cmd` before delivery. It combines the complete code gate, operational
+Doctor, provider capability proof, dashboard freshness, quality status, and coverage thresholds.
 
 ## Observation Contract
 

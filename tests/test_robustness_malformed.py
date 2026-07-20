@@ -102,7 +102,11 @@ check(an_in_only.event_contributing_tokens == 70, "Anthropic input-only usage ->
 bim_in_only = normalize(
     {"ResponseMetadata": {"HTTPHeaders": {"x-amzn-bedrock-input-token-count": "33"}}}, BedrockInvokeModelAdapter(), context=new_trace()
 )
-check(bim_in_only.event_contributing_tokens == 33, "InvokeModel input-only header -> 33")
+check(
+    bim_in_only.event_contributing_tokens == 0
+    and {"provider_usage_unverified", "unverified_additivity"} <= set(bim_in_only.data_quality_flags),
+    "InvokeModel non-contractual input header is retained but excluded",
+)
 
 # --- extra unknown fields are ignored, not fatal ---
 noisy = {"usage": {"prompt_tokens": 100, "completion_tokens": 20, "total_tokens": 120, "mystery": {"x": 1}}, "extra": [1, 2]}

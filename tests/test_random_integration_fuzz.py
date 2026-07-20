@@ -153,20 +153,27 @@ def gen_bedrock_converse():
 def gen_bedrock_invoke_model():
     inp, out = tok(), tok()
     payload = {
-        "ResponseMetadata": {
-            "HTTPHeaders": {
-                "x-amzn-bedrock-input-token-count": str(inp),
-                "x-amzn-bedrock-output-token-count": str(out),
-            }
-        }
+        "modelId": "amazon.nova-micro-v1:0",
+        "body_json": {"usage": {"inputTokens": inp, "outputTokens": out, "totalTokens": inp + out}},
     }
-    return payload, inp + out, None
+    return payload, inp + out, inp + out
 
 
 def gen_bedrock_embeddings():
     inp = tok()
-    payload = {"ResponseMetadata": {"HTTPHeaders": {"x-amzn-bedrock-input-token-count": str(inp)}}}
+    payload = {"modelId": "amazon.titan-embed-text-v2:0", "body_json": {"inputTextTokenCount": inp}}
     return payload, inp, None
+
+
+def gen_vertex_embeddings():
+    first, second = tok(), tok()
+    payload = {
+        "predictions": [
+            {"embeddings": {"statistics": {"token_count": first, "truncated": False}}},
+            {"embeddings": {"statistics": {"token_count": second, "truncated": False}}},
+        ]
+    }
+    return payload, first + second, None
 
 
 def gen_gemini():
@@ -223,6 +230,7 @@ PROVIDER_GENERATORS = {
     ("bedrock", "embeddings"): gen_bedrock_embeddings,
     ("gemini", "generate_content"): gen_gemini,
     ("vertex_ai", "generate_content"): gen_gemini,
+    ("vertex_ai", "embeddings"): gen_vertex_embeddings,
     ("mistral", "chat_completions"): gen_mistral,
     ("cohere", "chat"): gen_cohere,
     ("voyage", "rerank"): gen_voyage,

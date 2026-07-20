@@ -17,11 +17,10 @@ final-usage event in the group is treated the same as a partial and superseded b
 That collapse is only *safe* while the upstream invariant holds. If it is ever violated — an id
 collision, or a caller reusing a correlation id for a genuinely DIFFERENT call — superseding one
 final silently drops a real call's tokens (an undercount) with no signal. So this layer does not
-merely trust the invariant, it defends it: when two superseded-as-duplicate finals carry
-DIFFERENT content hashes (request_hash / response_hash), they cannot be the same call delivered
-twice, so we still supersede (to never overcount) but ALSO raise ``correlation_id_collision`` so
-the dropped tokens are auditable rather than invisible. When the hashes match (a true redelivery)
-or are absent (cannot prove a collision), no such flag is raised — no false alarms.
+merely trust the invariant, it defends it: DIFFERENT content hashes raise
+``correlation_id_collision``. Matching hashes prove a redelivery and stay quiet. If no hash pair
+is available, ``duplicate_final_unverified`` is raised: absence of evidence is not treated as
+proof of duplication, and the dropped candidate expands the headline ceiling.
 
 Supersession is set HERE (the reconciler / stream tracker), never by an adapter.
 """
@@ -35,6 +34,7 @@ from tracker.models.token_event import TokenEvent
 
 SUPERSEDED_FLAG = DataQualityFlag.SUPERSEDED.value
 COLLISION_FLAG = DataQualityFlag.CORRELATION_ID_COLLISION.value
+UNVERIFIED_DUPLICATE_FLAG = DataQualityFlag.DUPLICATE_FINAL_UNVERIFIED.value
 
 
 def _looks_like_distinct_call(a: TokenEvent, b: TokenEvent) -> bool:
@@ -49,6 +49,14 @@ def _looks_like_distinct_call(a: TokenEvent, b: TokenEvent) -> bool:
         if av is not None and bv is not None and av != bv:
             return True
     return False
+
+
+def _has_comparable_hash_evidence(a: TokenEvent, b: TokenEvent) -> bool:
+    """Whether at least one content hash exists on both duplicate-final candidates."""
+    return any(
+        getattr(a, attr) is not None and getattr(b, attr) is not None
+        for attr in ("response_hash", "request_hash")
+    )
 
 
 PARTIAL_STREAM_ESTIMATE_FLAG = DataQualityFlag.PARTIAL_STREAM_ESTIMATE.value
@@ -146,7 +154,11 @@ def _clear_supersession(event: TokenEvent) -> None:
     """Reset reconciler-owned supersession state before recomputing it."""
     event.superseded = False
     event.superseded_by = None
-    event.data_quality_flags = [flag for flag in event.data_quality_flags if flag not in {SUPERSEDED_FLAG, COLLISION_FLAG}]
+    event.data_quality_flags = [
+        flag
+        for flag in event.data_quality_flags
+        if flag not in {SUPERSEDED_FLAG, COLLISION_FLAG, UNVERIFIED_DUPLICATE_FLAG}
+    ]
 
 
 def reconcile_supersession(events: list[TokenEvent]) -> list[TokenEvent]:
@@ -189,5 +201,11 @@ def reconcile_supersession(events: list[TokenEvent]) -> list[TokenEvent]:
                 if is_duplicate_final and _looks_like_distinct_call(event, final):
                     if COLLISION_FLAG not in event.data_quality_flags:
                         event.data_quality_flags.append(COLLISION_FLAG)
+                elif is_duplicate_final and not _has_comparable_hash_evidence(event, final):
+                    # No shared hash means there is no evidence this is a harmless
+                    # at-least-once redelivery. Keep the conservative supersession, but
+                    # widen trust bounds instead of silently assuming equivalence.
+                    if UNVERIFIED_DUPLICATE_FLAG not in event.data_quality_flags:
+                        event.data_quality_flags.append(UNVERIFIED_DUPLICATE_FLAG)
 
     return events

@@ -56,6 +56,7 @@ class CoverageExactnessAccumulator:
     partial_stream_estimate_event_count: int = 0
     stream_interrupted_event_count: int = 0
     correlation_id_collision_event_count: int = 0
+    duplicate_final_unverified_event_count: int = 0
     headline: HeadlineBandAccumulator = field(default_factory=HeadlineBandAccumulator)
 
     def add(self, event: TokenEvent) -> None:
@@ -75,6 +76,8 @@ class CoverageExactnessAccumulator:
             self.stream_interrupted_event_count += 1
         if DataQualityFlag.CORRELATION_ID_COLLISION.value in flags:
             self.correlation_id_collision_event_count += 1
+        if DataQualityFlag.DUPLICATE_FINAL_UNVERIFIED.value in flags:
+            self.duplicate_final_unverified_event_count += 1
         if event.superseded:
             self.superseded_event_count += 1
         if event.superseded or not event.is_authoritative:
@@ -144,6 +147,7 @@ class CoverageExactnessAccumulator:
             "partial_stream_estimate_event_count": self.partial_stream_estimate_event_count,
             "stream_interrupted_event_count": self.stream_interrupted_event_count,
             "correlation_id_collision_event_count": self.correlation_id_collision_event_count,
+            "duplicate_final_unverified_event_count": self.duplicate_final_unverified_event_count,
             "coverage_ratio": _ratio(self.events_with_provider_total, self.live_event_count),
             # exact / EVERYTHING (including unknown) - the honest headline (see module docstring).
             "exactness_ratio": _ratio(self.exact_quantity_count, self.quantity_count),

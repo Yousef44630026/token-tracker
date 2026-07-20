@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from tracker.adapters.base import BaseAPISurfaceAdapter, NormalizedUsage
+from tracker.adapters.base import BaseAPISurfaceAdapter, NormalizedUsage, usage_snapshot
 from tracker.adapters.base import field_value as _field
 from tracker.models.enums import PrecisionLevel, TokenType, UsageSource
 
@@ -40,6 +40,11 @@ class BedrockConverseAdapter(BaseAPISurfaceAdapter):
         }
     )
 
+    def __init__(self, model_id: str | None = None) -> None:
+        if model_id is not None and (not isinstance(model_id, str) or not model_id.strip()):
+            raise ValueError("model_id must be a non-empty string when provided")
+        self.model_id = model_id.strip() if model_id is not None else None
+
     def _usage_to_quantities(self, usage: Any, source: UsageSource) -> list:
         quantities = []
         input_tokens = _field(usage, "inputTokens")
@@ -59,7 +64,7 @@ class BedrockConverseAdapter(BaseAPISurfaceAdapter):
 
     def extract_usage_from_response(self, response: Any) -> NormalizedUsage:
         usage = _field(response, "usage")
-        model = _field(response, "modelId")
+        model = _field(response, "modelId") or _field(response, "model_id") or self.model_id
         if not usage:
             return NormalizedUsage(
                 provider=self.provider,
@@ -74,7 +79,7 @@ class BedrockConverseAdapter(BaseAPISurfaceAdapter):
             model=model,
             quantities=quantities,
             provider_total_tokens=_field(usage, "totalTokens"),
-            raw_usage=usage if isinstance(usage, dict) else None,
+            raw_usage=usage_snapshot(usage),
         )
 
     def extract_usage_from_stream_event(self, event: Any) -> NormalizedUsage | None:
@@ -86,7 +91,9 @@ class BedrockConverseAdapter(BaseAPISurfaceAdapter):
         return NormalizedUsage(
             provider=self.provider,
             api_surface=self.api_surface,
-            model=_field(event, "modelId"),
+            model=_field(event, "modelId") or _field(event, "model_id") or self.model_id,
             quantities=quantities,
             provider_total_tokens=_field(usage, "totalTokens"),
+            raw_usage=usage_snapshot(usage),
+            stream_terminal=True,
         )

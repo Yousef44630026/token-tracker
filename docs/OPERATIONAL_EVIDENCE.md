@@ -31,7 +31,7 @@ the label on the fixture:
 | **OpenAI (direct)** | The **same code path**: `AzureOpenAI*Adapter` subclasses `OpenAI*Adapter` and calls `super().extract_usage_from_response()`; the INV-4 table aliases `azure_openai` → `openai`. The real Azure captures therefore exercise OpenAI's extraction and its exact additivity rules (input/output contributing, `cached_input` subtotal_of input, `reasoning` subtotal_of output). | Rules verified via the shared path; only OpenAI-direct-specific wire drift (fields Azure has not shipped yet) remains unverified |
 | **Anthropic Messages** | A recorded REAL capture (`anthropic_messages_cache.REAL.json`, usage verbatim, content stripped). The real turn reports `input_tokens=2` with `cache_creation_input_tokens=866255` — cache tokens cannot be contained in input, so the buckets are provably SEPARATE additive inputs. Pinned by `tests/test_real_payload_anthropic.py`. | Verified (structurally falsified, not assumed) |
 | Gemini / Bedrock Converse | 1 recorded REAL capture each | Verified for the captured mode |
-| **Vertex AI** | The **same code path**: `VertexAIGenerateContentAdapter` is a pure subclass of `GeminiGenerateContentAdapter` (no overrides) and the table aliases `vertex_ai` → `gemini`. The real Gemini capture exercises it. | Rules verified via the shared path |
+| **Vertex AI** | GenerateContent reuses tested Gemini accounting rules, but Vertex wire identity, auth, regional routing, streaming, cache, and embeddings currently have SIMULATED fixtures only. A direct Gemini capture cannot certify Vertex. | Accounting rules shared; Vertex production capability remains simulated |
 | **Mistral** | The **same code path**: `MistralChatAdapter` is a pure subclass of `OpenAIChatCompletionsAdapter` (no overrides); its registered rules (input/output = total_contributing) are a strict subset of OpenAI's, verified by the real Azure captures. | Rules verified via the shared path; Mistral's wire format being OpenAI-compatible is assumed |
 | Cohere, Voyage, embeddings variants | SIMULATED fixtures only. These have their **own** extraction (Cohere reads native `usage.tokens` / `billed_units`; Voyage reads rerank `usage.total_tokens`), so no Azure/OpenAI capture exercises them. | **Assumed** — but low-risk: they have no cache/reasoning sub-buckets, so input+output is the only coherent assignment, and a wire mismatch yields no quantities → `raw_usage_missing` (fails loud, never silent) |
 
@@ -55,6 +55,10 @@ Anthropic reports no total, which is why its rule needed the structural falsific
 Code readiness and operational readiness are separate statuses. A release may claim the
 accounting core is validated when CI passes. It may claim a provider surface is operational
 only when its real fixture, soak/reliability evidence, and storage path are all present.
+
+`tt-provider-matrix` now publishes capability-grained `proven`, `simulated`, `unvalidated`, and
+`unsupported` states. `tt-release-gate.cmd` enforces the multi-cloud target and dashboard coverage;
+it is expected to remain red until the missing Vertex and Bedrock stream/cache captures exist.
 
 ## Immediate Operator Commands
 

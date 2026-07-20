@@ -70,18 +70,47 @@ check(inp.quantity == 1500, "Anthropic split: input from message_start (1500)")
 check(out(ev).quantity == 420 and out(ev).precision_level == PrecisionLevel.EXACT, "Anthropic split: output from message_delta (420)")
 check(ev.event_contributing_tokens == 1920, "Anthropic split: total 1500 + 420 == 1920")
 
+# A message_start counter is cumulative/partial, not a terminal usage record. If the stream
+# ends here it must remain an estimate instead of becoming an authoritative exact output=1.
+anthropic_cut_after_start = [
+    {
+        "type": "message_start",
+        "message": {
+            "model": "claude-audit",
+            "usage": {"input_tokens": 1500, "output_tokens": 1},
+        },
+    },
+    {"type": "content_block_delta", "delta": {"type": "text_delta", "text": "partial"}},
+]
+ev = consume_stream(
+    anthropic_cut_after_start,
+    AnthropicMessagesAdapter(),
+    context=new_trace(),
+    text_extractor=anthropic_text,
+)
+check(out(ev).precision_level == PrecisionLevel.ESTIMATE, "Anthropic message_start is never promoted to final usage")
+check("provider_stream_usage_missing" in ev.data_quality_flags, "missing terminal Anthropic usage is explicit")
+check(
+    next(q for q in ev.quantities if q.token_type == TokenType.INPUT).quantity == 1500,
+    "exact Anthropic input survives the interrupted stream",
+)
+
 # ===== clean OpenAI Responses stream preserves final subtotals =====
 responses_clean = [
     {"type": "response.output_text.delta", "delta": "Hello"},
     {
         "type": "response.completed",
-        "model": "o4-mini-2025-04-16",
-        "usage": {
-            "input_tokens": 100,
-            "input_tokens_details": {"cached_tokens": 40},
-            "output_tokens": 20,
-            "output_tokens_details": {"reasoning_tokens": 5},
-            "total_tokens": 120,
+        "sequence_number": 9,
+        "response": {
+            "status": "completed",
+            "model": "o4-mini-2025-04-16",
+            "usage": {
+                "input_tokens": 100,
+                "input_tokens_details": {"cached_tokens": 40},
+                "output_tokens": 20,
+                "output_tokens_details": {"reasoning_tokens": 5},
+                "total_tokens": 120,
+            },
         },
     },
 ]
@@ -93,6 +122,51 @@ check(by_type[TokenType.OUTPUT].quantity == 20, "Responses stream: output exact"
 check(by_type[TokenType.REASONING].quantity == 5, "Responses stream: reasoning subtotal preserved")
 check(ev.event_contributing_tokens == 120 and ev.event_total_mismatch == 0, "Responses stream: no double count, reconciles")
 check(ev.model == "o4-mini-2025-04-16", "Responses stream: model from final event")
+check(ev.observation.status == "complete", "Responses stream: lifecycle status is retained")
+
+# Incomplete is still terminal provider usage: count it exactly, but never present the call as
+# a clean completion. Azure/OpenAI document the same nested response envelope for this event.
+responses_incomplete = [
+    {
+        "type": "response.incomplete",
+        "response": {
+            "status": "incomplete",
+            "model": "o4-mini",
+            "usage": {"input_tokens": 30, "output_tokens": 7, "total_tokens": 37},
+        },
+    }
+]
+ev = consume_stream(responses_incomplete, OpenAIResponsesAdapter(), context=new_trace())
+check(ev.event_contributing_tokens == 37, "Incomplete Responses stream retains exact billed usage")
+check(ev.observation.status == "incomplete", "Incomplete Responses stream retains provider lifecycle status")
+check("provider_response_incomplete" in ev.data_quality_flags, "Incomplete Responses stream is quality-flagged")
+
+responses_failed_without_usage = [
+    {"type": "response.failed", "response": {"status": "failed", "model": "o4-mini", "usage": None}}
+]
+ev = consume_stream(responses_failed_without_usage, OpenAIResponsesAdapter(), context=new_trace())
+check(ev.observation.status == "failed", "Failed Responses stream retains failed status")
+check(
+    {"provider_response_failed", "provider_usage_missing", "provider_stream_usage_missing"}
+    <= set(ev.data_quality_flags),
+    "Failed Responses stream without usage cannot look complete",
+)
+
+# Schema drift checks must run on streaming just as they do on full responses.
+drifted_stream = [
+    {
+        "choices": [],
+        "usage": {
+            "prompt_tokens": 10,
+            "completion_tokens": 5,
+            "total_tokens": 15,
+            "new_cache": {"write_tokens": 3},
+        },
+    }
+]
+ev = consume_stream(drifted_stream, OpenAIChatCompletionsAdapter(), context=new_trace())
+check("provider_schema_drift" in ev.data_quality_flags, "streaming usage schema drift raises the canonical flag")
+check(ev.observation.get("unmapped_usage_fields") == ["new_cache.write_tokens"], "stream drift fields remain auditable")
 
 # ===== interrupted OpenAI stream (no final usage chunk) =====
 openai_cut = [

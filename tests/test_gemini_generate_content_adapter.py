@@ -2,9 +2,8 @@
 
 Run: python tests/test_gemini_generate_content_adapter.py
 
-SIMULATED fixture (no API credit to capture a real payload). For Gemini, thinking
-(thoughtsTokenCount) is total_contributing and added ON TOP of output; cachedContent is a
-subtotal_of input (contributes 0). input+output+thinking reconciles to totalTokenCount.
+SIMULATED fixture (no API credit to capture a real payload). For Gemini, thinking and tool
+result input are additive; cachedContent is a subtotal of prompt input.
 """
 
 import json
@@ -14,9 +13,12 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from tracker.adapters.gemini_generate_content_adapter import GeminiGenerateContentAdapter  # noqa: E402
-from tracker.models.enums import Additivity, TokenType  # noqa: E402
+from tracker.context.propagation import new_trace  # noqa: E402
+from tracker.models.enums import Additivity, DataQualityFlag, TokenType  # noqa: E402
 from tracker.models.token_event import TokenEvent  # noqa: E402
 from tracker.normalization.data_quality import normalizer_flags  # noqa: E402
+from tracker.normalization.normalizer import normalize  # noqa: E402
+from tracker.streaming.stream_consumer import consume_stream  # noqa: E402
 
 _failures = 0
 FIXTURES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures")
@@ -77,6 +79,112 @@ check(event.event_contributing_tokens == event.provider_total_tokens, "reconcile
 flags = normalizer_flags(usage.quantities, usage.provider_total_tokens)
 check("provider_total_mismatch" not in flags, "no provider_total_mismatch (thinking reconciled)")
 check("unverified_additivity" not in flags, "Gemini additivity is verified, not unverified")
+
+# Google documents totalTokenCount as prompt + candidates + tool-use prompt + thoughts.
+tool_usage = GeminiGenerateContentAdapter().extract_usage_from_response(
+    {
+        "modelVersion": "gemini-tool-audit",
+        "usageMetadata": {
+            "promptTokenCount": 100,
+            "candidatesTokenCount": 20,
+            "toolUsePromptTokenCount": 30,
+            "thoughtsTokenCount": 10,
+            "totalTokenCount": 160,
+        },
+    }
+)
+tool_input = next((q for q in tool_usage.quantities if q.token_role == "tool_result"), None)
+check(
+    tool_input is not None and tool_input.token_type == TokenType.INPUT and tool_input.quantity == 30,
+    "tool-use results are retained as an independent input quantity",
+)
+tool_event = TokenEvent(
+    event_id="evt-gemini-tool",
+    request_correlation_id="r-g-tool",
+    trace_id="t-tool",
+    span_id="s-tool",
+    provider=tool_usage.provider,
+    api_surface=tool_usage.api_surface,
+    quantities=tool_usage.quantities,
+    provider_total_tokens=tool_usage.provider_total_tokens,
+    observation={"authoritative": True},
+)
+check(tool_event.event_contributing_tokens == 160, "tool-use input reconciles to the provider total")
+check("provider_total_mismatch" not in tool_event.data_quality_flags, "tool-use calls do not undercount silently")
+
+
+class SDKUsage:
+    prompt_token_count = 100
+    candidates_token_count = 20
+    cached_content_token_count = 5
+    thoughts_token_count = 10
+    tool_use_prompt_token_count = 30
+    total_token_count = 160
+    prompt_tokens_details = []
+    candidates_tokens_details = []
+
+    def model_dump(self):
+        return {
+            "prompt_token_count": self.prompt_token_count,
+            "candidates_token_count": self.candidates_token_count,
+            "cached_content_token_count": self.cached_content_token_count,
+            "thoughts_token_count": self.thoughts_token_count,
+            "tool_use_prompt_token_count": self.tool_use_prompt_token_count,
+            "total_token_count": self.total_token_count,
+            "prompt_tokens_details": [],
+            "candidates_tokens_details": [],
+        }
+
+
+class SDKResponse:
+    usage_metadata = SDKUsage()
+    model_version = "gemini-sdk"
+
+
+sdk_event = normalize(SDKResponse(), GeminiGenerateContentAdapter(), context=new_trace())
+check(sdk_event.event_contributing_tokens == 160, "Google SDK snake_case usage is counted exactly")
+check(sdk_event.provider_total_tokens == 160, "Google SDK total_token_count is retained")
+check(sdk_event.model == "gemini-sdk", "Google SDK model_version is retained")
+check(DataQualityFlag.RAW_USAGE_MISSING.value not in sdk_event.data_quality_flags, "Google SDK usage is not mistaken for missing")
+check(
+    DataQualityFlag.PROVIDER_SCHEMA_DRIFT.value not in sdk_event.data_quality_flags,
+    "known Google SDK field aliases do not create false drift",
+)
+
+partial_stream_chunk = {
+    "usageMetadata": {"promptTokenCount": 100},
+    "candidates": [{"content": {"parts": [{"text": "partial"}]}}],
+}
+partial_stream_usage = GeminiGenerateContentAdapter().extract_usage_from_stream_event(partial_stream_chunk)
+check(
+    partial_stream_usage is not None and partial_stream_usage.stream_terminal is False,
+    "Gemini usage without a finish marker is never promoted to terminal usage",
+)
+interrupted_stream = consume_stream(
+    events=[partial_stream_chunk],
+    adapter=GeminiGenerateContentAdapter(),
+    context=new_trace(),
+)
+check(interrupted_stream.observation.get("status") == "incomplete", "truncated Gemini usage remains incomplete")
+check(
+    DataQualityFlag.PROVIDER_STREAM_USAGE_MISSING.value in interrupted_stream.data_quality_flags,
+    "truncated Gemini usage carries an explicit missing-final-usage flag",
+)
+
+terminal_stream_usage = GeminiGenerateContentAdapter().extract_usage_from_stream_event(
+    {
+        "usageMetadata": {
+            "promptTokenCount": 100,
+            "candidatesTokenCount": 20,
+            "totalTokenCount": 120,
+        },
+        "candidates": [{"finishReason": "STOP"}],
+    }
+)
+check(
+    terminal_stream_usage is not None and terminal_stream_usage.stream_terminal is True,
+    "Gemini usage with a finish marker is accepted as terminal",
+)
 
 print("\nRESULT:", "all checks passed" if _failures == 0 else f"{_failures} FAILURE(S)")
 sys.exit(1 if _failures else 0)

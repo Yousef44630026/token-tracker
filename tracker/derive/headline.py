@@ -4,8 +4,37 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from tracker.models.enums import Overlap, PrecisionLevel, Trust
+from tracker.models.enums import DataQualityFlag, Overlap, PrecisionLevel, Trust
 from tracker.models.token_event import TokenEvent
+
+_USAGE_LOSS_FLAGS = frozenset(
+    {
+        DataQualityFlag.RAW_USAGE_MISSING.value,
+        DataQualityFlag.PROVIDER_USAGE_MISSING.value,
+        DataQualityFlag.PROVIDER_STREAM_USAGE_MISSING.value,
+        DataQualityFlag.PROVIDER_RESPONSE_UNPARSEABLE.value,
+        DataQualityFlag.NORMALIZATION_ERROR.value,
+    }
+)
+
+
+def _known_independent_tokens(event: TokenEvent) -> int:
+    return sum(
+        quantity.quantity or 0
+        for quantity in event.quantities
+        if quantity.overlap == Overlap.INDEPENDENT and quantity.quantity is not None
+    )
+
+
+def _has_open_independent_quantity(event: TokenEvent) -> bool:
+    return any(
+        quantity.overlap == Overlap.INDEPENDENT
+        and (
+            quantity.quantity is None
+            or quantity.precision_level in {PrecisionLevel.UNKNOWN, PrecisionLevel.ESTIMATE}
+        )
+        for quantity in event.quantities
+    )
 
 
 @dataclass(frozen=True)
@@ -37,7 +66,28 @@ class HeadlineBandAccumulator:
     over_attributed_tokens: int = 0
 
     def add(self, event: TokenEvent) -> None:
-        if event.superseded or not event.is_authoritative:
+        flags = set(event.data_quality_flags)
+        if event.superseded:
+            # A proven correlation collision is not an ordinary duplicate. The retained
+            # event remains the conservative point estimate, while the dropped measurement
+            # expands the ceiling so the headline cannot still claim false exactness.
+            if flags & {
+                DataQualityFlag.CORRELATION_ID_COLLISION.value,
+                DataQualityFlag.DUPLICATE_FINAL_UNVERIFIED.value,
+            }:
+                known_tokens = _known_independent_tokens(event)
+                if event.provider_total_tokens is not None:
+                    self.finite_ceiling_tokens += max(event.provider_total_tokens, known_tokens)
+                else:
+                    self.finite_ceiling_tokens += known_tokens
+                    if not event.quantities or _has_open_independent_quantity(event):
+                        self.open_upper_bound_event_count += 1
+            return
+        if not event.is_authoritative:
+            # Failed normalization or absent provider usage can hide a real call even though
+            # the authority gate correctly excludes it from the canonical point total.
+            if flags & _USAGE_LOSS_FLAGS:
+                self.open_upper_bound_event_count += 1
             return
 
         observed = event.event_contributing_tokens
@@ -66,15 +116,7 @@ class HeadlineBandAccumulator:
             and quantity.overlap == Overlap.INDEPENDENT
             and quantity.quantity is not None
         )
-        has_open_quantity = any(
-            quantity.overlap == Overlap.INDEPENDENT
-            and (
-                quantity.quantity is None
-                or quantity.precision_level == PrecisionLevel.UNKNOWN
-                or quantity.precision_level == PrecisionLevel.ESTIMATE
-            )
-            for quantity in event.quantities
-        )
+        has_open_quantity = _has_open_independent_quantity(event) or bool(flags & _USAGE_LOSS_FLAGS)
 
         self.floor_tokens += max(observed - estimated, 0)
         self.estimate_tokens += observed

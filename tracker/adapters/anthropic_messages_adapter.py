@@ -26,7 +26,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from tracker.adapters.base import BaseAPISurfaceAdapter, NormalizedUsage
+from tracker.adapters.base import BaseAPISurfaceAdapter, NormalizedUsage, usage_snapshot
 from tracker.adapters.base import field_value as _field
 from tracker.models.enums import PrecisionLevel, TokenType, UsageSource
 
@@ -125,7 +125,7 @@ class AnthropicMessagesAdapter(BaseAPISurfaceAdapter):
             model=model,
             quantities=quantities,
             provider_total_tokens=None,
-            raw_usage=usage if isinstance(usage, dict) else None,
+            raw_usage=usage_snapshot(usage),
         )
 
     def extract_usage_from_stream_event(self, event: Any) -> NormalizedUsage | None:
@@ -137,7 +137,14 @@ class AnthropicMessagesAdapter(BaseAPISurfaceAdapter):
             usage = _field(message, "usage")
         if not usage:
             return None
-        quantities = self._usage_to_quantities(usage, UsageSource.PROVIDER_STREAM_FINAL)
+        event_type = _field(event, "type")
+        delta = _field(event, "delta", {}) or {}
+        # A message_delta can be a cumulative mid-stream usage update. Only the documented
+        # final delta carrying a stop_reason can close the accounting event; otherwise a
+        # subsequent transport failure must remain an interruption with a provider floor.
+        terminal = event_type == "message_delta" and _field(delta, "stop_reason") is not None
+        source = UsageSource.PROVIDER_STREAM_FINAL if terminal else UsageSource.PROVIDER_STREAM_PARTIAL
+        quantities = self._usage_to_quantities(usage, source)
         model = _field(message, "model") if message is not None else _field(event, "model")
         return NormalizedUsage(
             provider=self.provider,
@@ -145,4 +152,6 @@ class AnthropicMessagesAdapter(BaseAPISurfaceAdapter):
             model=model,
             quantities=quantities,
             provider_total_tokens=None,
+            raw_usage=usage_snapshot(usage),
+            stream_terminal=terminal,
         )

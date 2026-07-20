@@ -17,20 +17,71 @@ the abstract methods. This module only defines the shape they must satisfy.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
 from tracker.estimation.local_tokenizer import estimate_tokens
-from tracker.models.enums import Additivity, PrecisionLevel, TokenType, UsageSource
+from tracker.models.enums import Additivity, Overlap, PrecisionLevel, TokenType, Trust, UsageSource
 from tracker.models.token_quantity import TokenQuantity
 from tracker.normalization.additivity import assign_additivity
 
 
 def field_value(obj: Any, name: str, default: Any = None) -> Any:
     """Read a field from either an SDK object or a decoded mapping."""
-    if isinstance(obj, dict):
+    if isinstance(obj, Mapping):
         return obj.get(name, default)
     return getattr(obj, name, default)
+
+
+def usage_snapshot(value: Any) -> dict[str, Any] | None:
+    """Return a bounded plain mapping for SDK-object schema inspection.
+
+    Provider SDKs commonly expose usage as Pydantic/proto-style objects instead of dicts.
+    The snapshot is ephemeral: only unfamiliar field paths are later retained, never raw
+    values. Depth and collection caps keep malformed provider objects from amplifying memory.
+    """
+    seen: set[int] = set()
+
+    def plain(current: Any, depth: int) -> Any:
+        if current is None or isinstance(current, (str, int, float, bool)):
+            return current
+        if depth >= 8:
+            return None
+        identity = id(current)
+        if identity in seen:
+            return None
+        seen.add(identity)
+        try:
+            if isinstance(current, Mapping):
+                items = sorted(current.items(), key=lambda item: str(item[0]))[:128]
+                return {str(key): plain(child, depth + 1) for key, child in items}
+            if isinstance(current, (list, tuple)):
+                return [plain(child, depth + 1) for child in current[:32]]
+            for method_name in ("model_dump", "to_dict", "as_dict"):
+                method = getattr(current, method_name, None)
+                if not callable(method):
+                    continue
+                try:
+                    converted = method()
+                except Exception:  # provider SDK conversion helpers are best effort
+                    continue
+                if converted is not current:
+                    return plain(converted, depth + 1)
+            attributes = getattr(current, "__dict__", None)
+            if isinstance(attributes, Mapping):
+                public = {
+                    str(key): child
+                    for key, child in attributes.items()
+                    if not str(key).startswith("_") and not callable(child)
+                }
+                return plain(public, depth + 1)
+            return current
+        finally:
+            seen.discard(identity)
+
+    snapshot = plain(value, 0)
+    return snapshot if isinstance(snapshot, dict) else None
 
 
 @dataclass
@@ -50,6 +101,13 @@ class NormalizedUsage:
     provider_total_tokens: int | None = None
     data_quality_flags: list[str] = field(default_factory=list)
     raw_usage: dict[str, Any] | None = None
+    # None keeps third-party/custom adapters backward compatible. Built-in streaming
+    # adapters set this explicitly so a cumulative mid-stream counter cannot be promoted
+    # into an authoritative final measurement.
+    stream_terminal: bool | None = None
+    # Terminal provider status carried by lifecycle stream events. This remains operational
+    # metadata (complete/incomplete/failed), orthogonal to whether the usage count is exact.
+    stream_status: str | None = None
 
 
 class BaseAPISurfaceAdapter(ABC):
@@ -121,6 +179,40 @@ class BaseAPISurfaceAdapter(ABC):
             precision_level=precision_level,
             usage_source=usage_source,
             additivity=additivity,
+            subtotal_of=subtotal_of,
+            unknown_reason=unknown_reason,
+            token_role=token_role,
+            metadata=metadata or {},
+        )
+
+    def build_unverified_quantity(
+        self,
+        token_type: TokenType,
+        quantity: int | None,
+        precision_level: PrecisionLevel,
+        usage_source: UsageSource,
+        *,
+        overlap: Overlap = Overlap.INDEPENDENT,
+        subtotal_of: str | None = None,
+        unknown_reason=None,
+        token_role: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> TokenQuantity:
+        """Build a measured quantity whose accounting relationship is not trusted.
+
+        This is deliberately separate from ``build_quantity``: a provider value can be an
+        exact observation while still being unsafe to add. Keeping ``precision=exact`` and
+        ``trust=unverified`` preserves that evidence in the uncertainty ceiling without
+        allowing it into the canonical floor.
+        """
+        return TokenQuantity(
+            token_type=token_type,
+            quantity=quantity,
+            precision_level=precision_level,
+            usage_source=usage_source,
+            additivity=Additivity.UNVERIFIED,
+            overlap=overlap,
+            trust=Trust.UNVERIFIED,
             subtotal_of=subtotal_of,
             unknown_reason=unknown_reason,
             token_role=token_role,

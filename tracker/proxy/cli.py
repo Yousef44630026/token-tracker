@@ -12,8 +12,12 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 from tracker.analytics.provider_validation import (
+    build_capability_certification_matrix,
     build_provider_validation_matrix,
+    capability_matrix_to_markdown,
+    certification_requirement_failures,
     matrix_to_markdown,
+    summarize_capability_certification,
     summarize_provider_validation,
 )
 from tracker.export.powerbi_exporter import export_powerbi_events
@@ -33,7 +37,7 @@ from tracker.proxy.report import (
 )
 from tracker.proxy.server import ProxyConfig, create_proxy_server
 from tracker.storage.file_repository import FileRepository, PartitionedFileRepository
-from tracker.validation.fixture_manifest import realistic_fixture_records
+from tracker.validation.fixture_manifest import PROVIDER_CAPABILITY_POLICIES, realistic_fixture_records
 
 
 def _quantity(event: TokenEvent, token_type: TokenType) -> int | None:
@@ -311,6 +315,13 @@ def _parser(environment: Mapping[str, str] | None = None) -> argparse.ArgumentPa
         "--fail-on-gaps",
         action="store_true",
         help="exit non-zero when any provider/surface has validation gaps",
+    )
+    matrix_parser.add_argument(
+        "--require-proven",
+        action="append",
+        default=[],
+        metavar="PROVIDER:SURFACE[:CAPABILITY]",
+        help="exit non-zero unless the selected surface or capability has REAL proof; repeatable",
     )
     matrix_parser.add_argument(
         "--output",
@@ -921,11 +932,32 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(render_json(summary) if args.json else render_summary(summary))
         return 0
     if args.mode == "provider-matrix":
-        matrix = build_provider_validation_matrix(realistic_fixture_records())
+        fixture_records = realistic_fixture_records()
+        matrix = build_provider_validation_matrix(fixture_records)
         summary = summarize_provider_validation(matrix)
+        capability_matrix = build_capability_certification_matrix(
+            fixture_records,
+            PROVIDER_CAPABILITY_POLICIES,
+        )
+        capability_summary = summarize_capability_certification(capability_matrix)
+        try:
+            requirement_failures = certification_requirement_failures(
+                matrix,
+                capability_matrix,
+                args.require_proven,
+            )
+        except ValueError as exc:
+            print(f"provider-matrix: {exc}", file=sys.stderr)
+            return 2
         if args.json:
             rendered = json.dumps(
-                {"summary": summary, "matrix": matrix},
+                {
+                    "summary": summary,
+                    "matrix": matrix,
+                    "capability_summary": capability_summary,
+                    "capability_matrix": capability_matrix,
+                    "requirement_failures": requirement_failures,
+                },
                 ensure_ascii=False,
                 indent=2,
                 sort_keys=True,
@@ -938,7 +970,20 @@ def main(argv: Sequence[str] | None = None) -> int:
                 f"pass/warn/fail: {summary['pass_count']}/{summary['warn_count']}/{summary['fail_count']}",
                 "",
                 matrix_to_markdown(matrix),
+                "",
+                "Provider capability certification",
+                (
+                    "proven/simulated/unvalidated/unsupported: "
+                    f"{capability_summary['proven_count']}/"
+                    f"{capability_summary['simulated_count']}/"
+                    f"{capability_summary['unvalidated_count']}/"
+                    f"{capability_summary['unsupported_count']}"
+                ),
+                "",
+                capability_matrix_to_markdown(capability_matrix),
             ]
+            if requirement_failures:
+                summary_lines.extend(["", "Unmet required proof: " + ", ".join(requirement_failures)])
             rendered = "\n".join(summary_lines)
         if args.output:
             output_dir = os.path.dirname(args.output)
@@ -950,7 +995,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         else:
             print(rendered)
         has_gaps = any(row["gaps"] for row in matrix)
-        return 1 if args.fail_on_gaps and has_gaps else 0
+        return 1 if (args.fail_on_gaps and has_gaps) or requirement_failures else 0
     if args.mode == "powerbi-export":
         repository = _read_repository(args)
         paths = export_powerbi_events(

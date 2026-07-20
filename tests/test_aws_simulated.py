@@ -2,8 +2,8 @@
 
 Run: python tests/test_aws_simulated.py
 
-SIMULATED but realistic Bedrock shapes: the ConverseStream metadata event, an embeddings
-InvokeModel response (header token count), and the no-usage robustness paths.
+SIMULATED but realistic Bedrock shapes: the ConverseStream metadata event, documented
+model-specific InvokeModel bodies, Titan embeddings, and fail-closed compatibility paths.
 """
 
 import json
@@ -61,11 +61,18 @@ check(out.precision_level == PrecisionLevel.EXACT and out.quantity == 380, "Conv
 check(q(ev, TokenType.INPUT).quantity == 1100, "ConverseStream: input from metadata event (1100)")
 check(ev.event_contributing_tokens == 1480 and ev.event_total_mismatch == 0, "ConverseStream: 1480, reconciles")
 
-# ===== A3. Bedrock embeddings: header token count -> embedding quantity =====
-ev = normalize(load("bedrock_embeddings_full.SIMULATED.json"), BedrockEmbeddingsAdapter(), context=new_trace())
+# ===== A3. Bedrock Titan embeddings: documented body count =====
+ev = normalize(
+    load("bedrock_embeddings_full.SIMULATED.json"),
+    BedrockEmbeddingsAdapter(model_id="amazon.titan-embed-text-v2:0"),
+    context=new_trace(),
+)
 emb = q(ev, TokenType.EMBEDDING)
-check(emb is not None and emb.quantity == 640, "Bedrock embeddings: 640 from header")
-check(ev.event_contributing_tokens == 640 and ev.event_total_mismatch == 0, "Bedrock embeddings: 640, reconciles")
+check(emb is not None and emb.quantity == 640, "Bedrock embeddings: 640 from Titan body")
+check(
+    ev.event_contributing_tokens == 640 and ev.provider_total_tokens is None,
+    "Bedrock embeddings: exact quantity, no fabricated raw total",
+)
 
 # ===== A4. Robustness: no usage / no headers -> raw_usage_missing, contributes 0 =====
 ev = normalize({"output": {"message": {"role": "assistant"}}}, BedrockConverseAdapter(), context=new_trace())
@@ -73,20 +80,24 @@ check("raw_usage_missing" in ev.data_quality_flags and ev.event_contributing_tok
 ev = normalize(
     {"ResponseMetadata": {"HTTPHeaders": {"content-type": "application/json"}}}, BedrockInvokeModelAdapter(), context=new_trace()
 )
-check("raw_usage_missing" in ev.data_quality_flags, "InvokeModel without token headers -> raw_usage_missing")
+check("raw_usage_missing" in ev.data_quality_flags, "InvokeModel without documented usage -> raw_usage_missing")
 
-# ===== A2. InvokeModel body variants: headers are source of truth across model families =====
+# ===== A2. InvokeModel body variants: documented families exact, unsupported fail closed =====
 with open(os.path.join(FIX, "bedrock_invoke_model_body_variants.SIMULATED.json"), encoding="utf-8") as f:
     body_variants = json.load(f)["cases"]
 for case in body_variants:
-    ev = normalize(case["response"], BedrockInvokeModelAdapter(), context=new_trace())
-    expected = case["expected_input"] + case["expected_output"]
-    check(
-        q(ev, TokenType.INPUT).quantity == case["expected_input"]
-        and q(ev, TokenType.OUTPUT).quantity == case["expected_output"]
-        and ev.event_contributing_tokens == expected,
-        f"InvokeModel {case['family']}: header counts survive body-shape drift",
+    ev = normalize(
+        case["response"],
+        BedrockInvokeModelAdapter(model_id=case["model_id"]),
+        context=new_trace(),
     )
+    expected = case["expected_input"] + case["expected_output"]
+    observed = q(ev, TokenType.INPUT).quantity + q(ev, TokenType.OUTPUT).quantity
+    check(observed == expected, f"InvokeModel {case['family']}: observed quantities retained")
+    if case["expected_verified"]:
+        check(ev.event_contributing_tokens == expected, f"InvokeModel {case['family']}: exact documented total")
+    else:
+        check(ev.event_contributing_tokens == 0, f"InvokeModel {case['family']}: unsupported source excluded")
 
 print("\nRESULT:", "all checks passed" if _failures == 0 else f"{_failures} FAILURE(S)")
 sys.exit(1 if _failures else 0)

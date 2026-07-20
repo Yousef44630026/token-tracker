@@ -3,16 +3,16 @@
 from tracker.adapters.base import BaseAPISurfaceAdapter, NormalizedUsage
 
 
-def create_adapter(provider: str, api_surface: str) -> BaseAPISurfaceAdapter:
+def create_adapter(provider: str, api_surface: str, **adapter_options) -> BaseAPISurfaceAdapter:
     from tracker.adapters.registry import create_adapter as _create_adapter
 
-    return _create_adapter(provider, api_surface)
+    return _create_adapter(provider, api_surface, **adapter_options)
 
 
-def create_adapter_with_fallback(provider: str, api_surface: str) -> BaseAPISurfaceAdapter:
+def create_adapter_with_fallback(provider: str, api_surface: str, **adapter_options) -> BaseAPISurfaceAdapter:
     from tracker.adapters.registry import create_adapter_with_fallback as _with_fallback
 
-    return _with_fallback(provider, api_surface)
+    return _with_fallback(provider, api_surface, **adapter_options)
 
 
 def available_adapters() -> tuple[tuple[str, str], ...]:

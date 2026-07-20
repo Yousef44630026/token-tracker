@@ -105,7 +105,14 @@ check(coverage["unattributed_tokens"] == 60, "CoverageExactness carries unattrib
 check(coverage["over_attributed_tokens"] == 100, "CoverageExactness carries over_attributed_tokens")
 check(coverage["headline_floor_tokens"] == 600, "provider totals pin the trusted floor")
 check(coverage["headline_estimate_tokens"] == 600, "provider totals replace mismatched quantity estimates")
-check(coverage["headline_ceiling_tokens"] == 630, "known independent uncertainty widens only the ceiling")
+finite_coverage = build_coverage_exactness_from_events(
+    event for event in (under, over, unverified)
+)
+check(finite_coverage["headline_ceiling_tokens"] == 630, "known independent uncertainty widens only the ceiling")
+check(
+    coverage["headline_ceiling_tokens"] is None and coverage["headline_status"] == "open",
+    "raw_usage_missing keeps the upper bound open instead of inventing a finite ceiling",
+)
 check(coverage["capture_completeness_ratio"] is None, "mixed under/over attribution has no misleading completeness ratio")
 
 report = build_trust_report(trace)
@@ -120,7 +127,12 @@ check(
     aggregate_report.anomaly_count == report.anomaly_count and aggregate_report.anomalies == [],
     "aggregate-only TrustReport keeps anomaly count without retaining anomaly details",
 )
-check(report.headline_floor_tokens == 600 and report.headline_ceiling_tokens == 630, "TrustReport carries headline band")
+check(
+    report.headline_floor_tokens == 600
+    and report.headline_ceiling_tokens is None
+    and report.headline_status == "open",
+    "TrustReport carries the open headline band",
+)
 check(report.attribution_status == "mixed", "TrustReport names mixed attribution direction")
 check(report.unattributed_tokens == 60 and report.over_attributed_tokens == 100, "TrustReport carries mismatch magnitudes")
 check(any(a.event_id == "over" and a.severity == "high" for a in report.anomalies), "over-attribution anomaly is high severity")

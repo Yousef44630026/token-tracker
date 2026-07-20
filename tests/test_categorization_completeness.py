@@ -25,6 +25,7 @@ from tracker.adapters.mistral_chat_adapter import MistralChatAdapter  # noqa: E4
 from tracker.adapters.openai_chat_completions_adapter import OpenAIChatCompletionsAdapter  # noqa: E402
 from tracker.adapters.openai_embeddings_adapter import OpenAIEmbeddingsAdapter  # noqa: E402
 from tracker.adapters.openai_responses_adapter import OpenAIResponsesAdapter  # noqa: E402
+from tracker.adapters.vertex_ai_embeddings_adapter import VertexAIEmbeddingsAdapter  # noqa: E402
 from tracker.adapters.vertex_ai_generate_content_adapter import VertexAIGenerateContentAdapter  # noqa: E402
 from tracker.adapters.voyage_rerank_adapter import VoyageRerankAdapter  # noqa: E402
 from tracker.models.enums import TokenType  # noqa: E402
@@ -114,7 +115,8 @@ def gemini_response():
             "candidatesTokenCount": 50,
             "cachedContentTokenCount": 25,
             "thoughtsTokenCount": 30,
-            "totalTokenCount": 280,
+            "toolUsePromptTokenCount": 20,
+            "totalTokenCount": 300,
             "promptTokensDetails": [
                 {"modality": "TEXT", "tokenCount": 100},
                 {"modality": "IMAGE", "tokenCount": 60},
@@ -144,23 +146,23 @@ def bedrock_converse_response():
 
 def bedrock_invoke_response():
     return {
-        "ResponseMetadata": {
-            "HTTPHeaders": {
-                "x-amzn-bedrock-input-token-count": "100",
-                "x-amzn-bedrock-output-token-count": "30",
-            }
-        },
+        "modelId": "amazon.nova-micro-v1:0",
         "body_json": {
-            "usage": {"inputTokens": 999, "outputTokens": 888, "totalTokens": 1887},
-            "inputTextTokenCount": 777,
-            "prompt_token_count": 666,
-            "generation_token_count": 555,
+            "usage": {"inputTokens": 100, "outputTokens": 30, "totalTokens": 130},
         },
     }
 
 
 def bedrock_embeddings_response():
-    return {"ResponseMetadata": {"HTTPHeaders": {"x-amzn-bedrock-input-token-count": "77"}}}
+    return {"modelId": "amazon.titan-embed-text-v2:0", "body_json": {"inputTextTokenCount": 77}}
+
+
+def vertex_embeddings_response():
+    return {
+        "predictions": [
+            {"embeddings": {"statistics": {"token_count": 77, "truncated": False}, "values": [0.1]}}
+        ]
+    }
 
 
 def cohere_tokens_response():
@@ -215,6 +217,7 @@ GEMINI_FIELDS = {
     "usageMetadata.candidatesTokenCount": TokenType.OUTPUT,
     "usageMetadata.cachedContentTokenCount": TokenType.CACHED_INPUT,
     "usageMetadata.thoughtsTokenCount": TokenType.THINKING,
+    "usageMetadata.toolUsePromptTokenCount": TokenType.INPUT,
     "usageMetadata.promptTokensDetails[IMAGE].tokenCount": TokenType.IMAGE_INPUT,
     "usageMetadata.promptTokensDetails[AUDIO].tokenCount": TokenType.AUDIO_INPUT,
     "usageMetadata.promptTokensDetails[VIDEO].tokenCount": TokenType.VIDEO_INPUT,
@@ -303,6 +306,13 @@ SPECS = {
         PROVIDER_TOTAL_FIELDS: {"usageMetadata.totalTokenCount"},
         ALLOWED_IGNORED: GEMINI_IGNORED,
     },
+    "vertex_ai_embeddings": {
+        ADAPTER: VertexAIEmbeddingsAdapter,
+        FULL_RESPONSE: vertex_embeddings_response,
+        TOKEN_FIELDS: {
+            "predictions[].embeddings.statistics.token_count": TokenType.EMBEDDING,
+        },
+    },
     "bedrock_converse": {
         ADAPTER: BedrockConverseAdapter,
         FULL_RESPONSE: bedrock_converse_response,
@@ -318,23 +328,16 @@ SPECS = {
         ADAPTER: BedrockInvokeModelAdapter,
         FULL_RESPONSE: bedrock_invoke_response,
         TOKEN_FIELDS: {
-            "ResponseMetadata.HTTPHeaders.x-amzn-bedrock-input-token-count": TokenType.INPUT,
-            "ResponseMetadata.HTTPHeaders.x-amzn-bedrock-output-token-count": TokenType.OUTPUT,
+            "body_json.usage.inputTokens": TokenType.INPUT,
+            "body_json.usage.outputTokens": TokenType.OUTPUT,
         },
-        ALLOWED_IGNORED: {
-            "body_json.usage.inputTokens": "InvokeModel adapter uses model-agnostic Bedrock token headers",
-            "body_json.usage.outputTokens": "InvokeModel adapter uses model-agnostic Bedrock token headers",
-            "body_json.usage.totalTokens": "InvokeModel adapter uses model-agnostic Bedrock token headers",
-            "body_json.inputTextTokenCount": "model-specific body token fields are not authoritative for InvokeModel",
-            "body_json.prompt_token_count": "model-specific body token fields are not authoritative for InvokeModel",
-            "body_json.generation_token_count": "model-specific body token fields are not authoritative for InvokeModel",
-        },
+        PROVIDER_TOTAL_FIELDS: {"body_json.usage.totalTokens"},
     },
     "bedrock_embeddings": {
         ADAPTER: BedrockEmbeddingsAdapter,
         FULL_RESPONSE: bedrock_embeddings_response,
-        TOKEN_AND_PROVIDER_TOTAL_FIELDS: {
-            "ResponseMetadata.HTTPHeaders.x-amzn-bedrock-input-token-count": TokenType.EMBEDDING,
+        TOKEN_FIELDS: {
+            "body_json.inputTextTokenCount": TokenType.EMBEDDING,
         },
     },
     "cohere_chat_tokens": {

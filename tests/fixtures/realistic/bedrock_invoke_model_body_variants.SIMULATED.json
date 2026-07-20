@@ -1,111 +1,70 @@
 {
   "_SIMULATED": true,
-  "_warning": "Hand-built InvokeModel body variants. The bodies are intentionally model-specific and include misleading token-looking fields; the Bedrock InvokeModel adapter must ignore them and read only the model-agnostic x-amzn-bedrock-*-token-count headers.",
+  "_warning": "Model-family fixtures built from documented response bodies. Titan and Nova are exact; unsupported Cohere/Llama bodies plus non-contractual token headers must fail closed as unverified.",
   "cases": [
     {
       "family": "titan_text",
+      "model_id": "amazon.titan-text-premier-v1:0",
       "expected_input": 121,
       "expected_output": 34,
+      "expected_provider_total": null,
+      "expected_verified": true,
       "response": {
-        "ResponseMetadata": {
-          "HTTPHeaders": {
-            "content-type": "application/json",
-            "x-amzn-bedrock-input-token-count": "121",
-            "x-amzn-bedrock-output-token-count": "34"
-          }
-        },
         "contentType": "application/json",
         "body_json": {
-          "inputTextTokenCount": 9999,
+          "inputTextTokenCount": 121,
           "results": [
-            {
-              "tokenCount": 8888,
-              "outputText": "Titan response text"
-            }
+            {"tokenCount": 34, "outputText": "Titan response", "completionReason": "FINISH"}
           ]
         }
       }
     },
     {
       "family": "nova_messages",
+      "model_id": "amazon.nova-micro-v1:0",
       "expected_input": 222,
       "expected_output": 45,
+      "expected_provider_total": 267,
+      "expected_verified": true,
       "response": {
-        "ResponseMetadata": {
-          "HTTPHeaders": {
-            "content-type": "application/json",
-            "x-amzn-bedrock-input-token-count": "222",
-            "x-amzn-bedrock-output-token-count": "45"
-          }
-        },
         "contentType": "application/json",
-        "body_json": {
-          "output": {
-            "message": {
-              "role": "assistant",
-              "content": [
-                {
-                  "text": "Nova response text"
-                }
-              ]
-            }
-          },
-          "usage": {
-            "inputTokens": 9999,
-            "outputTokens": 8888,
-            "totalTokens": 18887
-          }
-        }
+        "body_text": "{\"output\":{\"message\":{\"role\":\"assistant\",\"content\":[{\"text\":\"Nova response\"}]}},\"usage\":{\"inputTokens\":222,\"outputTokens\":45,\"totalTokens\":267}}"
       }
     },
     {
-      "family": "llama_text",
+      "family": "anthropic_messages",
+      "model_id": "anthropic.claude-3-5-sonnet-20241022-v2:0",
       "expected_input": 333,
       "expected_output": 56,
+      "expected_provider_total": null,
+      "expected_verified": true,
       "response": {
-        "ResponseMetadata": {
-          "HTTPHeaders": {
-            "content-type": "application/json",
-            "x-amzn-bedrock-input-token-count": "333",
-            "x-amzn-bedrock-output-token-count": "56"
-          }
-        },
-        "contentType": "application/json",
         "body_json": {
-          "generation": "Llama response text",
-          "prompt_token_count": 9999,
-          "generation_token_count": 8888,
-          "stop_reason": "stop"
+          "model": "claude-3-5-sonnet-20241022",
+          "usage": {
+            "input_tokens": 333,
+            "output_tokens": 56,
+            "cache_read_input_tokens": 0,
+            "cache_creation_input_tokens": 0
+          }
         }
       }
     },
     {
-      "family": "cohere_command",
+      "family": "cohere_command_unsupported",
+      "model_id": "cohere.command-r-v1:0",
       "expected_input": 444,
       "expected_output": 67,
+      "expected_provider_total": null,
+      "expected_verified": false,
       "response": {
         "headers": {
-          "content-type": "application/json",
           "X-Amzn-Bedrock-Input-Token-Count": "444",
           "X-Amzn-Bedrock-Output-Token-Count": "67"
         },
-        "contentType": "application/json",
         "body_json": {
-          "generations": [
-            {
-              "text": "Cohere response text"
-            }
-          ],
-          "meta": {
-            "tokens": {
-              "input_tokens": 9999,
-              "output_tokens": 8888
-            },
-            "billed_units": {
-              "input_tokens": 7777,
-              "output_tokens": 6666
-            }
-          }
+          "generations": [{"text": "Cohere response"}],
+          "meta": {"billed_units": {"input_tokens": 9999, "output_tokens": 8888}}
         }
       }
     }

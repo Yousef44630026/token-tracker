@@ -199,7 +199,8 @@ Expected result:
 - Azure embeddings use the OpenAI embeddings usage shape but report provider `azure_openai`.
 - Anthropic cache creation/read fields are separate contributing input buckets.
 - Bedrock Converse extracts non-cached input, cache read/write, and output as additive buckets.
-- Bedrock InvokeModel handles multiple body families.
+- Bedrock InvokeModel counts only documented Titan, Nova, and Anthropic body fields; non-contractual headers and unsupported families fail closed.
+- Bedrock Titan embeddings expose an exact body count; Cohere Embed responses expose no token count and remain unknown without another authoritative source.
 - Gemini and Vertex AI extract prompt, candidates, cached content, thinking, and total.
 - Cohere, Mistral, and Voyage surfaces normalize their usage without fabricated totals.
 
@@ -243,15 +244,18 @@ Commands:
 ```cmd
 scripts\tt-provider-matrix.cmd
 scripts\tt-provider-matrix.cmd --json --output provider_matrix.json
+scripts\tt-provider-matrix.cmd --require-proven azure_openai:chat_completions:stream
 %PY% tests\test_trust_reporting.py
+%PY% tests\test_release_readiness.py
 ```
 
 Expected result:
 
-- Matrix reports 15 surfaces.
+- Matrix reports 16 surfaces.
 - `fail_count` is 0.
 - `adapter_only_surface_count` is 0.
 - Current overall status is `warn`, not `pass`, because real and stream gaps remain.
+- Capability rows distinguish `proven`, `simulated`, `unvalidated`, and `unsupported`.
 - HTML report includes readiness overview, provider matrix, observation contract, service attribution, and anomalies.
 
 What this proves:
@@ -606,7 +610,7 @@ A release is acceptable when:
 - Any new metric has at least one targeted test and one export assertion.
 - Any new provider behavior has a fixture and a reconciliation test.
 - Any new dashboard field is present in Power BI export tests.
-- No pricing or cost logic is reintroduced.
+- Pricing remains confined to the optional reporting layer, with unknown prices kept unknown.
 
 For a stricter release, also run:
 
@@ -618,7 +622,18 @@ For the strictest local release, run:
 
 ```cmd
 %PY% tests\run_all.py
+scripts\tt-release-gate.cmd
 ```
+
+The canonical runner bounds lint to 120 seconds and each isolated test script to 180 seconds
+by default. Override only for a documented slow test, for example:
+
+```cmd
+%PY% tests\run_all.py --lint-timeout-seconds 180 --test-timeout-seconds 300
+```
+
+The multi-cloud gate is expected to remain red while any required Vertex/Bedrock capability lacks
+a REAL fixture or while the operational dashboard misses its configured coverage thresholds.
 
 The strictest run reports a visible lint skip if Ruff is not installed in the current interpreter.
 

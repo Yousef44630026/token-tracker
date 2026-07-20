@@ -100,5 +100,12 @@ check(bounded_rollup.headline_ceiling_tokens == 1000, "known unverified independ
 check(bounded_rollup.capture_completeness_ratio == 0.1, "finite bounded uncertainty has a meaningful capture ratio")
 check(bounded_rollup.headline_status == "bounded", "finite uncertainty is labeled bounded")
 
+missing_usage = event("missing", "missing", [])
+missing_usage.data_quality_flags.append("raw_usage_missing")
+missing_rollup = roll_up(Trace(trace_id="missing", events=[missing_usage]))
+check(missing_rollup.headline_ceiling_tokens is None, "event-level missing usage opens the upper bound even without a typed quantity")
+check(missing_rollup.total_is_lower_bound is True, "missing provider usage can never be reported as exact zero")
+check(missing_rollup.headline_status == "open", "missing provider usage is visibly open-ended")
+
 print("\nRESULT:", "all checks passed" if _failures == 0 else f"{_failures} FAILURE(S)")
 sys.exit(1 if _failures else 0)

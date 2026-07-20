@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from tracker.adapters.base import BaseAPISurfaceAdapter, NormalizedUsage
+from tracker.adapters.base import BaseAPISurfaceAdapter, NormalizedUsage, usage_snapshot
 from tracker.adapters.base import field_value as _field
 from tracker.models.enums import PrecisionLevel, TokenType, UsageSource
 
@@ -63,7 +63,7 @@ class CohereChatAdapter(BaseAPISurfaceAdapter):
             model=model,
             quantities=self._usage_to_quantities(usage, UsageSource.PROVIDER_RESPONSE),
             provider_total_tokens=None,
-            raw_usage=usage if isinstance(usage, dict) else None,
+            raw_usage=usage_snapshot(usage),
         )
 
     def extract_usage_from_stream_event(self, event: Any) -> NormalizedUsage | None:
@@ -76,4 +76,6 @@ class CohereChatAdapter(BaseAPISurfaceAdapter):
             api_surface=self.api_surface,
             quantities=self._usage_to_quantities(usage, UsageSource.PROVIDER_STREAM_FINAL),
             provider_total_tokens=None,
+            raw_usage=usage_snapshot(usage),
+            stream_terminal=True,
         )

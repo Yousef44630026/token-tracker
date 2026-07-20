@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from tracker.adapters.base import BaseAPISurfaceAdapter, NormalizedUsage
+from tracker.adapters.base import BaseAPISurfaceAdapter, NormalizedUsage, usage_snapshot
 from tracker.adapters.base import field_value as _field
 from tracker.models.enums import PrecisionLevel, TokenType, UsageSource
 
@@ -45,7 +45,7 @@ class VoyageRerankAdapter(BaseAPISurfaceAdapter):
             model=model,
             quantities=quantities,
             provider_total_tokens=total,
-            raw_usage=usage if isinstance(usage, dict) else None,
+            raw_usage=usage_snapshot(usage),
         )
 
     def extract_usage_from_stream_event(self, event: Any) -> NormalizedUsage | None:

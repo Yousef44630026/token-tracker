@@ -51,6 +51,8 @@ _TABLE: dict[tuple[str, TokenType], tuple[Additivity, str | None]] = {
     ("gemini", TokenType.OUTPUT): (Additivity.TOTAL_CONTRIBUTING, None),
     ("gemini", TokenType.CACHED_INPUT): (Additivity.SUBTOTAL_OF, "input"),
     ("gemini", TokenType.THINKING): (Additivity.TOTAL_CONTRIBUTING, None),
+    # Vertex/Gemini text embeddings expose only the processed input-token count.
+    ("gemini", TokenType.EMBEDDING): (Additivity.TOTAL_CONTRIBUTING, None),
     # multimodal breakdown: per-modality counts are subtotals of input / output
     ("gemini", TokenType.IMAGE_INPUT): (Additivity.SUBTOTAL_OF, "input"),
     ("gemini", TokenType.AUDIO_INPUT): (Additivity.SUBTOTAL_OF, "input"),

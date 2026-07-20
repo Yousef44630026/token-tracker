@@ -19,7 +19,7 @@ Additivity is taken from the central table (INV-4); input/output are total_contr
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 
 from tracker.context.propagation import TraceContext, current, current_flags
 from tracker.estimation.local_tokenizer import estimate_tokens, estimator_backend
@@ -134,7 +134,15 @@ class StreamTracker:
         return "".join(self._chunks)
 
     # --- helpers ----------------------------------------------------------------------
-    def _new_event(self, quantities, provider_total, flags, *, model=None) -> TokenEvent:
+    def _new_event(
+        self,
+        quantities,
+        provider_total,
+        flags,
+        *,
+        model=None,
+        observation_extra: Mapping[str, object] | None = None,
+    ) -> TokenEvent:
         context = TraceContext(
             trace_id=self.trace_id,
             span_id=self.span_id,
@@ -144,6 +152,12 @@ class StreamTracker:
             workflow=self.workflow,
             environment=self.environment,
         )
+        observation = Observation(
+            authoritative=True,
+            status="incomplete" if STREAM_INTERRUPTED_FLAG in flags else "complete",
+        )
+        if observation_extra:
+            observation.update(observation_extra)
         return build_event(
             context=context,
             provider=self.provider,
@@ -152,10 +166,7 @@ class StreamTracker:
             quantities=quantities,
             provider_total_tokens=provider_total,
             leading_flags=[*self._context_flags, *flags],
-            observation=Observation(
-                authoritative=True,
-                status="incomplete" if STREAM_INTERRUPTED_FLAG in flags else "complete",
-            ),
+            observation=observation,
         )
 
     def _quantity(self, token_type, quantity, precision, source, unknown_reason=None, metadata=None):
@@ -219,13 +230,16 @@ class StreamTracker:
         quantities: list[TokenQuantity],
         provider_total_tokens: int | None = None,
         model: str | None = None,
+        extra_flags: Iterable[str] = (),
+        observation_extra: Mapping[str, object] | None = None,
     ) -> TokenEvent:
         """Clean completion preserving adapter-provided final stream quantities."""
         return self._new_event(
             quantities,
             provider_total_tokens,
-            [],
+            list(extra_flags),
             model=model,
+            observation_extra=observation_extra,
         )
 
     def interrupt(
@@ -233,6 +247,8 @@ class StreamTracker:
         *,
         input_tokens: int | None = None,
         output_tokens_seen: int | None = None,
+        extra_flags: Iterable[str] = (),
+        observation_extra: Mapping[str, object] | None = None,
     ) -> TokenEvent:
         """Stream cut off without final usage: emit the best partial measurement available.
 
@@ -284,7 +300,12 @@ class StreamTracker:
                     UsageSource.PROVIDER_RESPONSE,
                 ),
             )
-        self._partial = self._new_event(quantities, None, [PARTIAL_STREAM_ESTIMATE_FLAG, STREAM_INTERRUPTED_FLAG])
+        self._partial = self._new_event(
+            quantities,
+            None,
+            [PARTIAL_STREAM_ESTIMATE_FLAG, STREAM_INTERRUPTED_FLAG, *extra_flags],
+            observation_extra=observation_extra,
+        )
         return self._partial
 
     def resolve_with_final_usage(

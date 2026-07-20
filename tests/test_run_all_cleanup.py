@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import uuid
@@ -14,9 +15,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from tests._harness import make_checker  # noqa: E402
 from tests.run_all import (  # noqa: E402
+    LINT_PATHS,
     _cleanup_new_test_artifacts,
     _make_test_run_root,
     _remove_path_with_retry,
+    _run_lint_gate,
+    _run_test_script,
 )
 
 check = make_checker()
@@ -62,6 +66,27 @@ try:
     check(run_root.parent == configured_parent.resolve(), "test run workspaces honor an out-of-repo temp root")
     check("ai-token-tracker-tests-" in run_root.name, "temporary run roots have a recognizable bounded prefix")
     shutil.rmtree(run_root)
+
+    timeout_workspace = root / "timeout-workspace"
+    timeout_workspace.mkdir()
+    timeout = subprocess.TimeoutExpired([sys.executable, "test_hang.py"], timeout=0.01)
+    with patch("tests.run_all.subprocess.run", side_effect=timeout) as mocked_run:
+        returncode, timed_out = _run_test_script(
+            root / "test_hang.py",
+            workspace=timeout_workspace,
+            environment={},
+            timeout_seconds=0.01,
+        )
+    check(returncode is None and timed_out, "a hung test is converted into an attributed timeout")
+    check(mocked_run.call_args.kwargs["timeout"] == 0.01, "the per-test timeout is enforced by subprocess")
+
+    lint_timeout = subprocess.TimeoutExpired([sys.executable, "-m", "ruff"], timeout=0.01)
+    with patch("tests.run_all.subprocess.run", side_effect=lint_timeout) as mocked_lint:
+        lint_failures = _run_lint_gate(repo_root, {}, timeout_seconds=0.01)
+    check(lint_failures == ["lint:ruff:timeout"], "a hung lint command fails closed with an attributed timeout")
+    lint_command = mocked_lint.call_args.args[0]
+    check(lint_command[-len(LINT_PATHS) :] == list(LINT_PATHS), "lint scans only the Python source roots")
+    check("." not in lint_command[-len(LINT_PATHS) :], "lint does not recursively scan the whole OneDrive repository")
 
     cmd_wrapper = (repo_root / "scripts" / "tt-check.cmd").read_text(encoding="utf-8").lower()
     check("tests\\run_all.py %*" in cmd_wrapper, "Windows check wrapper delegates to the isolated canonical runner")

@@ -69,7 +69,7 @@ check(total == expected_total, f"trace total == {expected_total} (got {total})")
 
 # provider-specific flags ride along
 bedrock_events = [e for e in trace.events if e.provider == "bedrock"]
-check(all("unverified_additivity" not in e.data_quality_flags for e in bedrock_events), "bedrock cache additivity is verified")
+check(all("unverified_additivity" not in e.data_quality_flags for e in bedrock_events), "tested Bedrock body paths are verified")
 check(any(e.api_surface == "invoke_model" and e.data_quality_flags == [] for e in bedrock_events), "bedrock InvokeModel event is clean")
 check(
     all("unverified_additivity" not in e.data_quality_flags for e in trace.events if e.provider == "anthropic"),

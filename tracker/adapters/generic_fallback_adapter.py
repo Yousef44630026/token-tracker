@@ -30,7 +30,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from tracker.adapters.base import BaseAPISurfaceAdapter, NormalizedUsage, field_value
+from tracker.adapters.base import BaseAPISurfaceAdapter, NormalizedUsage, field_value, usage_snapshot
 from tracker.models.enums import Additivity, PrecisionLevel, TokenType, UsageSource
 
 # Usage containers and count-key spellings shared by the major wire formats. Deliberately
@@ -106,7 +106,7 @@ class GenericFallbackAdapter(BaseAPISurfaceAdapter):
             quantities=quantities,
             provider_total_tokens=self.reconcile_total(quantities, provider_total),
             data_quality_flags=flags,
-            raw_usage=dict(usage) if isinstance(usage, dict) else None,
+            raw_usage=usage_snapshot(usage),
         )
 
     def extract_usage_from_response(self, response: Any) -> NormalizedUsage:
@@ -117,7 +117,9 @@ class GenericFallbackAdapter(BaseAPISurfaceAdapter):
             return None  # a content chunk, not a usage-bearing event
         # Same extraction, but stamped with its true provenance: this usage arrived in a
         # stream's final chunk, not a non-streamed response body.
-        return self._extract(event, UsageSource.PROVIDER_STREAM_FINAL)
+        usage = self._extract(event, UsageSource.PROVIDER_STREAM_FINAL)
+        usage.stream_terminal = True
+        return usage
 
 
 __all__ = ["GenericFallbackAdapter"]

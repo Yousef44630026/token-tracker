@@ -221,6 +221,14 @@ two-call test, although output is capped at eight tokens per call. See the offic
 [Bedrock prompt-caching guide](https://docs.aws.amazon.com/bedrock/latest/userguide/prompt-caching.html)
 for supported models, Regions, checkpoint locations, and minimum cache sizes.
 
+For production capture, prefer Bedrock `Converse`/`ConverseStream`, which provide a unified
+`usage` object. `InvokeModel` is model-specific: pass `model_id` to the adapter and decode the
+response body into `body_json` or `body_text`. Exact extraction is implemented for documented
+Titan Text, Nova, and Anthropic Messages body shapes. AWS does not document universal
+InvokeModel token-count headers, so observed header-like values are kept as unverified evidence
+and excluded from the canonical total. Titan embeddings expose `inputTextTokenCount`; Cohere
+Embed responses do not expose an exact token count.
+
 ### OpenTelemetry metric sink
 
 `tracker.export.otel_projection` exposes a dependency-free
@@ -352,12 +360,18 @@ proof that the store prefix present at startup was not modified in place.
 ## Excel dashboard reporting
 
 The optional pandas/openpyxl reporting layer generates an interactive native Excel dashboard
-plus four audit sheets without adding pricing or KPI fields to stored events:
+plus dedicated audit, runtime-quality, provenance, and provider-certification sheets without
+adding pricing or KPI fields to stored events:
 
 ```powershell
 python -m pip install -e ".[reporting]"
 scripts\tt-dashboard.cmd --data-dir .\data --prices .\prices.csv --output .\dashboard.xlsx
 ```
+
+The workbook fails closed above 250,000 quantity-grain rows by default, before Excel becomes an
+accidental high-volume query engine. Raise `--max-data-rows` only deliberately, or partition the
+reporting period. Event observation JSON is emitted once per event rather than repeated on every
+quantity row.
 
 On Windows, install the sleep/shutdown-tolerant hourly refresh task after the operational store
 has been configured. It publishes a completed workbook atomically and writes freshness evidence
@@ -373,6 +387,16 @@ scripts\tt-doctor.cmd --store C:\ai-token-tracker-data\collector_events.jsonl --
 The task runs at logon and every hour with `StartWhenAvailable`. The doctor fails when the latest
 refresh is unhealthy, older than two hours, missing its workbook, or reports skipped/duplicate
 source rows. Missing prices remain `total_cost=null`; scheduling never invents a price.
+
+Before a delivery, run the strict multi-cloud gate:
+
+```powershell
+scripts\tt-release-gate.cmd
+```
+
+It runs the full suite and Doctor, then requires REAL evidence for the declared Azure, Vertex AI,
+and Bedrock capabilities plus 95% pricing and latency coverage. A red result is an evidence gap,
+not permission to downgrade a simulated fixture into a production claim.
 
 See `docs/EXCEL_DASHBOARD.md` for the exact stored schema, the external price-table contract,
 supersession rules, cost allocation, interactive filters, KPI definitions, and refresh limitations.

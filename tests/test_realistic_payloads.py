@@ -95,11 +95,11 @@ check(q(ev, TokenType.CACHE_CREATION_INPUT) is None, "Bedrock Converse: cacheWri
 check(ev.event_contributing_tokens == 2380 and ev.event_total_mismatch == 0, "Bedrock Converse: 2380, reconciles")
 check("unverified_additivity" not in ev.data_quality_flags, "Bedrock Converse: documented cache semantics are verified")
 
-# ===== Bedrock InvokeModel (token counts from headers in ResponseMetadata) =====
+# ===== Bedrock InvokeModel (documented Titan model body) =====
 ev = normalize(load("bedrock_invoke_model_full.SIMULATED.json"), BedrockInvokeModelAdapter(), context=new_trace())
 check(
     q(ev, TokenType.INPUT).quantity == 950 and q(ev, TokenType.OUTPUT).quantity == 275,
-    "InvokeModel: counts read from ResponseMetadata headers",
+    "InvokeModel: counts read from documented Titan body fields",
 )
 check(ev.event_contributing_tokens == 1225 and ev.provider_total_tokens is None, "InvokeModel: 1225, no provider total")
 

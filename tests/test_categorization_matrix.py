@@ -42,6 +42,7 @@ EXPECTED_TABLE = {
     ("gemini", TokenType.OUTPUT): (TC, None),
     ("gemini", TokenType.CACHED_INPUT): (SUB, "input"),
     ("gemini", TokenType.THINKING): (TC, None),
+    ("gemini", TokenType.EMBEDDING): (TC, None),
     ("gemini", TokenType.IMAGE_INPUT): (SUB, "input"),
     ("gemini", TokenType.AUDIO_INPUT): (SUB, "input"),
     ("gemini", TokenType.VIDEO_INPUT): (SUB, "input"),

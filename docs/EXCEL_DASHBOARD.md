@@ -6,8 +6,10 @@ memory and in the generated workbook.
 
 The workbook opens on an interactive Azure/Foundry-style `Dashboard`. Provider, model,
 deployment, environment, use case, and date selectors recalculate the KPI cards and four native
-charts without macros. `Data`, `Coûts`, `Tokens & Latence`, and `Use cases` remain deterministic
-audit views. A `veryHidden` `_Lists` sheet holds bounded dropdown sources; it is not reporting data.
+charts without macros. `Data Quality` explains runtime coverage and source provenance, while
+`Provider Readiness` separates REAL, simulated, unvalidated, and unsupported capabilities.
+`Data`, `Coûts`, `Tokens & Latence`, and `Use cases` remain deterministic audit views. A
+`veryHidden` `_Lists` sheet holds bounded dropdown sources; it is not reporting data.
 
 ## Stored v8 event schema
 
@@ -74,6 +76,11 @@ validated metadata remains inside the same object.
 - Missing quantity, price, or inconsistent subtotal allocation produces a blank cost and a
   `cost_quality` reason. Unknown never becomes zero.
 - Multiple currencies are rejected rather than silently summed.
+- Known cost displays `N/A`, not zero, when billable tokens exist but no price is loaded.
+- Pricing, latency, and provider-total coverage are explicit. A filter-aware banner warns when
+  the selected view is incomplete or contains active accounting risks.
+- Source kind and source event id are flattened for attribution. The full observation JSON is
+  written once per event, not repeated on every quantity row.
 
 ## Price table
 
@@ -99,13 +106,16 @@ scripts\tt-dashboard.cmd --data-dir .\data --prices .\prices.csv --output .\dash
 Add `--recursive` only for a partitioned event store. Malformed and schema-invalid JSONL rows
 are logged by path and line number, without logging their potentially sensitive content.
 
-The workbook is regenerated from scratch and contains five visible sheets: `Data`, `Dashboard`,
-`Coûts`, `Tokens & Latence`, and `Use cases`. Dashboard formulas use the `DataTable` Excel table,
+The workbook is regenerated from scratch and contains seven visible sheets: `Data`, `Dashboard`,
+`Data Quality`, `Provider Readiness`, `Coûts`, `Tokens & Latence`, and `Use cases`. Dashboard formulas use the `DataTable` Excel table,
 so dropdown and date changes update KPI and chart values. Exact interactive P95 uses the Microsoft
 365 `FILTER` function; other KPI formulas use broadly supported `SUMIFS` arithmetic.
 
 The interactive chart layer is bounded to the latest 730 observed dates and the 20 leading models
 to cap workbook size and recalculation cost. KPI cards cover the full selected in-workbook range.
+Generation also stops above 250,000 quantity rows by default (`--max-data-rows`) and always stops
+before Excel's worksheet limit. This is a delivery/reporting guard, not a claim that Excel is a
+high-volume telemetry database.
 Rerun the command after changing JSONL or prices so categories and dropdown values are rebuilt.
 Replacing `Data` manually does not discover new categories, and pure openpyxl cannot create native
 PivotTable slicers or timelines. Those controls require a prebuilt Excel template, Excel COM, or an

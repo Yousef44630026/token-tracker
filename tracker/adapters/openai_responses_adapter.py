@@ -20,9 +20,15 @@ from __future__ import annotations
 
 from typing import Any
 
-from tracker.adapters.base import BaseAPISurfaceAdapter, NormalizedUsage
+from tracker.adapters.base import BaseAPISurfaceAdapter, NormalizedUsage, usage_snapshot
 from tracker.adapters.base import field_value as _field
-from tracker.models.enums import PrecisionLevel, TokenType, UsageSource
+from tracker.models.enums import DataQualityFlag, PrecisionLevel, TokenType, UsageSource
+
+_TERMINAL_STREAM_TYPES = {
+    "response.completed": "complete",
+    "response.incomplete": "incomplete",
+    "response.failed": "failed",
+}
 
 
 class OpenAIResponsesAdapter(BaseAPISurfaceAdapter):
@@ -84,18 +90,39 @@ class OpenAIResponsesAdapter(BaseAPISurfaceAdapter):
             model=model,
             quantities=quantities,
             provider_total_tokens=_field(usage, "total_tokens"),
-            raw_usage=usage if isinstance(usage, dict) else None,
+            raw_usage=usage_snapshot(usage),
         )
 
     def extract_usage_from_stream_event(self, event: Any) -> NormalizedUsage | None:
-        usage = _field(event, "usage")
-        if not usage:
+        event_type = _field(event, "type")
+        nested_response = _field(event, "response")
+        response = nested_response if nested_response is not None else event
+        usage = _field(response, "usage")
+        terminal_status = _TERMINAL_STREAM_TYPES.get(event_type)
+        # Backward compatibility for callers that pass the final response object itself
+        # rather than the documented lifecycle envelope.
+        terminal = terminal_status is not None or event_type is None
+        if not usage and not terminal_status:
             return None
-        quantities = self._usage_to_quantities(usage, UsageSource.PROVIDER_STREAM_FINAL)
+        flags = []
+        if terminal_status == "incomplete":
+            flags.append(DataQualityFlag.PROVIDER_RESPONSE_INCOMPLETE.value)
+        elif terminal_status == "failed":
+            flags.append(DataQualityFlag.PROVIDER_RESPONSE_FAILED.value)
+        if not usage:
+            flags.append(DataQualityFlag.PROVIDER_USAGE_MISSING.value)
+            quantities = []
+        else:
+            source = UsageSource.PROVIDER_STREAM_FINAL if terminal else UsageSource.PROVIDER_STREAM_PARTIAL
+            quantities = self._usage_to_quantities(usage, source)
         return NormalizedUsage(
             provider=self.provider,
             api_surface=self.api_surface,
-            model=_field(event, "model"),
+            model=_field(response, "model"),
             quantities=quantities,
-            provider_total_tokens=_field(usage, "total_tokens"),
+            provider_total_tokens=_field(usage, "total_tokens") if usage else None,
+            data_quality_flags=flags,
+            raw_usage=usage_snapshot(usage),
+            stream_terminal=terminal,
+            stream_status=terminal_status,
         )

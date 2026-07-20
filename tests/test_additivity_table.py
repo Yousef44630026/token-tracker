@@ -64,6 +64,7 @@ cases = [
     # Vertex AI aliases to Gemini; Bedrock embeddings registered
     ("vertex_ai", "generate_content", TokenType.THINKING, TC, None),
     ("vertex_ai", "generate_content", TokenType.CACHED_INPUT, SUB, "input"),
+    ("vertex_ai", "embeddings", TokenType.EMBEDDING, TC, None),
     ("bedrock", "embeddings", TokenType.EMBEDDING, TC, None),
     # still-unlisted combos fail closed as unverified / no parent
     ("openai", "responses", TokenType.IMAGE_INPUT, UNV, None),

@@ -64,18 +64,24 @@ CALLS = [
     ("OpenAI Chat", OpenAIChatCompletionsAdapter(), "openai_chat_completions_cached_reasoning.SIMULATED.json", 1300),
     ("OpenAI Responses", OpenAIResponsesAdapter(), "openai_responses_cached_reasoning.SIMULATED.json", 1300),
     ("Azure OpenAI Chat", AzureOpenAIChatCompletionsAdapter(), "openai_chat_completions_cached_reasoning.SIMULATED.json", 1300),
-    ("Bedrock Converse", BedrockConverseAdapter(), "bedrock_converse_cache.SIMULATED.json", 1300),
+    ("Bedrock Converse", BedrockConverseAdapter(), "bedrock_converse_cache.SIMULATED.json", 2220),
     ("Gemini", GeminiGenerateContentAdapter(), "gemini_generate_content_thinking.SIMULATED.json", 1550),
-    ("Anthropic", AnthropicMessagesAdapter(), "anthropic_messages_cache.SIMULATED.json", 1300),
-    ("Bedrock InvokeModel", BedrockInvokeModelAdapter(), "bedrock_invoke_model_headers.SIMULATED.json", 1300),
+    ("Anthropic", AnthropicMessagesAdapter(), "anthropic_messages_cache.SIMULATED.json", 2220),
+    (
+        "Bedrock InvokeModel",
+        BedrockInvokeModelAdapter(model_id="amazon.titan-text-premier-v1:0"),
+        "realistic/bedrock_invoke_model_full.SIMULATED.json",
+        1225,
+    ),
 ]
 
 
 def main():
     work = tempfile.mkdtemp(prefix="tt_simall_")
     store = os.path.join(work, "events.jsonl")
+    dead_letter = os.path.join(work, "dead_letters.jsonl")
     repo = FileRepository(store)
-    server = create_server(repo, "127.0.0.1", 0)
+    server = create_server(repo, "127.0.0.1", 0, dead_letter_path=dead_letter)
     base = f"http://127.0.0.1:{server.server_address[1]}"
     threading.Thread(target=server.serve_forever, daemon=True).start()
     collector = CollectorClient(make_http_transport(base + "/v1/events"))
@@ -132,8 +138,25 @@ def main():
         )
 
     # 4) flush everything to the live server over HTTP
-    while collector.pending:
-        collector.flush()
+    # A demo must never hang forever when transport acknowledgements stop. Production keeps
+    # retrying by design; this finite harness fails loudly with the last transport reason.
+    last_flush = None
+    for _attempt in range(10):
+        if not collector.pending:
+            break
+        last_flush = collector.flush()
+    if collector.pending:
+        print(
+            f"  [XX] collector still has {collector.pending} pending events after 10 flushes "
+            f"(last_reason={getattr(last_flush, 'reason', None)})"
+        )
+        if os.path.exists(dead_letter):
+            with open(dead_letter, encoding="utf-8") as handle:
+                first_reject = json.loads(next(line for line in handle if line.strip()))
+            print(f"       first_rejection={first_reject.get('reason')}")
+        server.shutdown()
+        server.server_close()
+        return 1
     ok(collector.sent_total == len(CALLS) + 2, f"all {len(CALLS) + 2} events delivered over HTTP")
     ok(len(repo.read_all()) == len(CALLS) + 2, "every event persisted to JSONL")
 
@@ -156,6 +179,7 @@ def main():
         f"spans={len(tr.spans)}  exactness={cov['exactness_ratio']}"
     )
     server.shutdown()
+    server.server_close()
 
     ok(model_total == server_total == excel_total, f"all three totals reconcile ({model_total})")
     ok("TokenSpans" in wb.sheetnames and len(list(wb["TokenSpans"].iter_rows())) - 1 == 3, "3 spans exported to Excel")

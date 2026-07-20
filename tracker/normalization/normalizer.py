@@ -27,9 +27,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from tracker.context.propagation import TraceContext, current, current_flags, new_trace
-from tracker.models.enums import DataQualityFlag
 from tracker.models.token_event import TokenEvent
 from tracker.normalization.event_builder import build_event
+from tracker.normalization.usage_contract import inspect_usage_contract, usage_contract_observation
 from tracker.observability.observation import Observation
 
 if TYPE_CHECKING:
@@ -96,12 +96,7 @@ def normalize(
         # whether the usage object was absent or present-but-unrecognized (a renamed/changed
         # API). Either way the usage is missing, so flag it rather than emit a silent empty
         # event.
-        leading = list(usage.data_quality_flags)
-        if not usage.quantities and "raw_usage_missing" not in leading:
-            leading.append("raw_usage_missing")
-        unmapped_paths = adapter.unmapped_usage_token_paths(usage.raw_usage)
-        if unmapped_paths:
-            leading.append(DataQualityFlag.PROVIDER_SCHEMA_DRIFT.value)
+        leading, unmapped_paths = inspect_usage_contract(adapter, usage)
 
         event_observation = (
             Observation.from_dict(observation.to_dict())
@@ -110,9 +105,7 @@ def normalize(
             if observation is not None
             else Observation(authoritative=True, status="complete")
         )
-        if unmapped_paths:
-            event_observation["unmapped_usage_fields"] = list(unmapped_paths)
-            event_observation["unmapped_usage_field_count"] = len(unmapped_paths)
+        event_observation.update(usage_contract_observation(unmapped_paths))
 
         return build_event(
             event_id=event_id,

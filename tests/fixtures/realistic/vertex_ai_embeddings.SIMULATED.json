@@ -1,0 +1,26 @@
+{
+  "_SIMULATED": true,
+  "_warning": "Hand-built from the documented Vertex AI text-embedding predict response. No live Vertex credential was used; production validation remains pending.",
+  "response": {
+    "predictions": [
+      {
+        "embeddings": {
+          "statistics": {
+            "truncated": false,
+            "token_count": 6
+          },
+          "values": [0.01, -0.02]
+        }
+      },
+      {
+        "embeddings": {
+          "statistics": {
+            "truncated": false,
+            "token_count": 8
+          },
+          "values": [0.03, 0.04]
+        }
+      }
+    ]
+  }
+}

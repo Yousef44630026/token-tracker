@@ -26,6 +26,9 @@ from tracker.models.token_event import TokenEvent  # noqa: E402
 from tracker.models.token_quantity import TokenQuantity  # noqa: E402
 from tracker.observability.observation import Observation  # noqa: E402
 from tracker.reporting.excel_dashboard import (  # noqa: E402
+    LoadedEvent,
+    _billing_allocations,
+    _find_price,
     build_data_frame,
     build_summary_frames,
     load_jsonl_events,
@@ -88,8 +91,16 @@ final_one = TokenEvent(
     ],
     provider_total_tokens=150,
     timestamp="2026-07-01T10:00:00Z",
-    observation=Observation(authoritative=True, status="success", duration_ms=100, time_to_first_token_ms=20),
+    observation=Observation(
+        authoritative=True,
+        status="success",
+        duration_ms=100,
+        time_to_first_token_ms=20,
+        extra={"source": "azure_smoke", "source_event_id": "source-1"},
+    ),
 )
+for final_one_quantity in final_one.quantities:
+    final_one_quantity.metadata["azure_deployment"] = "deployment-a"
 final_two = TokenEvent(
     event_id="final-2",
     request_correlation_id="request-2",
@@ -124,6 +135,127 @@ pd.DataFrame(
     columns=("provider", "model", "token_type", "price_per_million_tokens", "currency", "effective_from", "effective_to"),
 ).to_csv(prices_path, index=False)
 
+price_columns = (
+    "provider",
+    "model",
+    "token_type",
+    "price_per_million_tokens",
+    "currency",
+    "effective_from",
+    "effective_to",
+)
+
+
+def rejects_price_table(name, rows):
+    candidate = root / f"prices-{name}.csv"
+    pd.DataFrame(rows, columns=price_columns).to_csv(candidate, index=False)
+    try:
+        load_prices(candidate)
+    except ValueError:
+        return True
+    return False
+
+
+check(
+    rejects_price_table("bad-date", [("azure_openai", "model-a", "input", 1, "USD", "tomorrow", "")]),
+    "invalid effective dates are rejected instead of becoming unbounded",
+)
+check(
+    rejects_price_table("inverted", [("azure_openai", "model-a", "input", 1, "USD", "2026-02-01", "2026-01-01")]),
+    "inverted effective ranges are rejected",
+)
+check(
+    rejects_price_table(
+        "overlap",
+        [
+            ("azure_openai", "model-a", "input", 1, "USD", "2026-01-01", "2026-06-30"),
+            ("azure_openai", "model-a", "input", 2, "USD", "2026-06-30", "2026-12-31"),
+        ],
+    ),
+    "overlapping prices for one selector are rejected",
+)
+check(
+    rejects_price_table("blank-currency", [("azure_openai", "model-a", "input", 1, "", "", "")]),
+    "blank pricing dimensions are rejected",
+)
+check(
+    rejects_price_table("unknown-type", [("azure_openai", "model-a", "mystery_tokens", 1, "USD", "", "")]),
+    "unknown token types cannot silently miss every event",
+)
+
+loaded_prices = load_prices(prices_path)
+check(
+    _find_price(
+        loaded_prices,
+        provider="azure_openai",
+        model="model-a",
+        token_type="input",
+        event_date=None,
+    )
+    is None,
+    "an event without a timestamp never receives an effective-dated price",
+)
+
+ambiguous_prices_path = root / "prices-ambiguous-match.csv"
+pd.DataFrame(
+    [
+        ("azure_openai", "*", "input", 1, "USD", "", ""),
+        ("*", "model-a", "input", 2, "USD", "", ""),
+    ],
+    columns=price_columns,
+).to_csv(ambiguous_prices_path, index=False)
+try:
+    _find_price(
+        load_prices(ambiguous_prices_path),
+        provider="azure_openai",
+        model="model-a",
+        token_type="input",
+        event_date=None,
+    )
+except ValueError:
+    ambiguous_match_rejected = True
+else:
+    ambiguous_match_rejected = False
+check(ambiguous_match_rejected, "equally specific price selectors are rejected instead of chosen arbitrarily")
+
+unverified_event = TokenEvent(
+    event_id="unverified-price",
+    request_correlation_id="unverified-price",
+    trace_id="trace-price",
+    span_id="span-price",
+    provider="azure_openai",
+    model="model-a",
+    timestamp="2026-07-01T00:00:00Z",
+    quantities=[quantity(TokenType.INPUT, 100, Additivity.UNVERIFIED)],
+    observation=Observation(authoritative=True, status="success"),
+)
+unverified_frame = build_data_frame(
+    [LoadedEvent(unverified_event, "memory", 1, 1)],
+    loaded_prices,
+)
+check(unverified_frame["derived_cost"].isna().all(), "unverified additivity never produces a plausible cost")
+check(unverified_frame["cost_quality"].iloc[0] == "unverified_additivity", "unverified cost exclusion carries a reason")
+check(unverified_frame["unverified_tokens_active"].sum() == 100, "dashboard quantifies known unverified token magnitude")
+
+cross_cutting_event = TokenEvent(
+    event_id="cross-cutting-subtotals",
+    request_correlation_id="cross-cutting-subtotals",
+    trace_id="trace-price",
+    span_id="span-price",
+    quantities=[
+        quantity(TokenType.INPUT, 100),
+        quantity(TokenType.CACHED_INPUT, 20, Additivity.SUBTOTAL_OF, subtotal_of="input"),
+        quantity(TokenType.IMAGE_INPUT, 30, Additivity.SUBTOTAL_OF, subtotal_of="input"),
+    ],
+    observation=Observation(authoritative=True, status="success"),
+)
+cross_allocations, cross_issues = _billing_allocations(cross_cutting_event)
+check(
+    all(value is None for value in cross_allocations)
+    and set(cross_issues) == {"ambiguous_subtotal_overlap"},
+    "cross-cutting cache/modality subtotals fail closed instead of double-subtracting",
+)
+
 events, report = load_jsonl_events(data_dir)
 check(Path(f"{events_path}.lock").exists(), "dashboard reads JSONL under the repository interprocess lock")
 check(report.valid_events == 3, "three valid events survive JSONL validation")
@@ -140,17 +272,30 @@ check(archived_report.files_read == 2, "dashboard discovers active and archived 
 check(archived_report.duplicate_event_ids == 1, "dashboard deduplicates archive/active crash overlap")
 check(len(archived_events) == 3, "dashboard archive discovery does not double count")
 
-data = build_data_frame(events, load_prices(prices_path))
+data = build_data_frame(events, loaded_prices)
 summaries = build_summary_frames(data)
 check(data["event_contributing_tokens_once"].sum() == 450, "event-grain safe total is never repeated at quantity grain")
+check(data["exact_tokens_active"].sum() == 450, "dashboard exposes exact contributing-token magnitude")
+check(data["estimated_tokens_active"].sum() == 0, "superseded estimates do not pollute active estimate magnitude")
 check(data["event_count_once"].sum() == 3, "event count appears exactly once at quantity grain")
 check(data["event_authoritative_once"].sum() == 3, "authoritative event count appears exactly once")
 check(data["superseded_event_once"].sum() == 1, "superseded event KPI is additive and event-grain safe")
 check(data["active_quality_flagged_event_once"].sum() == 0, "superseded quality flags do not pollute active anomalies")
 check(data["mismatch_event_once"].sum() == 0, "active mismatch event KPI is additive")
+check(
+    set(data.loc[(data["model"] == "model-a") & ~data["event_superseded"], "deployment"])
+    == {"deployment-a"},
+    "Azure deployment metadata reaches the flat dashboard source",
+)
+check(set(data.loc[data["provider"] == "azure_openai", "cloud_provider"]) == {"azure"}, "cloud attribution is explicit")
 check(data["request_count_once"].sum() == 2, "request count appears exactly once per correlation id")
 check(data["request_latency_observation_once"].sum() == 2, "latency denominator counts requests, not quantities")
 check(data.loc[data["request_count_once"] == 1, "request_latency_ms"].mean() == 200, "latency average uses one row per request")
+check(set(data.loc[data["event_id"] == "final-1", "source_kind"]) == {"azure_smoke"}, "telemetry source is flattened")
+check(
+    data.loc[data["event_id"] == "final-1", "observation_json"].notna().sum() == 1,
+    "event observation JSON is serialized once instead of repeated at quantity grain",
+)
 
 model_a = data[(data["model"] == "model-a") & ~data["event_superseded"]]
 check(model_a.loc[model_a["token_type"] == "input", "billing_tokens"].iloc[0] == 80, "input billing removes cached subtotal")
@@ -161,6 +306,31 @@ check(data["priced_billing_tokens"].sum() == 450, "pricing coverage numerator ca
 check(data["cache_read_tokens_active"].sum() == 20, "cache KPI is additive without event-level boolean criteria")
 check(data["unknown_quantity_active"].sum() == 0, "unknown quantity KPI excludes superseded estimates")
 check(abs(float(summaries["pricing_coverage"]) - 1.0) < 1e-12, "pricing coverage is complete")
+check(summaries["quality"]["latency_coverage"] == 1.0, "dashboard quantifies request-level latency coverage")
+check(summaries["quality"]["provider_total_coverage"] == 1.0, "dashboard quantifies provider-total coverage")
+check(summaries["quality"]["quality_status"] == "clean", "fully covered active data receives a clean runtime status")
+check(not summaries["provider_summary"].empty, "provider runtime quality summary is available")
+check(not summaries["source_summary"].empty, "source provenance summary is available")
+
+under_attributed_event = TokenEvent(
+    event_id="under-attributed-dashboard",
+    request_correlation_id="under-attributed-dashboard",
+    trace_id="trace-quality",
+    span_id="span-quality",
+    provider="azure_openai",
+    model="model-a",
+    timestamp="2026-07-01T00:00:00Z",
+    quantities=[quantity(TokenType.INPUT, 100)],
+    provider_total_tokens=120,
+    observation=Observation(authoritative=True, status="success", duration_ms=10),
+)
+under_summary = build_summary_frames(
+    build_data_frame([LoadedEvent(under_attributed_event, "memory", 1, 1)], loaded_prices)
+)
+check(
+    under_summary["quality"]["quality_status"] == "warning",
+    "provider under-attribution prevents a falsely clean dashboard status",
+)
 
 unpriced_data = build_data_frame(events, load_prices(None))
 unpriced_summaries = build_summary_frames(unpriced_data)
@@ -174,16 +344,25 @@ check(
 
 output = root / "dashboard.xlsx"
 write_dashboard(data, summaries, report, output)
+try:
+    write_dashboard(data, summaries, report, root / "oversized.xlsx", max_data_rows=len(data) - 1)
+except ValueError as exc:
+    dashboard_limit_rejected = "safety limit" in str(exc)
+else:
+    dashboard_limit_rejected = False
+check(dashboard_limit_rejected, "dashboard fails before producing an intentionally oversized workbook")
 workbook = load_workbook(output, data_only=False)
 visible_sheets = [sheet.title for sheet in workbook.worksheets if sheet.sheet_state == "visible"]
 check(
-    visible_sheets == ["Data", "Dashboard", "Coûts", "Tokens & Latence", "Use cases"],
-    "workbook keeps the four audit sheets and adds one interactive dashboard",
+    visible_sheets
+    == ["Data", "Dashboard", "Data Quality", "Provider Readiness", "Coûts", "Tokens & Latence", "Use cases"],
+    "workbook exposes dedicated runtime-quality and provider-certification sheets",
 )
 check(workbook["_Lists"].sheet_state == "veryHidden", "filter support lists are not exposed as a reporting sheet")
 check("DataTable" in workbook["Data"].tables, "Data is an Excel table suitable for pivots")
 dashboard = workbook["Dashboard"]
 check(workbook.active.title == "Dashboard", "interactive dashboard opens first")
+check(dashboard["A1"].value == "Multi-cloud LLM token observability", "dashboard title matches Azure, Google, and AWS scope")
 check(len(dashboard.data_validations.dataValidation) == 7, "dashboard has five dimension and two date selectors")
 check(
     {"DashboardProviders", "DashboardModels", "DashboardDeployments", "DashboardEnvironments", "DashboardUseCases"}
@@ -191,6 +370,20 @@ check(
     "filter dropdowns use workbook ranges instead of the 255-character inline-list limit",
 )
 check(dashboard["B5"].value == "All" and dashboard["L5"].value is not None, "dashboard filters have safe defaults")
+check(
+    dashboard["A11"].value == "Known exact token share"
+    and dashboard["C11"].value == "Estimated tokens"
+    and dashboard["G11"].value == "Under-attributed"
+    and dashboard["K11"].value == "Schema drift events",
+    "integrity magnitudes are visible in the dashboard quality row",
+)
+check(dashboard["M11"].value == "Correlation risks", "correlation-id uncertainty is a headline KPI")
+check(
+    dashboard["K7"].value == "Pricing coverage" and dashboard["M7"].value == "Latency coverage",
+    "pricing and latency coverage are explicit headline KPIs",
+)
+check("COST COVERAGE INCOMPLETE" in dashboard["A15"].value, "dashboard includes a filter-aware readiness banner")
+check("ISNUMBER(K8)" in dashboard["A15"].value, "readiness banner handles non-applicable coverage without formula errors")
 check(
     isinstance(dashboard["A8"].value, str) and "DataTable[derived_cost]" in dashboard["A8"].value,
     "cost KPI is an Excel formula over the Data table",
@@ -210,7 +403,25 @@ check(dashboard._charts[2].display_blanks == "gap", "unknown P95 values are gaps
 check({"DashboardDaily", "DashboardModelSummary"} <= set(dashboard.tables), "chart helper ranges remain auditable")
 check(len(workbook["Coûts"]._charts) == 2, "cost sheet has two native charts")
 check(len(workbook["Tokens & Latence"]._charts) == 2, "tokens and latency sheet has two native charts")
+check(workbook["Coûts"]["A9"].value == "2026-07-01", "static chart dates use readable ISO labels")
+check(
+    [series.tx.v for series in workbook["Tokens & Latence"]._charts[0].series] == ["input", "output"],
+    "token chart series have semantic names instead of generic labels",
+)
+check(
+    workbook["Tokens & Latence"]._charts[1].display_blanks == "gap",
+    "per-model latency charts never turn missing observations into zero milliseconds",
+)
 check(len(workbook["Use cases"]._charts) == 1, "use-case sheet has a native pie chart")
+quality_sheet = workbook["Data Quality"]
+check(quality_sheet["A1"].value == "Data quality and provenance", "quality sheet has an audit-oriented title")
+check(quality_sheet["A5"].value == "clean", "quality sheet publishes the runtime quality status")
+check("ProviderRuntimeQuality" in quality_sheet.tables, "quality sheet includes provider-level coverage")
+check("SourceProvenance" in quality_sheet.tables, "quality sheet explains where token totals came from")
+readiness_sheet = workbook["Provider Readiness"]
+check(readiness_sheet["A1"].value == "Provider readiness", "provider evidence is visible in the workbook")
+check("ProviderSurfaceCertification" in readiness_sheet.tables, "surface-level certification remains auditable")
+check("ProviderCapabilityCertification" in readiness_sheet.tables, "capability-level certification remains auditable")
 check(not any("derived_cost" in event.to_dict() for event in (partial, final_one, final_two)), "derived cost never enters stored events")
 
 workbook.close()

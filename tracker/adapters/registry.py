@@ -65,7 +65,7 @@ def _discover_adapters() -> dict[tuple[str, str], type[BaseAPISurfaceAdapter]]:
 _ADAPTERS: dict[tuple[str, str], type[BaseAPISurfaceAdapter]] = _discover_adapters()
 
 
-def create_adapter(provider: str, api_surface: str) -> BaseAPISurfaceAdapter:
+def create_adapter(provider: str, api_surface: str, **adapter_options) -> BaseAPISurfaceAdapter:
     """Instantiate a built-in adapter, raising a descriptive error if unsupported."""
     normalized_provider = _normalize(provider)
     normalized_provider = _PROVIDER_ALIASES.get(normalized_provider, normalized_provider)
@@ -75,10 +75,10 @@ def create_adapter(provider: str, api_surface: str) -> BaseAPISurfaceAdapter:
     except KeyError as exc:
         supported = ", ".join(f"{p}/{s}" for p, s in sorted(_ADAPTERS))
         raise ValueError(f"unsupported adapter {provider!r}/{api_surface!r}; supported: {supported}") from exc
-    return adapter_type()
+    return adapter_type(**adapter_options)
 
 
-def create_adapter_with_fallback(provider: str, api_surface: str) -> BaseAPISurfaceAdapter:
+def create_adapter_with_fallback(provider: str, api_surface: str, **adapter_options) -> BaseAPISurfaceAdapter:
     """Resolve the dedicated adapter, or a ``GenericFallbackAdapter`` when none exists.
 
     The explicit opt-in for capture paths that must never drop an observed call: an unknown
@@ -92,7 +92,9 @@ def create_adapter_with_fallback(provider: str, api_surface: str) -> BaseAPISurf
     normalized_surface = _normalize(api_surface)
     adapter_type = _ADAPTERS.get((normalized_provider, normalized_surface))
     if adapter_type is not None:
-        return adapter_type()
+        return adapter_type(**adapter_options)
+    if adapter_options:
+        raise ValueError("adapter options require a dedicated provider/surface adapter")
     return GenericFallbackAdapter(normalized_provider, normalized_surface)
 
 

@@ -84,6 +84,7 @@ for provider, surface in [
     ("cohere", "chat"),
     ("voyage", "rerank"),
     ("vertex_ai", "generate_content"),
+    ("vertex_ai", "embeddings"),
     ("bedrock", "embeddings"),
     ("openai", "embeddings"),
     ("azure_openai", "embeddings"),
@@ -130,6 +131,9 @@ check(collision_raised, "two adapters claiming the same (provider, api_surface) 
 # real adapters still resolve normally afterwards
 sane_adapter = create_adapter("openai", "chat_completions")
 check(sane_adapter.provider == "openai", "registry still resolves real adapters after a rediscovery collision elsewhere")
+
+configured = create_adapter("bedrock", "converse", model_id="anthropic.claude-test-v1:0")
+check(configured.model_id == "anthropic.claude-test-v1:0", "registry forwards provider-specific adapter options")
 
 print("\nRESULT:", "all checks passed" if _failures == 0 else f"{_failures} FAILURE(S)")
 sys.exit(1 if _failures else 0)

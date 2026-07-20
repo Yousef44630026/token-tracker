@@ -16,9 +16,13 @@ from tracker.analytics.observation_contract import (  # noqa: E402
     validate_trace_observations,
 )
 from tracker.analytics.provider_validation import (  # noqa: E402
+    build_capability_certification_matrix,
     build_provider_validation_matrix,
+    capability_matrix_to_markdown,
+    certification_requirement_failures,
     fixture_record,
     matrix_to_markdown,
+    summarize_capability_certification,
     summarize_provider_validation,
 )
 from tracker.export.html_report import export_html_report, render_html_report  # noqa: E402
@@ -28,7 +32,10 @@ from tracker.models.token_quantity import TokenQuantity  # noqa: E402
 from tracker.models.trace import Trace  # noqa: E402
 from tracker.observability.observation import Observation, build_observation  # noqa: E402
 from tracker.proxy.cli import main as proxy_main  # noqa: E402
-from tracker.validation.fixture_manifest import realistic_fixture_records  # noqa: E402
+from tracker.validation.fixture_manifest import (  # noqa: E402
+    PROVIDER_CAPABILITY_POLICIES,
+    realistic_fixture_records,
+)
 
 _failures = 0
 
@@ -227,6 +234,70 @@ check(
 real_matrix_summary = summarize_provider_validation(build_provider_validation_matrix(real_records))
 check(real_matrix_summary["fail_count"] == 0, "central provider matrix has zero adapter-only failures")
 check(real_matrix_summary["overall_status"] != "fail", "central provider matrix readiness is not failing")
+explicit_capability = fixture_record(
+    "opaque.REAL.json",
+    BedrockConverseAdapter,
+    has_cache_usage=True,
+    is_stream=True,
+)
+check(explicit_capability.has_cache_usage and explicit_capability.is_stream, "fixture capabilities are explicit metadata")
+check(
+    set(explicit_capability.capabilities) == {"usage", "cache", "stream"},
+    "fixture capability labels are explicit and normalized",
+)
+
+capability_matrix = build_capability_certification_matrix(
+    real_records,
+    PROVIDER_CAPABILITY_POLICIES,
+)
+capability_rows = {
+    (row["provider"], row["api_surface"], row["capability"]): row
+    for row in capability_matrix
+}
+check(
+    capability_rows[("azure_openai", "chat_completions", "stream")]["certification_status"] == "proven",
+    "real Azure stream fixture proves only the stream capability it exercised",
+)
+check(
+    capability_rows[("vertex_ai", "embeddings", "usage")]["certification_status"] == "simulated",
+    "Vertex embeddings stays simulated until a real Vertex payload exists",
+)
+check(
+    capability_rows[("bedrock", "embeddings", "cohere_response_token_count")]["certification_status"]
+    == "unsupported",
+    "known provider omissions are explicit unsupported claims",
+)
+capability_summary = summarize_capability_certification(capability_matrix)
+check(capability_summary["unsupported_count"] >= 2, "capability summary counts explicit unsupported contracts")
+check(
+    "| Certification | Provider | Surface | Capability |" in capability_matrix_to_markdown(capability_matrix),
+    "capability matrix renders to Markdown",
+)
+surface_matrix = build_provider_validation_matrix(real_records)
+check(
+    certification_requirement_failures(
+        surface_matrix,
+        capability_matrix,
+        ["azure_openai:chat_completions:stream"],
+    )
+    == [],
+    "release requirement passes only for a proven capability",
+)
+check(
+    certification_requirement_failures(
+        surface_matrix,
+        capability_matrix,
+        ["vertex_ai:embeddings:usage"],
+    )
+    == ["vertex_ai:embeddings:usage=simulated"],
+    "simulated evidence cannot satisfy a real-proof release requirement",
+)
+try:
+    certification_requirement_failures(surface_matrix, capability_matrix, ["invalid"])
+except ValueError:
+    pass
+else:
+    check(False, "malformed release requirements fail closed")
 
 html = render_html_report(trace, title="Trust Report")
 for text in (
@@ -258,6 +329,15 @@ cli_output = buffer.getvalue()
 check(exit_code == 0, "provider-matrix CLI exits successfully")
 check("Provider validation readiness" in cli_output, "provider-matrix CLI renders readiness summary")
 check("| Status | Provider | Surface |" in cli_output, "provider-matrix CLI renders markdown table")
+check("Provider capability certification" in cli_output, "provider-matrix CLI renders capability certification")
+
+buffer = StringIO()
+with redirect_stdout(buffer):
+    required_exit = proxy_main(
+        ["provider-matrix", "--require-proven", "vertex_ai:embeddings:usage"]
+    )
+check(required_exit == 1, "provider-matrix blocks a release claim backed only by simulated evidence")
+check("vertex_ai:embeddings:usage=simulated" in buffer.getvalue(), "failed release proof names the exact gap")
 
 out_dir = os.path.join(os.getcwd(), ".test_provider_matrix_out")
 shutil.rmtree(out_dir, ignore_errors=True)

@@ -1,8 +1,9 @@
 # Verification Report - Token Counting Audit
 
-Scope: simulated/read-only fixture verification of provider token categorization,
-additivity, reconciliation, and double-count protection. No production counting semantics
-were changed during this audit.
+Scope: provider token categorization, additivity, reconciliation, streaming completion,
+supersession, schema-drift detection, export/reporting, and operational release gating.
+The audit includes production code changes. A green code suite is not treated as proof of a
+cloud capability: only a provider payload marked `REAL` can certify that capability.
 
 ## Verification Matrix
 
@@ -66,13 +67,25 @@ Focused audit tests:
 
 Total focused audit checks: 367 passing, 0 failing.
 
-Full suite: started with `tests/run_all.py` using portable Python, but the run was
-interrupted before completion. No full-suite pass is claimed in this report.
+Full suite on 2026-07-19:
+
+```text
+Executed 187 test scripts + lint gate; failures: 0
+TRACKER CHECK: PASS
+```
+
+Command: `scripts\tt-check.cmd --lint-timeout-seconds 120 --test-timeout-seconds 180`.
+The runner scans the five Python source roots only, isolates every script in a temporary
+workspace, checks debris after each script, and fails closed on lint or test timeout.
 
 ## Gaps Found
 
 | gap | real library bug? | fixed? | evidence |
 |---|---:|---:|---|
 | Completeness-test model treated Mistral as if OpenAI detail subfields were documented. | no | yes, test fixture narrowed to documented Mistral usage shape | test_categorization_completeness.py passes |
-| Completeness-test model initially did not represent fields that validly produce both a token quantity and provider_total_tokens, such as Voyage rerank total_tokens and Bedrock embedding input header. | no | yes, added explicit dual-category accounting in the test | test_categorization_completeness.py passes |
-| Full non-live suite did not complete because the run was interrupted. | no production finding | not applicable | focused audit tests pass; full-suite pass remains unclaimed |
+| Completeness-test model initially did not separate quantity fields from genuine raw response totals. Voyage rerank total_tokens is both; Bedrock and Vertex embedding counters are quantity-only. | no | yes, separated quantity fields from raw provider totals | test_categorization_completeness.py passes |
+| A test or repository-wide lint process could hang the gate indefinitely. | process-integrity bug | yes, both phases now have explicit timeouts and lint scans only Python roots | test_run_all_cleanup.py; full-suite pass above |
+| Azure Responses streaming lacks a REAL terminal-usage fixture. | evidence gap | no code-only fix | `tt-release-gate.cmd` fails the exact capability requirement |
+| Vertex generate/cache/stream and embeddings remain simulated or unvalidated. | evidence gap | no code-only fix | capability certification matrix and release gate |
+| Bedrock cache/stream/InvokeModel/embedding claims remain partly simulated or unvalidated. | evidence gap | no code-only fix | capability certification matrix and release gate |
+| Runtime pricing, latency, and provider-total coverage are currently 0%. | data/configuration gap | no code-only fix | dashboard evidence reports `quality_status=warning` |

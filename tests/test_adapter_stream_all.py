@@ -59,16 +59,36 @@ azr = AzureOpenAIResponsesAdapter().extract_usage_from_stream_event(
 )
 check(azr is not None and azr.provider_total_tokens == 120, "Azure Responses stream-final extracts usage")
 
+azr_nested = AzureOpenAIResponsesAdapter().extract_usage_from_stream_event(
+    {
+        "type": "response.completed",
+        "response": {
+            "model": "gpt-5-mini",
+            "usage": {"input_tokens": 100, "output_tokens": 20, "total_tokens": 120},
+        },
+    }
+)
+check(
+    azr_nested is not None and azr_nested.stream_terminal is True and azr_nested.model == "gpt-5-mini",
+    "Azure Responses documented nested terminal envelope extracts usage + model",
+)
+
 # --- Anthropic stream-final (no total) ---
-an = AnthropicMessagesAdapter().extract_usage_from_stream_event({"usage": {"input_tokens": 100, "output_tokens": 20}})
+an = AnthropicMessagesAdapter().extract_usage_from_stream_event(
+    {
+        "type": "message_delta",
+        "delta": {"stop_reason": "end_turn"},
+        "usage": {"input_tokens": 100, "output_tokens": 20},
+    }
+)
 check(an is not None and an.provider_total_tokens is None, "Anthropic stream-final: no provider total")
 check(out_q(an).quantity == 20 and out_q(an).usage_source == UsageSource.PROVIDER_STREAM_FINAL, "Anthropic stream-final output")
 
-# --- Bedrock InvokeModel stream-final (header counts) ---
+# --- Bedrock InvokeModel stream envelope: no documented final usage contract ---
 bim = BedrockInvokeModelAdapter().extract_usage_from_stream_event(
     {"ResponseMetadata": {"HTTPHeaders": {"x-amzn-bedrock-input-token-count": "100", "x-amzn-bedrock-output-token-count": "20"}}}
 )
-check(bim is not None and out_q(bim).quantity == 20, "InvokeModel stream-final reads header counts")
+check(bim is None, "InvokeModel does not promote undocumented stream headers")
 
 print("\nRESULT:", "all checks passed" if _failures == 0 else f"{_failures} FAILURE(S)")
 sys.exit(1 if _failures else 0)
