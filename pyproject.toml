@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ai-token-tracker"
-version = "0.1.0"
+version = "0.3.0"
 description = "AI token tracking for GenAI, RAG and agents; source-truth storage with optional presentation-layer cost reporting."
 requires-python = ">=3.11"
 readme = "README.md"
