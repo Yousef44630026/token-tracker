@@ -56,6 +56,9 @@ ignore = ["UP042"]
 # The live dashboard's HTML/CSS/JS is one inline template string; wrapping its style/script
 # lines to 140 cols would fragment the markup for no readability gain.
 "tracker/export/live_dashboard.py" = ["E501"]
+# Adversarial Azure matrix: each case is one dense payload literal (one line = one scenario);
+# wrapping the NS(...) usage tables would fragment the data for no readability gain.
+"tests/test_azure_edge_matrix.py" = ["E501"]
 
 [tool.pytest.ini_options]
 # Kept for when pytest is available. In this environment tests run as scripts:
