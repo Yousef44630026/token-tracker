@@ -6,7 +6,6 @@ import os
 import shutil
 import subprocess
 import sys
-import tempfile
 import uuid
 from pathlib import Path
 from unittest.mock import patch
@@ -24,8 +23,14 @@ from tests.run_all import (  # noqa: E402
 )
 
 check = make_checker()
-root = Path(tempfile.mkdtemp(prefix="tracker-runner-cleanup-test-"))
 repo_root = Path(os.environ.get("TRACKER_REPO_ROOT", Path(__file__).resolve().parents[1]))
+configured_workspace = os.environ.get("TRACKER_TEST_WORKSPACE")
+root = (
+    Path(configured_workspace) / "runner-cleanup"
+    if configured_workspace
+    else repo_root / f".test_runner_cleanup_{uuid.uuid4().hex}"
+)
+root.mkdir(parents=True, exist_ok=False)
 
 try:
     ordinary = root / ".test_ordinary"

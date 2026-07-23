@@ -57,6 +57,8 @@ plan = json.loads(plan_result.stdout)
 check(plan["triggers"] == ["at_logon", "every_60_minutes"], "dashboard catches logon and refreshes hourly")
 check(plan["start_when_available"] is True, "missed dashboard refreshes catch up after sleep or shutdown")
 check(plan["dont_stop_on_idle_end"] is True, "dashboard refresh is not stopped at the idle boundary")
+check(plan["restart_interval_seconds"] == 120, "failed dashboard refreshes retry after two minutes")
+check(plan["restart_count"] == 3, "failed dashboard refreshes receive three bounded retries")
 check(plan["working_directory"] == r"C:\tracker-test-data", "dashboard task runs beside the operational store")
 check(plan["output_file"] == r"C:\tracker-test-data\dashboard.xlsx", "dashboard output stays off the sync volume")
 check(plan["prices_configured"] is False, "missing prices remain explicit rather than fabricated")
@@ -65,8 +67,13 @@ check("must-not-appear" not in plan_result.stdout, "dashboard plan never seriali
 task_text = task_script.read_text(encoding="utf-8")
 runner_text = task_runner.read_text(encoding="utf-8")
 check("inspection_error" in task_text, "dashboard task status fails closed on inspection errors")
+check(
+    "dashboard_evidence_stale" in task_text and "Write-DashboardTaskStatus -Strict" in task_text,
+    "dashboard Status rejects stale or failed refresh evidence",
+)
 check("-StartWhenAvailable" in task_text, "installed task catches missed refreshes")
 check("-DontStopOnIdleEnd" in task_text, "installed task matches the idle-safe plan")
+check("-RestartInterval" in task_text and "-RestartCount 3" in task_text, "installed dashboard task retries failures")
 check("tt-dashboard-task-run.ps1" in task_text, "dashboard task uses a dedicated launcher")
 check("TRACKER_AUTH_TOKEN" not in task_text, "dashboard task definition embeds no collector secret")
 check("Move-Item -LiteralPath $temporaryOutput" in runner_text, "workbook is published only after generation succeeds")

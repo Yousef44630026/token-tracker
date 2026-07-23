@@ -8,12 +8,13 @@ temporary SQLite snapshot so memory grows with the largest correlation group, no
 
 from __future__ import annotations
 
+import copy
 import json
 import os
 import sqlite3
 import tempfile
 from collections.abc import Iterable, Iterator, Sequence
-from itertools import groupby
+from itertools import chain, groupby, islice
 
 from tracker.models.token_event import TokenEvent
 from tracker.models.trace import Trace
@@ -29,8 +30,13 @@ class EffectiveEventList(list[TokenEvent]):
     """
 
 
+_IN_MEMORY_EVENT_LIMIT = 50_000
+
+
 def _clone(event: TokenEvent) -> TokenEvent:
-    return TokenEvent.from_dict(event.to_dict())
+    # This is an internal ownership copy, not a storage round-trip. deepcopy preserves the
+    # typed model while avoiding a full JSON encode/decode for every dashboard read.
+    return copy.deepcopy(event)
 
 
 def effective_events(events: Iterable[TokenEvent]) -> list[TokenEvent]:
@@ -165,11 +171,21 @@ class EffectiveEventSnapshot:
 
 
 def iter_effective_events(events: Iterable[TokenEvent]) -> Iterator[TokenEvent]:
-    """Yield the canonical effective view for sequence or streaming event sources."""
+    """Yield the canonical effective view with an adaptive memory/disk strategy.
+
+    Small one-shot sources are cheaper to reconcile in memory. Larger streams keep the
+    disk-backed snapshot, so memory remains bounded as the ledger grows.
+    """
     if isinstance(events, Sequence):
         yield from effective_events(events)
         return
-    snapshot = EffectiveEventSnapshot(events)
+    source = iter(events)
+    buffered = list(islice(source, _IN_MEMORY_EVENT_LIMIT + 1))
+    if len(buffered) <= _IN_MEMORY_EVENT_LIMIT:
+        yield from effective_events(buffered)
+        return
+
+    snapshot = EffectiveEventSnapshot(chain(buffered, source))
     try:
         yield from snapshot
     finally:

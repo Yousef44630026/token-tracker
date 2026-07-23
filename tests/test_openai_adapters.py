@@ -95,5 +95,49 @@ empty = OpenAIResponsesAdapter().extract_usage_from_response({"id": "x"})
 check("raw_usage_missing" in empty.data_quality_flags, "missing usage object -> raw_usage_missing flag")
 check(empty.quantities == [], "missing usage object -> no fabricated quantities")
 
+truncated_chat = OpenAIChatCompletionsAdapter().extract_usage_from_response(
+    {
+        "model": "gpt-5-mini",
+        "choices": [{"message": {"content": ""}, "finish_reason": "length"}],
+        "usage": {
+            "prompt_tokens": 90,
+            "completion_tokens": 256,
+            "completion_tokens_details": {"reasoning_tokens": 256},
+            "total_tokens": 346,
+        },
+    }
+)
+check(
+    "provider_response_incomplete" in truncated_chat.data_quality_flags,
+    "Chat finish_reason=length is visibly incomplete",
+)
+check(truncated_chat.provider_total_tokens == 346, "truncated Chat keeps the exact provider total")
+
+partial_chat_usage = OpenAIChatCompletionsAdapter().extract_usage_from_response(
+    {"usage": {"prompt_tokens": 90, "total_tokens": 90}}
+)
+check(
+    "provider_usage_missing" in partial_chat_usage.data_quality_flags,
+    "Chat missing an independent output bucket is never reported as clean",
+)
+partial_responses_usage = OpenAIResponsesAdapter().extract_usage_from_response(
+    {"usage": {"input_tokens": 90, "output_tokens": 0}}
+)
+check(
+    "provider_usage_missing" in partial_responses_usage.data_quality_flags,
+    "Responses missing the provider total is never reported as clean",
+)
+
+truncated_stream_marker = OpenAIChatCompletionsAdapter().extract_usage_from_stream_event(
+    {"choices": [{"delta": {}, "finish_reason": "length"}]}
+)
+check(truncated_stream_marker is not None, "a split Chat stream retains a no-usage truncation marker")
+check(
+    truncated_stream_marker is not None
+    and truncated_stream_marker.stream_terminal is False
+    and truncated_stream_marker.stream_status == "incomplete",
+    "the no-usage marker waits for the provider's final usage chunk",
+)
+
 print("\nRESULT:", "all checks passed" if _failures == 0 else f"{_failures} FAILURE(S)")
 sys.exit(1 if _failures else 0)

@@ -106,6 +106,7 @@ function Stop-ManagedCollectorProcesses {
 }
 
 function Write-TaskStatus {
+    param([switch]$Strict)
     $task = $null
     $inspectionError = $null
     try {
@@ -118,6 +119,27 @@ function Write-TaskStatus {
         }
     }
     $taskInfo = if ($task) { Get-ScheduledTaskInfo -TaskName $TaskName } else { $null }
+    $health = Get-CollectorHealth
+    $statusOk = (
+        -not $inspectionError -and
+        [bool]$task -and
+        [string]$task.State -eq "Running" -and
+        $health.reachable -eq $true -and
+        $health.status -eq "ok"
+    )
+    $failureReason = if ($inspectionError) {
+        "task_inspection_failed"
+    } elseif (-not $task) {
+        "task_not_installed"
+    } elseif ([string]$task.State -ne "Running") {
+        "collector_task_not_running"
+    } elseif ($health.reachable -ne $true) {
+        "collector_unreachable"
+    } elseif ($health.status -ne "ok") {
+        "collector_unhealthy"
+    } else {
+        $null
+    }
     [ordered]@{
         task_name = $TaskName
         installed = if ($inspectionError) { $null } else { [bool]$task }
@@ -125,10 +147,13 @@ function Write-TaskStatus {
         inspection_error = $inspectionError
         last_run_time = if ($taskInfo) { $taskInfo.LastRunTime } else { $null }
         last_task_result = if ($taskInfo) { $taskInfo.LastTaskResult } else { $null }
-        health = Get-CollectorHealth
+        status_ok = $statusOk
+        failure_reason = $failureReason
+        health = $health
         store = $store
         log = $logPath
     } | ConvertTo-Json -Depth 5
+    if ($Strict -and -not $statusOk) { exit 1 }
 }
 
 if ($Mode -eq "Plan") {
@@ -203,4 +228,4 @@ if ($Mode -eq "Uninstall") {
     exit 0
 }
 
-Write-TaskStatus
+Write-TaskStatus -Strict

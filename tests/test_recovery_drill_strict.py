@@ -52,8 +52,18 @@ def run(path: Path) -> tuple[int, dict]:
     old_argv = sys.argv
     output = io.StringIO()
     drill_work = work / "drill"
+    evidence_output = work / f"{path.stem}-evidence.json"
     try:
-        sys.argv = [str(script), "--source", str(path), "--work-dir", str(drill_work), "--json"]
+        sys.argv = [
+            str(script),
+            "--source",
+            str(path),
+            "--work-dir",
+            str(drill_work),
+            "--evidence-output",
+            str(evidence_output),
+            "--json",
+        ]
         with redirect_stdout(output):
             result = recovery_drill.main()
     finally:
@@ -69,6 +79,12 @@ check(
     f"valid ledger passes the recovery drill ({valid_summary})",
 )
 check(valid_summary["checks"][0]["name"] == "source_validation", "strict source validation is the first gate")
+published_recovery = json.loads((work / "valid-evidence.json").read_text(encoding="utf-8"))
+check(
+    published_recovery["evidence_type"] == "recovery_drill"
+    and published_recovery["runtime_fingerprint"] == valid_summary["runtime_fingerprint"],
+    "recovery evidence is atomically published and runtime-bound",
+)
 retention_check = next(item for item in valid_summary["checks"] if item["name"] == "archive_first_retention")
 check(retention_check["passed"] is True, "recovery drill proves archive-first retention on its strict snapshot")
 check("canonical total 7 -> 7" in retention_check["detail"], "retention drill reconciles the canonical total before and after")

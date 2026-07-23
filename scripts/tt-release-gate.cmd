@@ -5,6 +5,13 @@ set "ROOT=%~dp0.."
 set "PY=%~dp0_python.cmd"
 if not defined TRACKER_STORE set "TRACKER_STORE=C:\ai-token-tracker-data\collector_events.jsonl"
 if not defined TRACKER_DASHBOARD_EVIDENCE set "TRACKER_DASHBOARD_EVIDENCE=C:\ai-token-tracker-data\health\dashboard-refresh.json"
+if not defined TRACKER_SCALE_EVIDENCE set "TRACKER_SCALE_EVIDENCE=C:\ai-token-tracker-data\health\scale-probe.json"
+if not defined TRACKER_COLLECTOR_SOAK_EVIDENCE set "TRACKER_COLLECTOR_SOAK_EVIDENCE=C:\ai-token-tracker-data\evidence\collector-soak\summary.json"
+if not defined TRACKER_RECOVERY_EVIDENCE set "TRACKER_RECOVERY_EVIDENCE=C:\ai-token-tracker-data\evidence\recovery-drill.json"
+if not defined TRACKER_BILLING_EVIDENCE set "TRACKER_BILLING_EVIDENCE=C:\ai-token-tracker-data\evidence\billing-reconciliation.json"
+if not defined TRACKER_PROVIDER_PROOF_DIR set "TRACKER_PROVIDER_PROOF_DIR=C:\ai-token-tracker-data\proofs\approved"
+if not defined TRACKER_PROOF_CAPTURE_KEY_FILE set "TRACKER_PROOF_CAPTURE_KEY_FILE=C:\ai-token-tracker-data\proofs\keys\capture.key"
+if not defined TRACKER_PROOF_REVIEW_KEY_FILE set "TRACKER_PROOF_REVIEW_KEY_FILE=C:\ai-token-tracker-data\proofs\keys\review.key"
 set "FAIL=0"
 
 pushd "%ROOT%" >nul
@@ -17,9 +24,21 @@ if errorlevel 1 set "FAIL=1"
 
 call "%PY%" -m tracker.ops.release_readiness ^
   --dashboard-evidence "%TRACKER_DASHBOARD_EVIDENCE%" ^
+  --scale-evidence "%TRACKER_SCALE_EVIDENCE%" ^
+  --provider-proof-dir "%TRACKER_PROVIDER_PROOF_DIR%" ^
+  --max-provider-proof-age-seconds 2592000 ^
+  --provider-proof-capture-key-file "%TRACKER_PROOF_CAPTURE_KEY_FILE%" ^
+  --provider-proof-review-key-file "%TRACKER_PROOF_REVIEW_KEY_FILE%" ^
+  --max-scale-age-seconds 604800 ^
+  --min-scale-events 50000 ^
+  --collector-soak-evidence "%TRACKER_COLLECTOR_SOAK_EVIDENCE%" ^
+  --recovery-evidence "%TRACKER_RECOVERY_EVIDENCE%" ^
+  --billing-evidence "%TRACKER_BILLING_EVIDENCE%" ^
+  --max-operational-evidence-age-seconds 2592000 ^
+  --min-collector-soak-seconds 259200 ^
   --max-dashboard-age-seconds 7200 ^
   --min-pricing-coverage 0.95 ^
-  --min-latency-coverage 0.95 ^
+  --min-instrumented-latency-coverage 0.95 ^
   --require-quality-status clean ^
   --strict-warnings ^
   --require-proven azure_openai:chat_completions:usage ^

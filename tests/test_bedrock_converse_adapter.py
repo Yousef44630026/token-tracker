@@ -79,5 +79,13 @@ flags = normalizer_flags(usage.quantities, usage.provider_total_tokens)
 check("unverified_additivity" not in flags, "documented cache additivity raises no warning")
 check("provider_total_mismatch" not in flags, "no provider_total_mismatch (totals reconcile)")
 
+partial_usage = BedrockConverseAdapter().extract_usage_from_response(
+    {"usage": {"inputTokens": 10, "totalTokens": 10}}
+)
+check(
+    "provider_usage_missing" in partial_usage.data_quality_flags,
+    "Bedrock Converse missing outputTokens is never reported as clean",
+)
+
 print("\nRESULT:", "all checks passed" if _failures == 0 else f"{_failures} FAILURE(S)")
 sys.exit(1 if _failures else 0)

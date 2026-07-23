@@ -11,10 +11,13 @@ This pins the migration boundary: compatibility means readable and auditable, no
 default.
 """
 
+import atexit
 import json
 import os
+import shutil
 import sys
-import tempfile
+import uuid
+from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -22,6 +25,11 @@ from tracker.models.token_event import TokenEvent  # noqa: E402
 from tracker.storage.file_repository import FileRepository  # noqa: E402
 
 _failures = 0
+configured_workspace = os.environ.get("TRACKER_TEST_WORKSPACE")
+work = Path(configured_workspace) if configured_workspace else Path.cwd() / f".test_obs_compat_{uuid.uuid4().hex}"
+work.mkdir(parents=True, exist_ok=True)
+if configured_workspace is None:
+    atexit.register(shutil.rmtree, work, True)
 
 
 def check(cond: bool, msg: str) -> None:
@@ -94,16 +102,15 @@ check(ev_nonauth.is_authoritative is False, "explicit authoritative=False is hon
 check(ev_nonauth.event_contributing_tokens == 0, "non-authoritative event contributes 0")
 
 # 5. Round-trip through real JSONL: a legacy row reads back but remains excluded.
-with tempfile.TemporaryDirectory(prefix="tt_obs_compat_") as d:
-    path = os.path.join(d, "legacy.jsonl")
-    with open(path, "w", encoding="utf-8") as fh:
-        fh.write(json.dumps(minimal_dict("legacy-row")) + "\n")
-    repo = FileRepository(path)
-    events = repo.read_all()
-    check(len(events) == 1, "legacy JSONL row (no observation) reads back")
-    check(events[0].is_authoritative is False, "legacy row fails closed after JSONL read")
-    check(events[0].event_contributing_tokens == 0, "legacy row cannot silently affect totals")
-    check("authority_missing" in events[0].data_quality_flags, "legacy authority gap stays auditable")
+path = work / "legacy.jsonl"
+with path.open("w", encoding="utf-8") as fh:
+    fh.write(json.dumps(minimal_dict("legacy-row")) + "\n")
+repo = FileRepository(str(path))
+events = repo.read_all()
+check(len(events) == 1, "legacy JSONL row (no observation) reads back")
+check(events[0].is_authoritative is False, "legacy row fails closed after JSONL read")
+check(events[0].event_contributing_tokens == 0, "legacy row cannot silently affect totals")
+check("authority_missing" in events[0].data_quality_flags, "legacy authority gap stays auditable")
 
 print("\nRESULT:", "all checks passed" if _failures == 0 else f"{_failures} FAILURE(S)")
 sys.exit(1 if _failures else 0)

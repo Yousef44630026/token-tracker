@@ -18,7 +18,7 @@ from typing import Any
 
 from tracker.adapters.base import BaseAPISurfaceAdapter, NormalizedUsage, usage_snapshot
 from tracker.adapters.base import field_value as _field
-from tracker.models.enums import PrecisionLevel, TokenType, UsageSource
+from tracker.models.enums import DataQualityFlag, PrecisionLevel, TokenType, UsageSource
 
 
 class OpenAIEmbeddingsAdapter(BaseAPISurfaceAdapter):
@@ -44,12 +44,16 @@ class OpenAIEmbeddingsAdapter(BaseAPISurfaceAdapter):
                 model=model,
                 data_quality_flags=["raw_usage_missing"],
             )
+        flags = []
+        if _field(usage, "prompt_tokens") is None or _field(usage, "total_tokens") is None:
+            flags.append(DataQualityFlag.PROVIDER_USAGE_MISSING.value)
         return NormalizedUsage(
             provider=self.provider,
             api_surface=self.api_surface,
             model=model,
             quantities=self._usage_to_quantities(usage, UsageSource.PROVIDER_RESPONSE),
             provider_total_tokens=_field(usage, "total_tokens"),
+            data_quality_flags=flags,
             raw_usage=usage_snapshot(usage),
         )
 

@@ -15,6 +15,7 @@ from tracker.models.enums import DataQualityFlag, TokenType
 from tracker.models.token_event import TokenEvent
 from tracker.models.token_quantity import TokenQuantity
 from tracker.normalization.usage_contract import inspect_usage_contract, usage_contract_observation
+from tracker.streaming.status import merge_stream_status
 from tracker.streaming.stream_tracker import StreamTracker
 
 
@@ -35,6 +36,7 @@ def consume_stream(
     )
     provider_total: int | None = None
     final_model: str | None = model
+    partial_quantities: dict[tuple[TokenType, str | None, str | None], TokenQuantity] = {}
     final_quantities: dict[tuple[TokenType, str | None, str | None], TokenQuantity] = {}
     saw_terminal_usage = False
     terminal_status: str | None = None
@@ -78,34 +80,44 @@ def consume_stream(
             if usage.model is not None:
                 final_model = usage.model
 
-            has_output_quantity = False
+            terminal = getattr(usage, "stream_terminal", None)
+            has_output_quantity = any(
+                quantity.quantity is not None and quantity.token_type == TokenType.OUTPUT
+                for quantity in usage.quantities
+            )
+            # Custom adapters retain the legacy terminal convention. Built-ins are explicit.
+            if terminal is None:
+                terminal = has_output_quantity
+            target_quantities = final_quantities if terminal else partial_quantities
             for quantity in usage.quantities:
                 if quantity.quantity is None:
                     continue
                 key = (quantity.token_type, quantity.token_role, quantity.subtotal_of)
-                final_quantities[key] = quantity
+                target_quantities[key] = quantity
                 if quantity.token_type == TokenType.INPUT:
                     tracker.observe_usage(input_tokens=quantity.quantity)
                 elif quantity.token_type == TokenType.OUTPUT:
-                    has_output_quantity = True
                     tracker.observe_usage(output_tokens=quantity.quantity)
 
-            # Built-ins set stream_terminal explicitly. Custom adapters retain the legacy
-            # behavior where a usage-bearing output event is assumed to be terminal.
-            terminal = getattr(usage, "stream_terminal", None)
-            if terminal is None:
-                terminal = has_output_quantity
-            saw_terminal_usage = saw_terminal_usage or terminal
+            if terminal and usage.quantities:
+                # Anthropic splits immutable input into message_start and terminal output into
+                # message_delta. Merge those two snapshots only when the terminal itself carries
+                # usage. A terminal marker without usage can never promote partial counters.
+                final_quantities = {**partial_quantities, **final_quantities}
+                saw_terminal_usage = True
+            elif terminal:
+                add_flag(DataQualityFlag.PROVIDER_STREAM_USAGE_MISSING.value)
             usage_status = getattr(usage, "stream_status", None)
-            if terminal and usage_status is not None:
-                terminal_status = usage_status
-            if usage.provider_total_tokens is not None:
+            if usage_status is not None and (terminal or usage_status in {"incomplete", "failed"}):
+                terminal_status = merge_stream_status(terminal_status, usage_status)
+            if terminal and usage.provider_total_tokens is not None:
                 provider_total = usage.provider_total_tokens
 
         if saw_terminal_usage and final_quantities:
             return finish_exact()
 
         add_flag(DataQualityFlag.PROVIDER_STREAM_USAGE_MISSING.value)
+        terminal_status = merge_stream_status(terminal_status, "incomplete")
         return tracker.interrupt(
             extra_flags=stream_flags,
             observation_extra=observation_extra(),
@@ -120,6 +132,7 @@ def consume_stream(
                 add_flag(DataQualityFlag.NORMALIZATION_ERROR.value)
         else:
             add_flag(DataQualityFlag.PROVIDER_STREAM_USAGE_MISSING.value)
+        terminal_status = merge_stream_status(terminal_status, "incomplete")
         try:
             return tracker.interrupt(
                 extra_flags=stream_flags,

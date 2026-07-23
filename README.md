@@ -181,6 +181,38 @@ $env:AZURE_OPENAI_RESPONSES_ENDPOINT = "https://your-resource.services.ai.azure.
 $env:AZURE_OPENAI_RESPONSES_DEPLOYMENT = "your-responses-deployment"
 ```
 
+For a presentation, the end-to-end command below runs a realistic demo suite over every
+available surface, publishes each normalized event to the authenticated local collector, and
+reads the trace back from `/v1/stats` to prove that the ledger contains exactly the sum of the
+provider totals:
+
+```console
+scripts\tt-azure-demo.cmd
+```
+
+With only the Foundry Responses variables configured, the suite runs seven distinct Responses
+workloads: grounded RAG, forced agent tool routing, structured risk extraction, one true SSE
+capacity-planning stream, and a three-step integer-optimization conversation (solve, numerical
+verification, and sensitivity follow-up). The streaming case passes only when the documented
+terminal response carries exact usage; a disconnected or usage-less stream remains partial and
+fails the proof instead of being promoted to an exact call.
+The two follow-ups use Azure Responses `previous_response_id`, so they receive only the new
+question and must rely on the actual preceding response context. The suite also
+runs an incident-summary call through the compatible Foundry Chat Completions v1 route. When
+`AZURE_OPENAI_EMBEDDINGS_DEPLOYMENT` is also configured, it adds a three-document batch
+embedding call for RAG indexing. Every event carries a distinct `service_name`, `use_case`,
+and scenario so the dashboard can attribute consumption instead of showing generic smoke data.
+
+A successful run prints one reconciled result per scenario, `collector: status=published`, and
+`trace_tokens=<sum of scenario totals>`. Keep the live view open at `http://127.0.0.1:8790`;
+start it when needed with `scripts\tt-live-dashboard.cmd`. Set
+`TRACKER_AZURE_DEMO_SURFACE=responses`, `chat`, or `embeddings` only when you deliberately want
+to restrict the demo. The dashboard applies the same authority and partial/final supersession
+rules as the collector, so an interrupted stream followed by its final usage cannot be counted
+twice. Its default view is consumption by calendar day over the latest seven days in the
+browser's local timezone; use Today, 24-hour, 30-day, custom-date, or all-time controls to
+recompute every KPI and breakdown for another period.
+
 For classic Azure OpenAI chat/embeddings deployment routes:
 
 ```console
@@ -199,6 +231,32 @@ Dry-run without provider calls:
 ```console
 scripts\tt-azure-smoke.cmd --dry-run --json
 ```
+
+### Vertex AI live proof
+
+The Vertex harness makes low-output REST calls against the current v1 publisher-model routes:
+`generateContent`, `streamGenerateContent?alt=sse`, and `embedContent`. It accepts an ephemeral
+OAuth access token or obtains one from an authenticated `gcloud` CLI, writes redacted proof
+artifacts, and never serializes embedding vectors. Configure only the surfaces you can prove:
+
+```powershell
+$env:VERTEX_PROJECT_ID = "your-project-id"
+$env:VERTEX_LOCATION = "europe-west1"
+$env:VERTEX_GENERATIVE_MODEL = "your-gemini-model-id"
+$env:VERTEX_EMBEDDING_MODEL = "your-embedding-model-id"
+$env:VERTEX_ACCESS_TOKEN = (gcloud auth print-access-token)
+scripts\tt-vertex-smoke.cmd --dry-run --json
+scripts\tt-vertex-smoke.cmd --require-live
+```
+
+Use `--surface generate`, `--surface stream`, or `--surface embeddings` to limit billed calls.
+A green run proves normalization and reconciliation for that execution but does not silently
+promote the repository's simulated fixtures; release certification still requires a reviewed,
+redacted REAL fixture. The endpoint contracts follow Google's official
+[`generateContent`](https://cloud.google.com/vertex-ai/generative-ai/docs/model-reference/inference),
+[`streamGenerateContent`](https://cloud.google.com/vertex-ai/generative-ai/docs/model-reference/inference#streaming),
+and [`embedContent`](https://cloud.google.com/vertex-ai/generative-ai/docs/model-reference/text-embeddings-api)
+documentation.
 
 ### Bedrock cache smoke
 
@@ -220,6 +278,18 @@ chain or `AWS_BEARER_TOKEN_BEDROCK`. Cache minimums vary by model; the default s
 two-call test, although output is capped at eight tokens per call. See the official
 [Bedrock prompt-caching guide](https://docs.aws.amazon.com/bedrock/latest/userguide/prompt-caching.html)
 for supported models, Regions, checkpoint locations, and minimum cache sizes.
+
+Prove the separate streaming contract with one bounded `ConverseStream` call. The audit keeps
+usage, latency, event types, and generated character counts, but never prompt or generated text:
+
+```powershell
+scripts\tt-bedrock-stream-smoke.cmd --dry-run --json
+scripts\tt-bedrock-stream-smoke.cmd --require-live
+```
+
+A success requires exact terminal metadata usage, `provider_stream_final` provenance, and a
+zero reconciliation mismatch. Receiving text without the final usage event fails closed as an
+interrupted partial stream.
 
 For production capture, prefer Bedrock `Converse`/`ConverseStream`, which provide a unified
 `usage` object. `InvokeModel` is model-specific: pass `model_id` to the adapter and decode the
@@ -387,6 +457,42 @@ scripts\tt-doctor.cmd --store C:\ai-token-tracker-data\collector_events.jsonl --
 The task runs at logon and every hour with `StartWhenAvailable`. The doctor fails when the latest
 refresh is unhealthy, older than two hours, missing its workbook, or reports skipped/duplicate
 source rows. Missing prices remain `total_cost=null`; scheduling never invents a price.
+`-Mode Status` is also machine-actionable for the collector, monitor, importer, and dashboard:
+each command emits `status_ok` plus a bounded `failure_reason` and exits non-zero when the task,
+latest run, health evidence, or refresh evidence is unhealthy or stale.
+
+### Reviewed provider proofs
+
+Static fixtures do not close production provider claims. A delivery proof uses two distinct
+HMAC keys: the smoke harness signs the capture and a reviewer separately signs the approved
+capabilities. Initialize the keys outside the repository and separate their ACL ownership in a
+real delivery environment:
+
+```powershell
+scripts\tt-approve-provider-proof.cmd --init-keys C:\ai-token-tracker-data\proofs\keys
+$env:TRACKER_PROOF_CAPTURE_KEY_FILE = "C:\ai-token-tracker-data\proofs\keys\capture.key"
+$env:TRACKER_PROOF_REVIEW_KEY_FILE = "C:\ai-token-tracker-data\proofs\keys\review.key"
+```
+
+Run the provider smoke from a committed, clean worktree. When the capture key variable is set,
+the harness writes `capture_attestation.json` beside `summary.json`, binding the current Git
+commit, runtime fingerprint, timestamp, and every audit artifact hash. After inspecting the
+redacted artifacts, approve only the capabilities actually demonstrated:
+
+```powershell
+scripts\tt-approve-provider-proof.cmd `
+  --summary "C:\path\to\run\summary.json" `
+  --out "C:\ai-token-tracker-data\proofs\approved\azure-responses.json" `
+  --reviewer "delivery-owner" `
+  --notes "Terminal usage, provider total, reconciliation, and redacted payload inspected." `
+  --approve azure_openai:responses:usage `
+  --approve azure_openai:responses:stream
+```
+
+Approval fails if the capture came from a dirty worktree, the current commit/runtime differs,
+the provider total is absent, reconciliation is non-zero, quantities are not exact and trusted,
+or an artifact changed. HMACs provide local integrity, not public non-repudiation; protect the
+review key independently from the process that runs the smoke.
 
 Before a delivery, run the strict multi-cloud gate:
 
@@ -394,9 +500,18 @@ Before a delivery, run the strict multi-cloud gate:
 scripts\tt-release-gate.cmd
 ```
 
-It runs the full suite and Doctor, then requires REAL evidence for the declared Azure, Vertex AI,
-and Bedrock capabilities plus 95% pricing and latency coverage. A red result is an evidence gap,
-not permission to downgrade a simulated fixture into a production claim.
+It runs the full suite and Doctor, validates current signed provider-proof manifests, then
+requires REAL evidence for the declared Azure, Vertex AI, and Bedrock capabilities plus 95%
+pricing coverage and 95% latency coverage among sources where latency is instrumentable. The
+dashboard separately reports latency applicability so local transcript imports cannot make the
+instrumented metric look broader than it is. A red result is an evidence gap, not permission to
+downgrade a simulated fixture into a production claim.
+
+The same gate also requires a runtime-bound 72-hour collector soak, a fresh strict recovery
+drill, and a hash-bound external billing reconciliation. See
+`docs/OPERATIONAL_RELEASE_EVIDENCE.md` for the exact commands and JSON contract. These are real
+delivery prerequisites; missing evidence remains red rather than being replaced by a simulated
+test.
 
 See `docs/EXCEL_DASHBOARD.md` for the exact stored schema, the external price-table contract,
 supersession rules, cost allocation, interactive filters, KPI definitions, and refresh limitations.

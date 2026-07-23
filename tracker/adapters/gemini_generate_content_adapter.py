@@ -28,7 +28,7 @@ from tracker.adapters.base import (
 from tracker.adapters.base import (
     field_value as _field,
 )
-from tracker.models.enums import PrecisionLevel, TokenType, UsageSource
+from tracker.models.enums import DataQualityFlag, PrecisionLevel, TokenType, UsageSource
 
 _MISSING = object()
 
@@ -138,6 +138,17 @@ class GeminiGenerateContentAdapter(BaseAPISurfaceAdapter):
                 quantities.append(self.build_quantity(TokenType.AUDIO_OUTPUT, count, PrecisionLevel.EXACT, source))
         return quantities
 
+    @staticmethod
+    def _usage_completeness_flags(usage: Any) -> list[str]:
+        required_aliases = (
+            ("promptTokenCount", "prompt_token_count"),
+            ("candidatesTokenCount", "candidates_token_count"),
+            ("totalTokenCount", "total_token_count"),
+        )
+        if any(_first_field(usage, *aliases, default=None) is None for aliases in required_aliases):
+            return [DataQualityFlag.PROVIDER_USAGE_MISSING.value]
+        return []
+
     def extract_usage_from_response(self, response: Any) -> NormalizedUsage:
         usage = _first_field(response, "usageMetadata", "usage_metadata")
         model = _first_field(response, "modelVersion", "model_version")
@@ -155,6 +166,7 @@ class GeminiGenerateContentAdapter(BaseAPISurfaceAdapter):
             model=model,
             quantities=quantities,
             provider_total_tokens=_first_field(usage, "totalTokenCount", "total_token_count"),
+            data_quality_flags=self._usage_completeness_flags(usage),
             raw_usage=usage_snapshot(usage),
         )
 
@@ -162,6 +174,7 @@ class GeminiGenerateContentAdapter(BaseAPISurfaceAdapter):
         usage = _first_field(event, "usageMetadata", "usage_metadata")
         if not usage:
             return None
+        terminal = _stream_is_terminal(event)
         quantities = self._usage_to_quantities(usage, UsageSource.PROVIDER_STREAM_FINAL)
         return NormalizedUsage(
             provider=self.provider,
@@ -169,6 +182,7 @@ class GeminiGenerateContentAdapter(BaseAPISurfaceAdapter):
             model=_first_field(event, "modelVersion", "model_version"),
             quantities=quantities,
             provider_total_tokens=_first_field(usage, "totalTokenCount", "total_token_count"),
+            data_quality_flags=self._usage_completeness_flags(usage) if terminal else [],
             raw_usage=usage_snapshot(usage),
-            stream_terminal=_stream_is_terminal(event),
+            stream_terminal=terminal,
         )

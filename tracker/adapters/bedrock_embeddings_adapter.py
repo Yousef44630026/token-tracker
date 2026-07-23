@@ -44,7 +44,8 @@ class BedrockEmbeddingsAdapter(BaseAPISurfaceAdapter):
         body = _decoded_body(response)
         model = field_value(response, "modelId") or field_value(response, "model_id") or self.model_id
         count = _token_int(body.get("inputTextTokenCount")) if body is not None else None
-        if count is not None:
+        titan_model = isinstance(model, str) and model.lower().startswith("amazon.titan-embed-")
+        if count is not None and titan_model:
             return NormalizedUsage(
                 provider=self.provider,
                 api_surface=self.api_surface,
@@ -59,6 +60,21 @@ class BedrockEmbeddingsAdapter(BaseAPISurfaceAdapter):
                 ],
                 # Titan exposes an input quantity, not a raw event-level total.
                 provider_total_tokens=None,
+                raw_usage=_token_snapshot(body),
+            )
+
+        if count is not None:
+            # ``inputTextTokenCount`` is a Titan contract. Treating the same field as exact
+            # on another model family would let a mismatched adapter/model pair fabricate
+            # authoritative usage.
+            return NormalizedUsage(
+                provider=self.provider,
+                api_surface=self.api_surface,
+                model=model,
+                data_quality_flags=[
+                    DataQualityFlag.PROVIDER_USAGE_MISSING.value,
+                    DataQualityFlag.PROVIDER_SCHEMA_DRIFT.value,
+                ],
                 raw_usage=_token_snapshot(body),
             )
 

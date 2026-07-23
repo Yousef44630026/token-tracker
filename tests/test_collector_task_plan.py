@@ -76,6 +76,10 @@ check(
 task_script_text = script.read_text(encoding="utf-8")
 check("/v1/stats?summary=1" in task_script_text, "task status uses the bounded cacheable stats probe")
 check("inspection_error" in task_script_text, "status distinguishes inaccessible state from not installed")
+check(
+    "status_ok" in task_script_text and "Write-TaskStatus -Strict" in task_script_text,
+    "collector Status exits red when supervision is unhealthy",
+)
 check("Get-ScheduledTask -TaskName $TaskName -ErrorAction Stop" in task_script_text, "task inspection fails closed")
 check("New-ScheduledTaskTrigger -AtStartup" in task_script_text, "collector has an at-startup trigger")
 check("tt-collector-task-run.ps1" in task_script_text, "collector action uses the dedicated PowerShell launcher")

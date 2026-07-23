@@ -120,8 +120,10 @@ DATA_COLUMNS = (
     "derived_cost",
     "cost_quality",
     "request_count_once",
+    "request_latency_applicable_once",
     "request_latency_ms",
     "request_latency_observation_once",
+    "request_ttft_applicable_once",
     "request_ttft_ms",
     "request_ttft_observation_once",
     "quantity_metadata_json",
@@ -260,8 +262,10 @@ def load_jsonl_events(
                     previous = selected.get(event.event_id)
                     if previous is not None:
                         duplicates += 1
-                        if not _newer(loaded, previous):
-                            continue
+                        # The immutable ledger's canonical identity rule is first event_id
+                        # wins. A later row with the same identity is evidence of a collision,
+                        # never a silent replacement of the source-of-truth event.
+                        continue
                     selected[event.event_id] = loaded
 
     loaded_events = sorted(selected.values(), key=lambda item: item.sequence)
@@ -679,8 +683,10 @@ def build_data_frame(events: list[LoadedEvent], prices: pd.DataFrame) -> pd.Data
                     "derived_cost": derived_cost,
                     "cost_quality": cost_quality,
                     "request_count_once": 0,
+                    "request_latency_applicable_once": 0,
                     "request_latency_ms": None,
                     "request_latency_observation_once": 0,
+                    "request_ttft_applicable_once": 0,
                     "request_ttft_ms": None,
                     "request_ttft_observation_once": 0,
                     "quantity_metadata_json": json.dumps(quantity.metadata, ensure_ascii=True, sort_keys=True) if quantity else "{}",
@@ -698,10 +704,25 @@ def build_data_frame(events: list[LoadedEvent], prices: pd.DataFrame) -> pd.Data
     latest_requests = _latest_request_events(events)
     for event in latest_requests.values():
         row_index = first_row_by_event[event.event_id]
+        flags = set(event.data_quality_flags)
+        local_log_import = bool(
+            flags
+            & {
+                DataQualityFlag.CLAUDE_CODE_LOCAL_USAGE.value,
+                DataQualityFlag.CODEX_LOCAL_TOKEN_COUNT.value,
+            }
+        )
+        stream_request = any(
+            quantity.usage_source.value.startswith("provider_stream_")
+            or quantity.usage_source.value == "partial_stream_tokenizer"
+            for quantity in event.quantities
+        )
         rows[row_index]["request_count_once"] = 1
+        rows[row_index]["request_latency_applicable_once"] = int(not local_log_import)
         # Latency rule: one duration per request_correlation_id, never one per quantity/event row.
         rows[row_index]["request_latency_ms"] = event.observation.get("duration_ms")
         rows[row_index]["request_latency_observation_once"] = int(event.observation.get("duration_ms") is not None)
+        rows[row_index]["request_ttft_applicable_once"] = int(stream_request and not local_log_import)
         rows[row_index]["request_ttft_ms"] = event.observation.get("time_to_first_token_ms")
         rows[row_index]["request_ttft_observation_once"] = int(
             event.observation.get("time_to_first_token_ms") is not None
@@ -724,7 +745,9 @@ def _quality_and_provenance_frames(data: pd.DataFrame) -> tuple[dict[str, Any], 
     unverified_tokens = int(data["unverified_tokens_active"].sum())
     known_token_magnitude = exact_tokens + estimated_tokens + unverified_tokens
     request_count = int(request_rows["request_count_once"].sum())
+    latency_applicable_requests = int(request_rows["request_latency_applicable_once"].sum())
     latency_observations = int(request_rows["request_latency_observation_once"].sum())
+    ttft_applicable_requests = int(request_rows["request_ttft_applicable_once"].sum())
     ttft_observations = int(request_rows["request_ttft_observation_once"].sum())
     active_event_count = len(active_events)
     provider_total_observations = int(active_events["provider_total_observation_once"].sum())
@@ -748,11 +771,16 @@ def _quality_and_provenance_frames(data: pd.DataFrame) -> tuple[dict[str, Any], 
         "active_flagged_event_count": int(active_events["active_quality_flagged_event_once"].sum()),
         "mismatch_event_count": int(active_events["mismatch_event_once"].sum()),
         "schema_drift_event_count": int(active_events["schema_drift_event_once"].sum()),
-        "correlation_risk_event_count": int(active_events["correlation_risk_event_once"].sum()),
+        # Correlation collisions frequently become superseded during reconciliation. They
+        # remain integrity failures and must not disappear from the audit summary.
+        "correlation_risk_event_count": int(event_rows["correlation_risk_event_once"].sum()),
         "usage_loss_event_count": int(active_events["usage_loss_event_once"].sum()),
         "provider_total_coverage": _ratio_or_none(provider_total_observations, active_event_count),
         "latency_coverage": _ratio_or_none(latency_observations, request_count),
-        "ttft_coverage": _ratio_or_none(ttft_observations, request_count),
+        "instrumented_latency_coverage": _ratio_or_none(latency_observations, latency_applicable_requests),
+        "latency_applicability": _ratio_or_none(latency_applicable_requests, request_count),
+        "ttft_coverage": _ratio_or_none(ttft_observations, ttft_applicable_requests),
+        "ttft_applicability": _ratio_or_none(ttft_applicable_requests, request_count),
         "pricing_coverage": _ratio_or_none(priced_tokens, billable_tokens),
     }
     blocking_quality = (
@@ -767,16 +795,23 @@ def _quality_and_provenance_frames(data: pd.DataFrame) -> tuple[dict[str, Any], 
         + quality["unknown_quantity_count"]
         + quality["mismatch_event_count"]
         + int(data["under_attributed_tokens_once"].sum() > 0)
-        + int(quality["pricing_coverage"] not in {None, 1.0})
-        + int(quality["latency_coverage"] not in {None, 1.0})
     )
     quality["quality_status"] = "blocked" if blocking_quality else ("warning" if uncertain_quality else "clean")
+    required_coverage = [quality["pricing_coverage"], quality["instrumented_latency_coverage"]]
+    observed_coverage = [value for value in required_coverage if value is not None]
+    if not observed_coverage or all(value == 0 for value in observed_coverage):
+        quality["coverage_status"] = "missing"
+    elif len(observed_coverage) == len(required_coverage) and all(value == 1.0 for value in observed_coverage):
+        quality["coverage_status"] = "complete"
+    else:
+        quality["coverage_status"] = "partial"
 
     aggregate_columns = {
         "Events": ("event_count_once", "sum"),
         "Authoritative events": ("event_authoritative_once", "sum"),
         "Superseded events": ("superseded_event_once", "sum"),
         "Requests": ("request_count_once", "sum"),
+        "Latency-applicable requests": ("request_latency_applicable_once", "sum"),
         "Contributing tokens": ("event_contributing_tokens_once", "sum"),
         "Exact tokens": ("exact_tokens_active", "sum"),
         "Estimated tokens": ("estimated_tokens_active", "sum"),
@@ -798,6 +833,12 @@ def _quality_and_provenance_frames(data: pd.DataFrame) -> tuple[dict[str, Any], 
         )
         grouped["Latency coverage"] = grouped.apply(
             lambda row: _ratio_or_none(row["Latency observations"], row["Requests"]), axis=1
+        )
+        grouped["Instrumented latency coverage"] = grouped.apply(
+            lambda row: _ratio_or_none(row["Latency observations"], row["Latency-applicable requests"]), axis=1
+        )
+        grouped["Latency applicability"] = grouped.apply(
+            lambda row: _ratio_or_none(row["Latency-applicable requests"], row["Requests"]), axis=1
         )
         grouped["Pricing coverage"] = grouped.apply(
             lambda row: _ratio_or_none(row["Priced tokens"], row["Billable tokens"]), axis=1
@@ -1168,8 +1209,10 @@ def _write_dashboard_kpis(ws, *, has_data: bool) -> None:
     schema_drift = _sumifs_formula("schema_drift_event_once")
     correlation_risks = _sumifs_formula("correlation_risk_event_once")
 
-    cost = f'IF(({billable})=0,0,IF(({priced})=0,"N/A",{raw_cost}))'
-    pricing_coverage = f'IF(({billable})=0,"N/A",({priced})/({billable}))'
+    # An unknown token magnitude makes both cost and pricing coverage unknowable. Never
+    # collapse that uncertainty into a visually reassuring zero.
+    cost = f'IF(({unknown})>0,"N/A",IF(({billable})=0,0,IF(({priced})=0,"N/A",{raw_cost})))'
+    pricing_coverage = f'IF(({unknown})>0,"N/A",IF(({billable})=0,"N/A",({priced})/({billable})))'
     latency_coverage = f'IF(({requests})=0,"N/A",({latency_observations})/({requests}))'
 
     primary = (
@@ -1557,13 +1600,16 @@ def _write_data_quality_sheet(workbook: Workbook, summaries: dict[str, Any], rep
         ("A4", "A5", "Quality status", quality.get("quality_status", "clean"), "General"),
         ("C4", "C5", "Volume status", quality.get("volume_status", "ok"), "General"),
         ("E4", "E5", "Pricing coverage", quality.get("pricing_coverage"), "0.0%"),
-        ("G4", "G5", "Latency coverage", quality.get("latency_coverage"), "0.0%"),
+        ("G4", "G5", "Instrumented latency", quality.get("instrumented_latency_coverage"), "0.0%"),
         ("I4", "I5", "Provider-total coverage", quality.get("provider_total_coverage"), "0.0%"),
+        ("K4", "K5", "Coverage status", quality.get("coverage_status", "missing"), "General"),
         ("A7", "A8", "Known exact token share", quality.get("known_exact_token_share"), "0.0%"),
         ("C7", "C8", "Active flagged events", quality.get("active_flagged_event_count", 0), "#,##0"),
         ("E7", "E8", "Usage-loss events", quality.get("usage_loss_event_count", 0), "#,##0"),
         ("G7", "G8", "Unknown quantities", quality.get("unknown_quantity_count", 0), "#,##0"),
         ("I7", "I8", "Skipped / duplicate rows", skipped + report.duplicate_event_ids, "#,##0"),
+        ("K7", "K8", "Latency applicability", quality.get("latency_applicability"), "0.0%"),
+        ("M7", "M8", "Stream TTFT coverage", quality.get("ttft_coverage"), "0.0%"),
     )
     for label_cell, value_cell, label, value, number_format in kpis:
         _write_kpi(ws, label_cell, value_cell, label, value, number_format)
@@ -1573,6 +1619,13 @@ def _write_data_quality_sheet(workbook: Workbook, summaries: dict[str, Any], rep
         "solid",
         fgColor={"clean": "DFF6DD", "warning": "FFF4CE", "blocked": "FDE7E9"}.get(
             str(status_cell.value), LIGHT
+        ),
+    )
+    coverage_cell = ws["K5"]
+    coverage_cell.fill = PatternFill(
+        "solid",
+        fgColor={"complete": "DFF6DD", "partial": "FFF4CE", "missing": "FDE7E9"}.get(
+            str(coverage_cell.value), LIGHT
         ),
     )
 
@@ -1946,10 +1999,13 @@ def main(argv: list[str] | None = None) -> None:
         "total_cost": summaries["total_cost"],
         "pricing_coverage": summaries["pricing_coverage"],
         "latency_coverage": summaries["quality"].get("latency_coverage"),
+        "instrumented_latency_coverage": summaries["quality"].get("instrumented_latency_coverage"),
+        "latency_applicability": summaries["quality"].get("latency_applicability"),
         "provider_total_coverage": summaries["quality"].get("provider_total_coverage"),
         "data_row_count": summaries["quality"].get("data_row_count", 0),
         "volume_status": summaries["quality"].get("volume_status", "ok"),
         "quality_status": summaries["quality"].get("quality_status", "clean"),
+        "coverage_status": summaries["quality"].get("coverage_status", "missing"),
     }
     if args.json:
         print(json.dumps(result, ensure_ascii=True, sort_keys=True))

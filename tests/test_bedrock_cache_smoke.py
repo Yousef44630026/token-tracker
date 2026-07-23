@@ -62,6 +62,13 @@ class FailingBedrockClient:
         raise FakeClientError
 
 
+class RetriedBedrockClient(FakeBedrockClient):
+    def converse(self, **payload):
+        response = super().converse(**payload)
+        response["ResponseMetadata"]["RetryAttempts"] = 1
+        return response
+
+
 environment = {
     "AWS_REGION": "us-east-1",
     "BEDROCK_MODEL_ID": "anthropic.claude-unit-v1:0",
@@ -129,6 +136,21 @@ try:
     )
     check(dry.passed and dry.ran_count == 0, "dry-run remains zero-call and successful")
     check(nonlocal_factory_marker == [False], "dry-run never constructs the SDK client")
+
+    retried = run_bedrock_cache_smoke(
+        out_dir=str(root / "retried"),
+        environment=environment,
+        client_factory=lambda region: RetriedBedrockClient(),
+        sleeper=lambda seconds: None,
+        prefix_words=10,
+        run_marker="retried",
+        require_live=True,
+    )
+    check(not retried.passed, "Bedrock cache proof rejects hidden SDK retries")
+    check(
+        retried.results[0].detail == "automatic_retry_detected=1",
+        "Bedrock retry rejection carries an auditable reason",
+    )
 
     missing = run_bedrock_cache_smoke(
         out_dir=str(root / "missing"),

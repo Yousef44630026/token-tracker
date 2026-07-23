@@ -137,8 +137,12 @@ check(report.attribution_status == "mixed", "TrustReport names mixed attribution
 check(report.unattributed_tokens == 60 and report.over_attributed_tokens == 100, "TrustReport carries mismatch magnitudes")
 check(any(a.event_id == "over" and a.severity == "high" for a in report.anomalies), "over-attribution anomaly is high severity")
 
-work = os.path.join(os.getcwd(), f".test_trust_report_storage_scale_{uuid.uuid4().hex}")
-shutil.rmtree(work, ignore_errors=True)
+owned_workspace = "TRACKER_TEST_WORKSPACE" not in os.environ
+work = os.path.abspath(
+    os.environ.get("TRACKER_TEST_WORKSPACE") or os.path.join(os.getcwd(), f".test_trust_report_storage_scale_{uuid.uuid4().hex}")
+)
+if owned_workspace:
+    shutil.rmtree(work, ignore_errors=True)
 os.makedirs(work, exist_ok=True)
 flat_path = os.path.join(work, "flat.jsonl")
 flat = FileRepository(flat_path)

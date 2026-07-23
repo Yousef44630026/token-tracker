@@ -52,10 +52,12 @@ def run_import(*, token: str = auth_token) -> tuple[int, dict]:
     old_argv = sys.argv
     old_claude_home = os.environ.get("CLAUDE_CONFIG_DIR")
     old_auth_token = os.environ.get("TRACKER_AUTH_TOKEN")
+    old_store = os.environ.get("TRACKER_STORE")
     output = io.StringIO()
     try:
         os.environ["CLAUDE_CONFIG_DIR"] = str(claude_home)
         os.environ["TRACKER_AUTH_TOKEN"] = token
+        os.environ["TRACKER_STORE"] = str(store)
         sys.argv = [
             str(root / "scripts" / "import_claude_to_collector.py"),
             "--collector",
@@ -76,6 +78,10 @@ def run_import(*, token: str = auth_token) -> tuple[int, dict]:
             os.environ.pop("TRACKER_AUTH_TOKEN", None)
         else:
             os.environ["TRACKER_AUTH_TOKEN"] = old_auth_token
+        if old_store is None:
+            os.environ.pop("TRACKER_STORE", None)
+        else:
+            os.environ["TRACKER_STORE"] = old_store
     return result, json.loads(output.getvalue())
 
 

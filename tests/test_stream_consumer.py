@@ -56,6 +56,22 @@ check(out(ev).precision_level == PrecisionLevel.EXACT and out(ev).quantity == 10
 check(ev.event_contributing_tokens == 60 and ev.event_total_mismatch == 0, "OpenAI clean: 60, reconciles")
 check("partial_stream_estimate" not in ev.data_quality_flags, "OpenAI clean: no estimate flag")
 
+# Azure/OpenAI send finish_reason and include_usage in separate chunks. An incomplete
+# generation must remain incomplete after the later exact-usage chunk says nothing about it.
+openai_truncated_split = [
+    {"choices": [{"index": 0, "delta": {"content": "partial"}, "finish_reason": "length"}]},
+    {"choices": [], "usage": {"prompt_tokens": 50, "completion_tokens": 256, "total_tokens": 306}},
+]
+ev = consume_stream(
+    openai_truncated_split,
+    OpenAIChatCompletionsAdapter(),
+    context=new_trace(),
+    text_extractor=openai_text,
+)
+check(ev.event_contributing_tokens == 306, "split truncated Chat stream retains exact billed usage")
+check(ev.observation.status == "incomplete", "later usage cannot downgrade an incomplete stream to complete")
+check("provider_response_incomplete" in ev.data_quality_flags, "split truncation remains audit-visible")
+
 # ===== clean Anthropic stream (usage SPLIT across events) =====
 anthropic_clean = [
     {"type": "message_start", "message": {"model": "claude-3-5-sonnet-20241022", "usage": {"input_tokens": 1500, "output_tokens": 1}}},
@@ -150,6 +166,30 @@ check(
     {"provider_response_failed", "provider_usage_missing", "provider_stream_usage_missing"}
     <= set(ev.data_quality_flags),
     "Failed Responses stream without usage cannot look complete",
+)
+
+# A provider may expose a cumulative in-progress usage floor and then terminate with a
+# lifecycle marker whose nested response omits usage. The marker cannot promote that floor.
+responses_partial_then_usage_less_complete = [
+    {
+        "type": "response.in_progress",
+        "response": {
+            "status": "in_progress",
+            "model": "o4-mini",
+            "usage": {"input_tokens": 10, "output_tokens": 2, "total_tokens": 12},
+        },
+    },
+    {
+        "type": "response.completed",
+        "response": {"status": "completed", "model": "o4-mini", "usage": None},
+    },
+]
+ev = consume_stream(responses_partial_then_usage_less_complete, OpenAIResponsesAdapter(), context=new_trace())
+check(ev.observation.status == "incomplete", "usage-less terminal cannot promote an in-progress counter")
+check("provider_stream_usage_missing" in ev.data_quality_flags, "missing terminal usage remains explicit")
+check(
+    not all(quantity.usage_source.value == "provider_stream_final" for quantity in ev.quantities),
+    "partial provider usage never acquires terminal provenance",
 )
 
 # Schema drift checks must run on streaming just as they do on full responses.

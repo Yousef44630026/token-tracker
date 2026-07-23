@@ -67,9 +67,15 @@ def stats(base: str) -> dict[str, int]:
         return json.loads(response.read())
 
 
-root = Path(f".test_storage_retention_{uuid.uuid4().hex}").resolve()
-shutil.rmtree(root, ignore_errors=True)
-root.mkdir(parents=True)
+owned_workspace = "TRACKER_TEST_WORKSPACE" not in os.environ
+root = Path(
+    os.environ.get("TRACKER_TEST_WORKSPACE") or f".test_storage_retention_{uuid.uuid4().hex}"
+).resolve()
+# A provided workspace is created fresh and empty by the runner and doubles as the
+# current working directory, which Windows forbids removing; only reset a workspace we own.
+if owned_workspace:
+    shutil.rmtree(root, ignore_errors=True)
+root.mkdir(parents=True, exist_ok=True)
 now = dt.datetime(2026, 7, 17, 12, 0, tzinfo=dt.UTC)
 
 try:
@@ -169,7 +175,8 @@ try:
     )
     check(cli_exit == 0 and len(cli_repo.read_all()) == 1, "retention CLI rotates explicitly without data loss")
 finally:
-    shutil.rmtree(root, ignore_errors=True)
+    if owned_workspace:
+        shutil.rmtree(root, ignore_errors=True)
 
 print("\nRESULT:", "all checks passed" if _failures == 0 else f"{_failures} FAILURE(S)")
 raise SystemExit(1 if _failures else 0)

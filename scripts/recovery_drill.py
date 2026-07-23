@@ -26,6 +26,7 @@ ROOT = os.path.dirname(HERE)
 sys.path.insert(0, ROOT)
 
 from tracker.derive.effective_events import effective_events  # noqa: E402
+from tracker.ops.runtime_fingerprint import runtime_fingerprint  # noqa: E402
 from tracker.storage.file_repository import FileRepository  # noqa: E402
 from tracker.storage.retention import RetentionPolicy, inspect_retention, run_retention  # noqa: E402
 
@@ -65,6 +66,8 @@ def _summary(
     baseline_sha256: str | None,
 ) -> dict[str, object]:
     return {
+        "evidence_type": "recovery_drill",
+        "runtime_fingerprint": runtime_fingerprint(),
         "source": source,
         "snapshot_events": snapshot_events,
         "baseline_sha256": baseline_sha256,
@@ -74,7 +77,16 @@ def _summary(
     }
 
 
-def _print_summary(summary: dict[str, object], *, as_json: bool) -> None:
+def _print_summary(summary: dict[str, object], *, as_json: bool, evidence_output: str | None = None) -> None:
+    if evidence_output:
+        target = os.path.abspath(evidence_output)
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        temporary = f"{target}.tmp-{os.getpid()}"
+        with open(temporary, "w", encoding="utf-8") as handle:
+            json.dump(summary, handle, ensure_ascii=True, indent=2, sort_keys=True)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, target)
     if as_json:
         print(json.dumps(summary))
         return
@@ -94,6 +106,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--source", default=r"C:\ai-token-tracker-data\collector_events.jsonl")
     parser.add_argument("--work-dir", default=None, help="exact disposable drill directory (primarily for CI)")
+    parser.add_argument("--evidence-output", help="atomically publish the machine-readable drill result")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
 
@@ -133,7 +146,7 @@ def main() -> int:
                 snapshot_events=0,
                 baseline_sha256=None,
             )
-            _print_summary(summary, as_json=args.json)
+            _print_summary(summary, as_json=args.json, evidence_output=args.evidence_output)
             return 1
 
         base_sha = _sha256(snapshot)
@@ -203,7 +216,7 @@ def main() -> int:
             snapshot_events=snap_count,
             baseline_sha256=base_sha,
         )
-        _print_summary(summary, as_json=args.json)
+        _print_summary(summary, as_json=args.json, evidence_output=args.evidence_output)
         return 0 if summary["passed"] else 1
     finally:
         shutil.rmtree(drill_dir, ignore_errors=True)

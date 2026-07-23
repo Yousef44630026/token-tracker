@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import os
 import sys
-import tempfile
+import uuid
 from types import SimpleNamespace as NS
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -70,7 +70,9 @@ rule("STAGE 5 - persist (stored fields only; derived fields are absent from disk
 from tracker import track_response  # noqa: E402
 from tracker.storage.file_repository import FileRepository  # noqa: E402
 
-store = os.path.join(tempfile.mkdtemp(), "ledger.jsonl")
+demo_dir = os.path.join("runs", "demo-trace", uuid.uuid4().hex)
+os.makedirs(demo_dir, exist_ok=False)
+store = os.path.join(demo_dir, "ledger.jsonl")
 repo = FileRepository(store)
 result = track_response(
     response,
@@ -79,8 +81,15 @@ result = track_response(
     context=ctx,
     observation={"authoritative": True, "status": "complete", "service_name": "invoice-rag"},
 )
-stored = json.loads(open(store, encoding="utf-8").readline())
-absent = [k for k in ("event_contributing_tokens", "quantity_in_total", "included_in_total") if k not in json.dumps(stored)]
+if result.persisted is not True:
+    raise RuntimeError(f"demo persistence failed: {result.sink_errors}")
+with open(store, encoding="utf-8") as handle:
+    stored = json.loads(handle.readline())
+absent = [
+    key
+    for key in ("event_contributing_tokens", "quantity_in_total", "included_in_total")
+    if key not in json.dumps(stored)
+]
 print(f"  persisted={result.persisted}  stored keys include: event_id, quantities, provider_total_tokens, observation")
 print(f"  derived fields absent from the JSONL (recomputed on read): {absent}")
 

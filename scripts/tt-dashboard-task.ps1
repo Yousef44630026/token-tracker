@@ -36,6 +36,8 @@ $plan = [ordered]@{
     start_when_available = $true
     dont_stop_on_idle_end = $true
     interval_minutes = $IntervalMinutes
+    restart_interval_seconds = 120
+    restart_count = 3
     data_directory = $dataDir
     output_file = $outputFile
     prices_configured = [bool]$prices
@@ -44,6 +46,7 @@ $plan = [ordered]@{
 }
 
 function Write-DashboardTaskStatus {
+    param([switch]$Strict)
     $task = $null
     $inspectionError = $null
     try {
@@ -65,6 +68,43 @@ function Write-DashboardTaskStatus {
             $evidenceError = $_.Exception.GetType().Name
         }
     }
+    $refreshAgeSeconds = if ($evidence -and $evidence.timestamp) {
+        [math]::Max(0, ((Get-Date).ToUniversalTime() - ([datetime]$evidence.timestamp).ToUniversalTime()).TotalSeconds)
+    } else {
+        $null
+    }
+    $maxAgeSeconds = [math]::Max(300, $IntervalMinutes * 180)
+    $taskResultOk = $info -and $info.LastTaskResult -in @(0, 267009)
+    $statusOk = (
+        -not $inspectionError -and
+        [bool]$task -and
+        [string]$task.State -in @("Ready", "Running") -and
+        $taskResultOk -and
+        -not $evidenceError -and
+        $evidence.status -eq "ok" -and
+        $evidence.exit_code -eq 0 -and
+        $refreshAgeSeconds -ne $null -and
+        $refreshAgeSeconds -le $maxAgeSeconds
+    )
+    $failureReason = if ($inspectionError) {
+        "task_inspection_failed"
+    } elseif (-not $task) {
+        "task_not_installed"
+    } elseif ([string]$task.State -notin @("Ready", "Running")) {
+        "dashboard_task_disabled_or_stopped"
+    } elseif (-not $taskResultOk) {
+        "dashboard_last_run_failed"
+    } elseif ($evidenceError) {
+        "dashboard_evidence_unreadable"
+    } elseif (-not $evidence) {
+        "dashboard_evidence_missing"
+    } elseif ($evidence.status -ne "ok" -or $evidence.exit_code -ne 0) {
+        "dashboard_refresh_failed"
+    } elseif ($refreshAgeSeconds -gt $maxAgeSeconds) {
+        "dashboard_evidence_stale"
+    } else {
+        $null
+    }
     [ordered]@{
         task_name = $TaskName
         installed = if ($inspectionError) { $null } else { [bool]$task }
@@ -73,11 +113,16 @@ function Write-DashboardTaskStatus {
         last_run_time = if ($info) { $info.LastRunTime } else { $null }
         next_run_time = if ($info) { $info.NextRunTime } else { $null }
         last_task_result = if ($info) { $info.LastTaskResult } else { $null }
+        status_ok = $statusOk
+        failure_reason = $failureReason
+        refresh_age_seconds = if ($refreshAgeSeconds -ne $null) { [math]::Round($refreshAgeSeconds, 1) } else { $null }
+        max_age_seconds = $maxAgeSeconds
         task_log = $taskLog
         evidence_file = $evidenceFile
         evidence_error = $evidenceError
         refresh = $evidence
     } | ConvertTo-Json -Depth 6
+    if ($Strict -and -not $statusOk) { exit 1 }
 }
 
 if ($Mode -eq "Plan") { $plan | ConvertTo-Json -Depth 4; exit 0 }
@@ -109,6 +154,8 @@ if ($Mode -eq "Install") {
         -DontStopIfGoingOnBatteries `
         -DontStopOnIdleEnd `
         -StartWhenAvailable `
+        -RestartInterval (New-TimeSpan -Minutes 2) `
+        -RestartCount 3 `
         -ExecutionTimeLimit (New-TimeSpan -Minutes 20) `
         -MultipleInstances IgnoreNew
     Register-ScheduledTask `
@@ -139,4 +186,4 @@ if ($Mode -eq "Uninstall") {
     exit 0
 }
 
-Write-DashboardTaskStatus
+Write-DashboardTaskStatus -Strict

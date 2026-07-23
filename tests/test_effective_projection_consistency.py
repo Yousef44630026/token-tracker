@@ -8,7 +8,7 @@ import uuid
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from tracker.derive.effective_events import effective_events  # noqa: E402
+from tracker.derive.effective_events import effective_events, iter_effective_events  # noqa: E402
 from tracker.export.csv_exporter import event_rows, quantity_rows  # noqa: E402
 from tracker.export.powerbi_exporter import export_powerbi_events  # noqa: E402
 from tracker.models.enums import Additivity, PrecisionLevel, TokenType, UsageSource  # noqa: E402
@@ -42,7 +42,7 @@ partial = TokenEvent(
     quantities=[quantity(TokenType.OUTPUT, 40, PrecisionLevel.ESTIMATE, UsageSource.PARTIAL_STREAM_TOKENIZER)],
     data_quality_flags=["partial_stream_estimate", "stream_interrupted"],
     timestamp="2026-07-16T10:00:00Z",
-    observation={"authoritative": True, "status": "incomplete"},
+    observation={"authoritative": True, "status": "incomplete", "duration_ms": 900, "time_to_first_token_ms": 800},
 )
 final = TokenEvent(
     event_id="final",
@@ -57,7 +57,7 @@ final = TokenEvent(
     ],
     provider_total_tokens=160,
     timestamp="2026-07-16T10:00:01Z",
-    observation={"authoritative": True, "status": "complete"},
+    observation={"authoritative": True, "status": "complete", "duration_ms": 100, "time_to_first_token_ms": 20},
 )
 
 projected = effective_events([partial, final])
@@ -66,8 +66,15 @@ check(partial.superseded is False, "effective projection never mutates the raw p
 check(projected_by_id["partial"].superseded is True, "effective projection supersedes the correlated partial")
 check(sum(event.event_contributing_tokens for event in projected) == 160, "effective total counts final usage once")
 
+iterator_source = [partial, final]
+iterator_projected = list(iter_effective_events(iter(iterator_source)))
+check(iterator_source[0].superseded is False, "one-shot in-memory projection still preserves source objects")
+check(iterator_projected[0].superseded is True, "one-shot projection derives supersession on its private copies")
+
 summary = summarize_events([partial, final])
 check(summary["contributing_tokens"] == 160, "proxy summary consumes the effective projection")
+check(summary["average_duration_ms"] == 100, "proxy latency excludes the superseded partial attempt")
+check(summary["average_time_to_first_token_ms"] == 20, "proxy TTFT excludes the superseded partial attempt")
 
 trace = Trace(trace_id="trace-1", events=[partial, final])
 csv_events = event_rows(trace)
@@ -91,6 +98,11 @@ try:
     check(
         sum(int(row["event_contributing_tokens"]) for row in powerbi_rows) == 160,
         "Power BI event facts use the effective projection",
+    )
+    powerbi_by_id = {row["event_id"]: row for row in powerbi_rows}
+    check(
+        powerbi_by_id["partial"]["duration_ms"] == "" and powerbi_by_id["final"]["duration_ms"] == "100.0",
+        "Power BI latency is populated only on the effective authoritative request event",
     )
 finally:
     shutil.rmtree(work, ignore_errors=True)

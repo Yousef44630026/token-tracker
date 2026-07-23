@@ -7,11 +7,14 @@ stays identical at each hop: adapter usage, assembled event, JSONL read-back, tr
 and the exported CSV. If any layer disagreed, this would catch it.
 """
 
+import atexit
 import csv
 import json
 import os
+import shutil
 import sys
-import tempfile
+import uuid
+from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -25,6 +28,11 @@ from tracker.storage.file_repository import FileRepository  # noqa: E402
 _failures = 0
 FIXTURES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures")
 EXPECTED = 1300  # input 1000 + output 300 (cached/reasoning are subtotals -> 0)
+configured_workspace = os.environ.get("TRACKER_TEST_WORKSPACE")
+work = Path(configured_workspace) if configured_workspace else Path.cwd() / f".test_e2e_{uuid.uuid4().hex}"
+work.mkdir(parents=True, exist_ok=True)
+if configured_workspace is None:
+    atexit.register(shutil.rmtree, work, True)
 
 
 def check(cond, msg):
@@ -56,7 +64,7 @@ event = TokenEvent(
 check(event.event_contributing_tokens == EXPECTED, "2) assembled event total == 1300")
 
 # 3) event -> JSONL -> read back
-path = os.path.join(tempfile.mkdtemp(prefix="tt_e2e_"), "events.jsonl")
+path = str(work / "events.jsonl")
 repo = FileRepository(path)
 repo.append(event)
 read_back = repo.read_all()
@@ -69,7 +77,7 @@ for e in read_back:
 check(observed_total_contributing_tokens(trace) == EXPECTED, "4) trace rollup total == 1300")
 
 # 5) export -> CSV
-out_dir = tempfile.mkdtemp(prefix="tt_e2e_out_")
+out_dir = str(work / "export")
 paths = export_csv(trace, out_dir)
 with open(paths["token_events"], newline="", encoding="utf-8") as f:
     rows = list(csv.DictReader(f))

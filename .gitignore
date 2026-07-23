@@ -26,6 +26,8 @@ _smoke*.csv
 demo.csv
 demo.xlsx
 demo_output/
+/test_dashboard.xlsx
+/demo/test_dashboard.xlsx
 runs/
 *.jsonl.lock
 .repository.lock

@@ -85,7 +85,13 @@ for label, (resp, expected) in CLEAN.items():
     assert_universal(label, ev)
     check(ev.event_total_mismatch == 0, f"chat clean [{label}]: reconciles to Azure total (mismatch 0)")
     check(ev.event_contributing_tokens == expected, f"chat clean [{label}]: contributing == {expected}")
-    check(not ev.data_quality_flags, f"chat clean [{label}]: no false data-quality flag")
+    if label == "input only":
+        check(
+            ev.data_quality_flags == ["provider_usage_missing"],
+            "chat partial [input only]: missing output bucket remains audit-visible",
+        )
+    else:
+        check(not ev.data_quality_flags, f"chat clean [{label}]: no false data-quality flag")
 
 # subtotal larger than its parent must NOT corrupt the total (it contributes 0)
 for label, resp in {

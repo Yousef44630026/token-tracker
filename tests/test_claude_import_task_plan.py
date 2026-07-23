@@ -51,14 +51,21 @@ plan = json.loads(result.stdout)
 check(plan["triggers"] == ["at_logon", "every_60_minutes"], "plan reports the triggers actually installed")
 check(plan["start_when_available"] is True, "missed import runs catch up")
 check(plan["dont_stop_on_idle_end"] is True, "import is not terminated at the idle boundary")
+check(plan["restart_interval_seconds"] == 120, "failed imports retry after two minutes")
+check(plan["restart_count"] == 3, "failed imports receive three bounded retries")
 check(plan["working_directory"] == r"C:\tracker-test-data", "task runs beside the operational store")
 check(plan["state_file"].endswith("claude-import-state.json"), "task has a durable incremental checkpoint")
 check("must-not-appear" not in result.stdout, "task plan never serializes the auth token")
 
 script_text = script.read_text(encoding="utf-8")
 check("inspection_error" in script_text, "task status distinguishes inaccessible from not installed")
+check(
+    "import_run_stale" in script_text and "Write-ImportTaskStatus -Strict" in script_text,
+    "import Status rejects stale or failed scheduled execution",
+)
 check("tt-claude-import-task-run.ps1" in script_text, "task uses a dedicated PowerShell launcher")
 check("-DontStopOnIdleEnd" in script_text, "installed settings match the idle-safe plan")
+check("-RestartInterval" in script_text and "-RestartCount 3" in script_text, "installed importer retries failures")
 check("New-ScheduledTaskTrigger -AtStartup" not in script_text, "non-admin importer does not claim an unusable startup trigger")
 check("must-not-appear" not in script_text, "task definition never embeds an authentication secret")
 check("TRACKER_AUTH_TOKEN_FILE" in task_runner.read_text(encoding="utf-8"), "task launcher passes only the external secret-file path")

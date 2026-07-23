@@ -74,3 +74,16 @@ jobs:
       - name: Provider and export verification (POSIX)
         if: runner.os != 'Windows'
         run: sh scripts/tt-verify.sh
+
+      - name: Build distributable wheel
+        run: python -m pip wheel . --no-deps --wheel-dir wheelhouse
+
+      - name: Verify installed wheel surfaces
+        shell: pwsh
+        run: |
+          $wheel = (Get-ChildItem wheelhouse/*.whl | Select-Object -First 1).FullName
+          if (-not $wheel) { throw "wheel build produced no artifact" }
+          python -m pip install --force-reinstall --no-deps $wheel
+          python -c "import tracker; import api.main; import tracker.export.live_dashboard; import tracker.ops.scale_probe"
+          python -m tracker.export.live_dashboard --help
+          python -m tracker.ops.scale_probe --help

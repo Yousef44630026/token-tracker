@@ -67,6 +67,10 @@ check("must-not-appear" not in result.stdout, "monitor task plan never serialize
 
 script_text = script.read_text(encoding="utf-8")
 check("inspection_error" in script_text, "monitor task status fails closed on access errors")
+check(
+    "health_evidence_stale" in script_text and "Write-MonitorTaskStatus -Strict" in script_text,
+    "monitor Status rejects stale or unhealthy dead-man evidence",
+)
 check("-RepetitionInterval (New-TimeSpan -Minutes 1)" in script_text, "monitor task is periodic")
 check("New-ScheduledTaskTrigger -AtStartup" in script_text, "monitor has an at-startup trigger")
 check("tt-collector-monitor-task-run.ps1" in script_text, "monitor action uses the dedicated PowerShell launcher")

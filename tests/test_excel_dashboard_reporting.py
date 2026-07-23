@@ -237,6 +237,30 @@ check(unverified_frame["derived_cost"].isna().all(), "unverified additivity neve
 check(unverified_frame["cost_quality"].iloc[0] == "unverified_additivity", "unverified cost exclusion carries a reason")
 check(unverified_frame["unverified_tokens_active"].sum() == 100, "dashboard quantifies known unverified token magnitude")
 
+unknown_event = TokenEvent(
+    event_id="unknown-price",
+    request_correlation_id="unknown-price",
+    trace_id="trace-price",
+    span_id="span-price-unknown",
+    provider="azure_openai",
+    model="model-a",
+    timestamp="2026-07-01T00:00:00Z",
+    quantities=[
+        TokenQuantity(
+            token_type=TokenType.INPUT,
+            quantity=None,
+            precision_level=PrecisionLevel.UNKNOWN,
+            usage_source=UsageSource.PROVIDER_RESPONSE,
+            additivity=Additivity.TOTAL_CONTRIBUTING,
+        )
+    ],
+    observation=Observation(authoritative=True, status="complete"),
+)
+unknown_data = build_data_frame([LoadedEvent(unknown_event, "memory", 1, 1)], loaded_prices)
+unknown_summary = build_summary_frames(unknown_data)
+check(unknown_summary["total_cost"] is None, "unknown token magnitude keeps derived cost unknown")
+check(unknown_summary["quality"]["coverage_status"] == "missing", "unknown-only data cannot claim complete coverage")
+
 cross_cutting_event = TokenEvent(
     event_id="cross-cutting-subtotals",
     request_correlation_id="cross-cutting-subtotals",
@@ -262,6 +286,29 @@ check(report.valid_events == 3, "three valid events survive JSONL validation")
 check(report.malformed_lines == 1, "malformed JSONL is logged and skipped")
 check(report.schema_invalid_lines == 1, "schema-invalid JSON object is logged and skipped")
 check(next(item.event for item in events if item.event.event_id == "partial").superseded, "final usage supersedes partial stream")
+
+identity_dir = root / "identity"
+identity_dir.mkdir()
+canonical_duplicate = TokenEvent(
+    event_id="duplicate-identity",
+    request_correlation_id="duplicate-identity-request",
+    trace_id="duplicate-identity-trace",
+    span_id="duplicate-identity-span",
+    quantities=[quantity(TokenType.INPUT, 10)],
+    timestamp="2026-07-01T00:00:00Z",
+    observation=Observation(authoritative=True, status="complete"),
+)
+contradictory_duplicate = TokenEvent.from_dict(canonical_duplicate.to_dict())
+contradictory_duplicate.quantities[0].quantity = 999
+with (identity_dir / "events.jsonl").open("w", encoding="utf-8") as handle:
+    handle.write(json.dumps(canonical_duplicate.to_dict()) + "\n")
+    handle.write(json.dumps(contradictory_duplicate.to_dict()) + "\n")
+identity_events, identity_report = load_jsonl_events(identity_dir)
+check(identity_report.duplicate_event_ids == 1, "contradictory duplicate event identities are reported")
+check(
+    identity_events[0].event.quantities[0].quantity == 10,
+    "Excel loading preserves the core first-event-id-wins identity rule",
+)
 
 archive_dir = data_dir / "events.jsonl.archive"
 archive_dir.mkdir()
@@ -307,8 +354,14 @@ check(data["cache_read_tokens_active"].sum() == 20, "cache KPI is additive witho
 check(data["unknown_quantity_active"].sum() == 0, "unknown quantity KPI excludes superseded estimates")
 check(abs(float(summaries["pricing_coverage"]) - 1.0) < 1e-12, "pricing coverage is complete")
 check(summaries["quality"]["latency_coverage"] == 1.0, "dashboard quantifies request-level latency coverage")
+check(
+    summaries["quality"]["instrumented_latency_coverage"] == 1.0,
+    "instrumentable requests expose a separate latency coverage",
+)
+check(summaries["quality"]["latency_applicability"] == 1.0, "live request latency is fully applicable")
 check(summaries["quality"]["provider_total_coverage"] == 1.0, "dashboard quantifies provider-total coverage")
 check(summaries["quality"]["quality_status"] == "clean", "fully covered active data receives a clean runtime status")
+check(summaries["quality"]["coverage_status"] == "complete", "complete price and latency coverage is explicit")
 check(not summaries["provider_summary"].empty, "provider runtime quality summary is available")
 check(not summaries["source_summary"].empty, "source provenance summary is available")
 
@@ -336,11 +389,39 @@ unpriced_data = build_data_frame(events, load_prices(None))
 unpriced_summaries = build_summary_frames(unpriced_data)
 check(unpriced_summaries["total_cost"] is None, "an entirely unpriced workload has unknown cost, never zero")
 check(unpriced_summaries["pricing_coverage"] == 0.0, "unpriced token magnitude has zero pricing coverage")
+check(unpriced_summaries["quality"]["quality_status"] == "clean", "missing prices do not imply corrupt token data")
+check(unpriced_summaries["quality"]["coverage_status"] == "partial", "missing prices remain a separate coverage gap")
 check(unpriced_summaries["cost_by_day"].empty, "unpriced workload does not fabricate zero-valued cost trends")
 check(
     unpriced_summaries["use_cases"]["derived_cost"].isna().all(),
     "unpriced use-case costs remain unknown",
 )
+
+local_import = TokenEvent(
+    event_id="claude-local-import",
+    request_correlation_id="claude-local-import-request",
+    trace_id="claude-local-import-trace",
+    span_id="claude-local-import-span",
+    provider="anthropic",
+    model="claude-test",
+    api_surface="messages",
+    quantities=[quantity(TokenType.INPUT, 50)],
+    data_quality_flags=[DataQualityFlag.CLAUDE_CODE_LOCAL_USAGE.value],
+    timestamp="2026-07-01T00:01:00Z",
+    observation=Observation(authoritative=True, status="complete"),
+)
+mixed_latency = build_summary_frames(
+    build_data_frame(
+        [LoadedEvent(final_two, "memory", 1, 1), LoadedEvent(local_import, "memory", 2, 2)],
+        loaded_prices,
+    )
+)["quality"]
+check(mixed_latency["latency_coverage"] == 0.5, "overall latency presence still exposes local-log gaps")
+check(
+    mixed_latency["instrumented_latency_coverage"] == 1.0,
+    "unobservable local imports do not poison instrumented latency coverage",
+)
+check(mixed_latency["latency_applicability"] == 0.5, "latency applicability quantifies the excluded source mix")
 
 output = root / "dashboard.xlsx"
 write_dashboard(data, summaries, report, output)
@@ -389,6 +470,10 @@ check(
     "cost KPI is an Excel formula over the Data table",
 )
 check(
+    "DataTable[unknown_quantity_active]" in dashboard["A8"].value,
+    "interactive cost fails closed when the selected data contains an unknown quantity",
+)
+check(
     dashboard["B51"].value == "2026-07-01"
     and isinstance(dashboard["C51"].value, str)
     and "AND(" in dashboard["C51"].value,
@@ -416,6 +501,7 @@ check(len(workbook["Use cases"]._charts) == 1, "use-case sheet has a native pie 
 quality_sheet = workbook["Data Quality"]
 check(quality_sheet["A1"].value == "Data quality and provenance", "quality sheet has an audit-oriented title")
 check(quality_sheet["A5"].value == "clean", "quality sheet publishes the runtime quality status")
+check(quality_sheet["K5"].value == "complete", "quality sheet separates operational coverage status")
 check("ProviderRuntimeQuality" in quality_sheet.tables, "quality sheet includes provider-level coverage")
 check("SourceProvenance" in quality_sheet.tables, "quality sheet explains where token totals came from")
 readiness_sheet = workbook["Provider Readiness"]

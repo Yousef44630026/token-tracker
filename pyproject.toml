@@ -20,8 +20,13 @@ ai-token-tracker-doctor = "tracker.ops.doctor:main"
 ai-token-tracker-retention = "tracker.ops.retention:main"
 ai-token-tracker-azure-smoke = "tracker.ops.azure_smoke:main"
 ai-token-tracker-bedrock-cache-smoke = "tracker.ops.bedrock_cache_smoke:main"
+ai-token-tracker-bedrock-stream-smoke = "tracker.ops.bedrock_stream_smoke:main"
+ai-token-tracker-approve-provider-proof = "tracker.ops.provider_proof:main"
 ai-token-tracker-dashboard = "tracker.reporting.excel_dashboard:main"
 ai-token-tracker-release-readiness = "tracker.ops.release_readiness:main"
+ai-token-tracker-live-dashboard = "tracker.export.live_dashboard:main"
+ai-token-tracker-scale-probe = "tracker.ops.scale_probe:main"
+ai-token-tracker-vertex-smoke = "tracker.ops.vertex_smoke:main"
 
 [project.optional-dependencies]
 # Dev toolchain. Tests are plain runnable scripts under tests/ (no pytest required

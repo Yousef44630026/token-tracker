@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import uuid
 from pathlib import Path
 
 CLEANUP_ATTEMPTS = 8
@@ -106,6 +107,15 @@ def _make_test_run_root() -> Path:
     configured_root = os.environ.get("TRACKER_TEST_TMP_ROOT")
     parent = Path(configured_root).expanduser().resolve() if configured_root else Path(tempfile.gettempdir()).resolve()
     parent.mkdir(parents=True, exist_ok=True)
+    if configured_root:
+        for _ in range(10):
+            run_root = parent / f"ai-token-tracker-tests-{uuid.uuid4().hex[:12]}"
+            try:
+                run_root.mkdir(exist_ok=False)
+            except FileExistsError:
+                continue
+            return run_root.resolve()
+        raise RuntimeError(f"unable to allocate a unique test workspace under {parent}")
     return Path(tempfile.mkdtemp(prefix="ai-token-tracker-tests-", dir=parent)).resolve()
 
 

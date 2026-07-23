@@ -289,14 +289,15 @@ def summarize_events(events: Iterable[TokenEvent]) -> dict:
         if event.timestamp:
             first_timestamp = event.timestamp if first_timestamp is None else min(first_timestamp, event.timestamp)
             last_timestamp = event.timestamp if last_timestamp is None else max(last_timestamp, event.timestamp)
-        duration = event.observation.get("duration_ms")
-        if isinstance(duration, (int, float)) and not isinstance(duration, bool):
-            duration_total += duration
-            duration_count += 1
-        ttft = event.observation.get("time_to_first_token_ms")
-        if isinstance(ttft, (int, float)) and not isinstance(ttft, bool):
-            ttft_total += ttft
-            ttft_count += 1
+        if not event.superseded and event.is_authoritative:
+            duration = event.observation.get("duration_ms")
+            if isinstance(duration, (int, float)) and not isinstance(duration, bool):
+                duration_total += duration
+                duration_count += 1
+            ttft = event.observation.get("time_to_first_token_ms")
+            if isinstance(ttft, (int, float)) and not isinstance(ttft, bool):
+                ttft_total += ttft
+                ttft_count += 1
         if event.observation.get("provider_request_id"):
             provider_request_id_count += 1
         if event.observation.get("provider_response_id"):

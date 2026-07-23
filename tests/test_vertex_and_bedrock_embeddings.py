@@ -62,6 +62,52 @@ check(ev.provider_total_tokens is None and ev.event_total_mismatch is None, "Ver
 check(ev.model == "gemini-embedding-001", "Vertex embeddings: request model identity is retained")
 check(ev.data_quality_flags == [], "Vertex embeddings: complete documented response is clean")
 
+# Current v1 models.embedContent response: response-level usageMetadata, no per-item statistics.
+embed_content = normalize(
+    {
+        "modelVersion": "gemini-embedding-001",
+        "embedding": {"values": [0.1, 0.2]},
+        "usageMetadata": {"promptTokenCount": 19, "totalTokenCount": 19},
+        "truncated": False,
+    },
+    VertexAIEmbeddingsAdapter(model_id="gemini-embedding-001"),
+    context=new_trace(),
+)
+embed_content_quantity = q(embed_content, TokenType.EMBEDDING)
+check(
+    embed_content_quantity is not None and embed_content_quantity.quantity == 19,
+    "Vertex embedContent: response-level promptTokenCount is tracked exactly",
+)
+check(embed_content.provider_total_tokens == 19, "Vertex embedContent: provider total is retained when present")
+check(embed_content.event_total_mismatch == 0, "Vertex embedContent: response-level usage reconciles")
+check(embed_content.data_quality_flags == [], "Vertex embedContent: complete current v1 response is clean")
+
+masked_metadata = normalize(
+    {
+        "embeddings": [{"statistics": {"token_count": 9, "truncated": False}}],
+        "usageMetadata": {"promptTokenCount": 0, "totalTokenCount": 0},
+    },
+    VertexAIEmbeddingsAdapter(model_id="gemini-embedding-001"),
+    context=new_trace(),
+)
+check(masked_metadata.event_contributing_tokens == 9, "Vertex per-item usage survives default zero metadata")
+check(
+    "provider_schema_drift" in masked_metadata.data_quality_flags,
+    "contradictory Vertex response-level metadata raises schema drift",
+)
+
+embed_content_missing = normalize(
+    {"embedding": {"values": [0.1]}, "usageMetadata": {}, "truncated": True},
+    VertexAIEmbeddingsAdapter(model_id="gemini-embedding-001"),
+    context=new_trace(),
+)
+check(embed_content_missing.event_contributing_tokens == 0, "Vertex embedContent never converts missing usage to zero")
+check(
+    {"provider_usage_missing", "unknown_quantity_present", "provider_input_truncated"}
+    <= set(embed_content_missing.data_quality_flags),
+    "Vertex embedContent missing usage and truncation remain audit-visible",
+)
+
 # One missing per-item count must remain a floor plus an explicit unknown, never a false total.
 partial = normalize(
     {
@@ -123,6 +169,17 @@ cohere = normalize(
 check(
     cohere.event_contributing_tokens == 0 and "raw_usage_missing" in cohere.data_quality_flags,
     "Cohere Embed response cannot fabricate a token count it does not expose",
+)
+
+wrong_wire_profile = normalize(
+    {"body_json": {"inputTextTokenCount": 640}},
+    BedrockEmbeddingsAdapter(model_id="cohere.embed-english-v3"),
+    context=new_trace(),
+)
+check(wrong_wire_profile.event_contributing_tokens == 0, "Titan token field cannot certify a Cohere model")
+check(
+    {"provider_usage_missing", "provider_schema_drift"} <= set(wrong_wire_profile.data_quality_flags),
+    "Bedrock embedding wire-profile mismatch is explicit",
 )
 
 print("\nRESULT:", "all checks passed" if _failures == 0 else f"{_failures} FAILURE(S)")

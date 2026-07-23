@@ -88,4 +88,4 @@ workspace, checks debris after each script, and fails closed on lint or test tim
 | Azure Responses streaming lacks a REAL terminal-usage fixture. | evidence gap | no code-only fix | `tt-release-gate.cmd` fails the exact capability requirement |
 | Vertex generate/cache/stream and embeddings remain simulated or unvalidated. | evidence gap | no code-only fix | capability certification matrix and release gate |
 | Bedrock cache/stream/InvokeModel/embedding claims remain partly simulated or unvalidated. | evidence gap | no code-only fix | capability certification matrix and release gate |
-| Runtime pricing, latency, and provider-total coverage are currently 0%. | data/configuration gap | no code-only fix | dashboard evidence reports `quality_status=warning` |
+| Runtime pricing, latency, and provider-total coverage are incomplete. | data/configuration gap | no code-only fix | dashboard evidence reports `coverage_status=partial` separately from token-integrity `quality_status` |

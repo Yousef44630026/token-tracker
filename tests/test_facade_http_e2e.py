@@ -7,11 +7,14 @@ CollectorClient whose transport POSTs to a live api.main server; after flush the
 persisted and /v1/stats reconciles with the model.
 """
 
+import atexit
 import json
 import os
+import shutil
 import sys
-import tempfile
 import threading
+import uuid
+from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -27,6 +30,11 @@ from tracker.storage.file_repository import FileRepository  # noqa: E402
 
 _failures = 0
 PAYLOAD = {"usage": {"prompt_tokens": 4, "completion_tokens": 6, "total_tokens": 10}}
+configured_workspace = os.environ.get("TRACKER_TEST_WORKSPACE")
+work = Path(configured_workspace) if configured_workspace else Path.cwd() / f".test_facade_e2e_{uuid.uuid4().hex}"
+work.mkdir(parents=True, exist_ok=True)
+if configured_workspace is None:
+    atexit.register(shutil.rmtree, work, True)
 
 
 def check(cond, msg):
@@ -41,7 +49,7 @@ def get(base, path):
         return json.loads(resp.read())
 
 
-repo = FileRepository(os.path.join(tempfile.mkdtemp(prefix="tt_facade_e2e_"), "events.jsonl"))
+repo = FileRepository(str(work / "events.jsonl"))
 server = create_server(repo, "127.0.0.1", 0)
 base = f"http://127.0.0.1:{server.server_address[1]}"
 threading.Thread(target=server.serve_forever, daemon=True).start()

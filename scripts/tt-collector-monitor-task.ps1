@@ -43,6 +43,7 @@ $plan = [ordered]@{
 }
 
 function Write-MonitorTaskStatus {
+    param([switch]$Strict)
     $task = $null
     $inspectionError = $null
     try {
@@ -55,6 +56,50 @@ function Write-MonitorTaskStatus {
         }
     }
     $taskInfo = if ($task) { Get-ScheduledTaskInfo -TaskName $TaskName } else { $null }
+    $latestHealth = $null
+    $healthError = $null
+    if (Test-Path -LiteralPath $healthLog -PathType Leaf) {
+        try {
+            $latestHealth = Get-Content -LiteralPath $healthLog -Tail 1 | ConvertFrom-Json
+        } catch {
+            $healthError = $_.Exception.GetType().Name
+        }
+    }
+    $healthAgeSeconds = if ($latestHealth -and $latestHealth.timestamp) {
+        [math]::Max(0, ((Get-Date).ToUniversalTime() - ([datetime]$latestHealth.timestamp).ToUniversalTime()).TotalSeconds)
+    } else {
+        $null
+    }
+    $taskResultOk = $taskInfo -and $taskInfo.LastTaskResult -in @(0, 267009)
+    $statusOk = (
+        -not $inspectionError -and
+        [bool]$task -and
+        [string]$task.State -in @("Ready", "Running") -and
+        $taskResultOk -and
+        -not $healthError -and
+        $latestHealth.healthy -eq $true -and
+        $healthAgeSeconds -ne $null -and
+        $healthAgeSeconds -le 180
+    )
+    $failureReason = if ($inspectionError) {
+        "task_inspection_failed"
+    } elseif (-not $task) {
+        "task_not_installed"
+    } elseif ([string]$task.State -notin @("Ready", "Running")) {
+        "monitor_task_disabled_or_stopped"
+    } elseif (-not $taskResultOk) {
+        "monitor_last_run_failed"
+    } elseif ($healthError) {
+        "health_evidence_unreadable"
+    } elseif (-not $latestHealth) {
+        "health_evidence_missing"
+    } elseif ($latestHealth.healthy -ne $true) {
+        "collector_health_failed"
+    } elseif ($healthAgeSeconds -gt 180) {
+        "health_evidence_stale"
+    } else {
+        $null
+    }
     [ordered]@{
         task_name = $TaskName
         installed = if ($inspectionError) { $null } else { [bool]$task }
@@ -63,9 +108,14 @@ function Write-MonitorTaskStatus {
         last_run_time = if ($taskInfo) { $taskInfo.LastRunTime } else { $null }
         next_run_time = if ($taskInfo) { $taskInfo.NextRunTime } else { $null }
         last_task_result = if ($taskInfo) { $taskInfo.LastTaskResult } else { $null }
+        status_ok = $statusOk
+        failure_reason = $failureReason
+        health_age_seconds = if ($healthAgeSeconds -ne $null) { [math]::Round($healthAgeSeconds, 1) } else { $null }
+        latest_health = $latestHealth
         health_log = $healthLog
         alert_log = $alertLog
     } | ConvertTo-Json -Depth 4
+    if ($Strict -and -not $statusOk) { exit 1 }
 }
 
 if ($Mode -eq "Plan") {
@@ -132,4 +182,4 @@ if ($Mode -eq "Uninstall") {
     exit 0
 }
 
-Write-MonitorTaskStatus
+Write-MonitorTaskStatus -Strict

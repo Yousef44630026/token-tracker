@@ -89,6 +89,10 @@ healthy = run_soak(
     sleep=clock.sleep,
 )
 check(healthy["passed"] is True, "healthy probes with an unchanged store prefix pass")
+check(
+    healthy["evidence_type"] == "collector_soak" and len(healthy["runtime_fingerprint"]) == 64,
+    "soak evidence is typed and bound to the current runtime",
+)
 check(healthy["store_integrity"]["verified"] is True, "soak verifies the pre-existing store prefix")
 check(healthy["collector_counters"]["regressions"] == 0, "monotonic collector counters remain clean")
 

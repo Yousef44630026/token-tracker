@@ -5,6 +5,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from tracker.adapters.openai_chat_completions_adapter import OpenAIChatCompletionsAdapter  # noqa: E402
 from tracker.adapters.openai_responses_adapter import OpenAIResponsesAdapter  # noqa: E402
 from tracker.context.propagation import new_trace  # noqa: E402
 from tracker.models.enums import DataQualityFlag  # noqa: E402
@@ -120,6 +121,31 @@ check(proxy_event is not None and "provider_schema_drift" in proxy_event.data_qu
 check(
     proxy_event is not None and proxy_event.observation.get("unmapped_usage_fields") == ["future_tokens"],
     "proxy stream persists bounded drift evidence",
+)
+
+split_truncation = _UsageAccumulator(OpenAIChatCompletionsAdapter())
+split_truncation.feed({"choices": [{"delta": {}, "finish_reason": "length"}]})
+split_truncation.feed(
+    {
+        "choices": [],
+        "usage": {"prompt_tokens": 8, "completion_tokens": 2, "total_tokens": 10},
+    }
+)
+truncated_proxy_event = split_truncation.build_event(
+    context=new_trace(),
+    request_hash="request-hash",
+    response_hash="response-hash",
+    observation={"authoritative": True, "status": "complete"},
+)
+check(
+    truncated_proxy_event is not None and truncated_proxy_event.event_contributing_tokens == 10,
+    "proxy split truncation retains exact billed usage",
+)
+check(
+    truncated_proxy_event is not None
+    and truncated_proxy_event.observation.status == "incomplete"
+    and "provider_response_incomplete" in truncated_proxy_event.data_quality_flags,
+    "proxy split truncation cannot be mislabeled as complete",
 )
 
 print("\nRESULT:", "all checks passed" if _failures == 0 else f"{_failures} FAILURE(S)")

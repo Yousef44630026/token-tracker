@@ -40,6 +40,7 @@ from tracker.proxy.estimator import (
     extract_latest_user_text,
 )
 from tracker.storage.file_repository import FileRepository
+from tracker.streaming.status import merge_stream_status
 
 Estimator = Callable[[dict[str, Any], str, str], PromptEstimate]
 ObservationCallback = Callable[[TokenEvent], None]
@@ -132,10 +133,13 @@ class _UsageAccumulator:
 
     def __init__(self, adapter: BaseAPISurfaceAdapter) -> None:
         self.adapter = adapter
-        self.quantities: dict[tuple[TokenType, str | None], Any] = {}
+        self.partial_quantities: dict[tuple[TokenType, str | None], Any] = {}
+        self.terminal_quantities: dict[tuple[TokenType, str | None], Any] = {}
+        self.saw_terminal_usage = False
         self.provider_total_tokens: int | None = None
         self.model: str | None = None
         self.provider_response_id: str | None = None
+        self.stream_status: str | None = None
         self.flags: list[str] = []
         self.unmapped_usage_fields: set[str] = set()
 
@@ -145,10 +149,10 @@ class _UsageAccumulator:
         candidates = [payload]
         response = payload.get("response")
         if isinstance(response, dict):
-            candidates.insert(0, response)
+            candidates.append(response)
         message = payload.get("message")
         if isinstance(message, dict):
-            candidates.insert(0, message)
+            candidates.append(message)
 
         for candidate in candidates:
             candidate_id = candidate.get("id") if isinstance(candidate, dict) else None
@@ -170,13 +174,25 @@ class _UsageAccumulator:
         usage_flags, unmapped_paths = inspect_usage_contract(self.adapter, usage)
         self.unmapped_usage_fields.update(unmapped_paths)
         self.model = usage.model or self.model
-        if usage.provider_total_tokens is not None:
+        terminal = usage.stream_terminal
+        if terminal is None:
+            terminal = any(quantity.token_type == TokenType.OUTPUT for quantity in usage.quantities)
+        if terminal and usage.provider_total_tokens is not None:
             self.provider_total_tokens = usage.provider_total_tokens
+        self.stream_status = merge_stream_status(self.stream_status, usage.stream_status)
         for flag in usage_flags:
             if flag not in self.flags:
                 self.flags.append(flag)
+        target = self.terminal_quantities if terminal else self.partial_quantities
         for quantity in usage.quantities:
-            self.quantities[(quantity.token_type, quantity.token_role)] = quantity
+            target[(quantity.token_type, quantity.token_role)] = quantity
+        if terminal and usage.quantities:
+            self.terminal_quantities = {**self.partial_quantities, **self.terminal_quantities}
+            self.saw_terminal_usage = True
+
+    @property
+    def quantities(self) -> dict[tuple[TokenType, str | None], Any]:
+        return self.terminal_quantities if self.saw_terminal_usage else self.partial_quantities
 
     def build_event(
         self,
@@ -189,6 +205,8 @@ class _UsageAccumulator:
         if not self.quantities:
             return None
         event_observation = dict(observation)
+        if self.stream_status is not None:
+            event_observation["status"] = self.stream_status
         event_observation.update(
             usage_contract_observation(sorted(self.unmapped_usage_fields))
         )
@@ -846,6 +864,7 @@ def _make_handler(
                 # [DONE] / response.completed). Whatever usage DID arrive is real and kept, but
                 # the event must not pass for a complete one.
                 truncated = parser is not None and not parser.saw_terminal
+                terminal_usage_missing = not accumulator.saw_terminal_usage
                 if truncated and accumulator.quantities:
                     if parser.saw_output_delta and not any(tt == TokenType.OUTPUT for tt, _role in accumulator.quantities):
                         # output was visibly streaming but its count never arrived: surface the
@@ -866,12 +885,14 @@ def _make_handler(
                         )
                     if "stream_interrupted" not in accumulator.flags:
                         accumulator.flags.append("stream_interrupted")
+                if terminal_usage_missing and "provider_stream_usage_missing" not in accumulator.flags:
+                    accumulator.flags.append("provider_stream_usage_missing")
                 has_usage = bool(accumulator.quantities)
                 successful = upstream.status < 400 and has_usage
                 observation = _observation(
                     measurement,
                     status=(
-                        ("incomplete" if truncated else "complete")
+                        ("incomplete" if truncated or terminal_usage_missing else "complete")
                         if successful
                         else ("failed" if upstream.status >= 400 else "incomplete")
                     ),

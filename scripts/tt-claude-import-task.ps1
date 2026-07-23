@@ -37,12 +37,15 @@ $plan = [ordered]@{
     start_when_available = $true
     dont_stop_on_idle_end = $true
     interval_minutes = $IntervalMinutes
+    restart_interval_seconds = 120
+    restart_count = 3
     task_log = $taskLog
     state_file = $stateFile
     auth_token_file = $authTokenFile
 }
 
 function Write-ImportTaskStatus {
+    param([switch]$Strict)
     $task = $null
     $inspectionError = $null
     try {
@@ -55,6 +58,36 @@ function Write-ImportTaskStatus {
         }
     }
     $info = if ($task) { Get-ScheduledTaskInfo -TaskName $TaskName } else { $null }
+    $lastRunAgeSeconds = if ($info -and $info.LastRunTime -and $info.LastRunTime -gt [datetime]::MinValue) {
+        [math]::Max(0, ((Get-Date) - $info.LastRunTime).TotalSeconds)
+    } else {
+        $null
+    }
+    $maxAgeSeconds = [math]::Max(300, $IntervalMinutes * 180)
+    $taskResultOk = $info -and $info.LastTaskResult -in @(0, 267009)
+    $statusOk = (
+        -not $inspectionError -and
+        [bool]$task -and
+        [string]$task.State -in @("Ready", "Running") -and
+        $taskResultOk -and
+        $lastRunAgeSeconds -ne $null -and
+        $lastRunAgeSeconds -le $maxAgeSeconds
+    )
+    $failureReason = if ($inspectionError) {
+        "task_inspection_failed"
+    } elseif (-not $task) {
+        "task_not_installed"
+    } elseif ([string]$task.State -notin @("Ready", "Running")) {
+        "import_task_disabled_or_stopped"
+    } elseif (-not $taskResultOk) {
+        "import_last_run_failed"
+    } elseif ($lastRunAgeSeconds -eq $null) {
+        "import_never_ran"
+    } elseif ($lastRunAgeSeconds -gt $maxAgeSeconds) {
+        "import_run_stale"
+    } else {
+        $null
+    }
     [ordered]@{
         task_name = $TaskName
         installed = if ($inspectionError) { $null } else { [bool]$task }
@@ -63,9 +96,14 @@ function Write-ImportTaskStatus {
         last_run_time = if ($info) { $info.LastRunTime } else { $null }
         next_run_time = if ($info) { $info.NextRunTime } else { $null }
         last_task_result = if ($info) { $info.LastTaskResult } else { $null }
+        status_ok = $statusOk
+        failure_reason = $failureReason
+        last_run_age_seconds = if ($lastRunAgeSeconds -ne $null) { [math]::Round($lastRunAgeSeconds, 1) } else { $null }
+        max_age_seconds = $maxAgeSeconds
         task_log = $taskLog
         state_file = $stateFile
     } | ConvertTo-Json -Depth 4
+    if ($Strict -and -not $statusOk) { exit 1 }
 }
 
 if ($Mode -eq "Plan") { $plan | ConvertTo-Json -Depth 4; exit 0 }
@@ -101,6 +139,8 @@ if ($Mode -eq "Install") {
         -DontStopIfGoingOnBatteries `
         -DontStopOnIdleEnd `
         -StartWhenAvailable `
+        -RestartInterval (New-TimeSpan -Minutes 2) `
+        -RestartCount 3 `
         -ExecutionTimeLimit (New-TimeSpan -Minutes 10) `
         -MultipleInstances IgnoreNew
     Register-ScheduledTask `
@@ -131,4 +171,4 @@ if ($Mode -eq "Uninstall") {
     exit 0
 }
 
-Write-ImportTaskStatus
+Write-ImportTaskStatus -Strict

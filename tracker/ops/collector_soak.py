@@ -13,6 +13,7 @@ from collections.abc import Callable, Mapping
 from typing import Any
 
 from tracker.ops.collector_monitor import check_collector
+from tracker.ops.runtime_fingerprint import runtime_fingerprint
 
 Probe = Callable[..., dict[str, Any]]
 
@@ -226,6 +227,8 @@ def run_soak(
     )
     summary: dict[str, Any] = {
         "schema_version": 2,
+        "evidence_type": "collector_soak",
+        "runtime_fingerprint": runtime_fingerprint(),
         "started_at": started_at,
         "ended_at": _timestamp(),
         "base_url": base_url.rstrip("/"),

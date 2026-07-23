@@ -27,6 +27,8 @@ from tracker.models.token_event import TokenEvent
 from tracker.models.trace import Trace
 from tracker.normalization.normalizer import normalize
 from tracker.observability.observation import Observation
+from tracker.ops.provider_proof import write_capture_attestation
+from tracker.ops.runtime_fingerprint import runtime_fingerprint
 from tracker.storage.file_repository import FileRepository
 
 ClientFactory = Callable[[str], Any]
@@ -73,6 +75,8 @@ class BedrockCacheSmokeSummary:
     observed_total_contributing_tokens: int
     artifacts: dict[str, str]
     results: list[BedrockCacheCallResult]
+    generated_at: str = ""
+    runtime_fingerprint: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
@@ -141,9 +145,14 @@ def _request_payload(model_id: str, prefix: str, max_tokens: int) -> dict[str, A
 def _default_client_factory(region: str) -> Any:
     try:
         import boto3
+        from botocore.config import Config
     except ImportError as exc:
         raise RuntimeError('boto3_missing: install with pip install -e ".[bedrock]"') from exc
-    return boto3.client("bedrock-runtime", region_name=region)
+    return boto3.client(
+        "bedrock-runtime",
+        region_name=region,
+        config=Config(retries={"total_max_attempts": 1, "mode": "standard"}),
+    )
 
 
 def _response_metadata(response: Mapping[str, Any]) -> tuple[int, str | None, int | None]:
@@ -336,8 +345,10 @@ def _run_call(
     output_tokens = _quantity(event, TokenType.OUTPUT)
     mismatch = event.event_total_mismatch
     failure_detail = None
-    if not event.quantities or event.provider_total_tokens is None:
+    if not event.quantities or event.provider_total_tokens is None or "provider_usage_missing" in event.data_quality_flags:
         failure_detail = "usage_missing"
+    elif retries not in {None, 0}:
+        failure_detail = f"automatic_retry_detected={retries}"
     elif mismatch != 0 or event.over_attributed_tokens:
         failure_detail = f"normalization_mismatch={mismatch}"
     artifact = _write_json(
@@ -422,6 +433,8 @@ def run_bedrock_cache_smoke(
     if wait_seconds < 0:
         raise ValueError("wait_seconds cannot be negative")
     env = dict(os.environ if environment is None else environment)
+    generated_at = _timestamp()
+    code_fingerprint = runtime_fingerprint()
     region = _env(env, "AWS_REGION") or _env(env, "AWS_DEFAULT_REGION")
     model_id = _env(env, "BEDROCK_MODEL_ID")
     root = Path(out_dir or Path("runs") / "bedrock-cache-smoke" / _safe_timestamp_for_path()).resolve()
@@ -473,9 +486,16 @@ def run_bedrock_cache_smoke(
             observed_total_contributing_tokens=0,
             artifacts=artifacts,
             results=[result],
+            generated_at=generated_at,
+            runtime_fingerprint=code_fingerprint,
         )
         artifacts["summary"] = _write_json(root / "summary.json", summary.to_dict())
         artifacts["readme"] = _write_audit_readme(root / "README_AUDIT.md", summary)
+        capture_key = _env(env, "TRACKER_PROOF_CAPTURE_KEY_FILE")
+        if capture_key:
+            artifacts["capture_attestation"] = write_capture_attestation(
+                artifacts["summary"], capture_key, harness="bedrock_cache_smoke"
+            )
         return summary
 
     request_payload = _request_payload(model_id or "", prefix, max_tokens)
@@ -536,9 +556,16 @@ def run_bedrock_cache_smoke(
         observed_total_contributing_tokens=observed_total,
         artifacts=artifacts,
         results=results,
+        generated_at=generated_at,
+        runtime_fingerprint=code_fingerprint,
     )
     artifacts["summary"] = _write_json(root / "summary.json", summary.to_dict())
     artifacts["readme"] = _write_audit_readme(root / "README_AUDIT.md", summary)
+    capture_key = _env(env, "TRACKER_PROOF_CAPTURE_KEY_FILE")
+    if capture_key:
+        artifacts["capture_attestation"] = write_capture_attestation(
+            artifacts["summary"], capture_key, harness="bedrock_cache_smoke"
+        )
     return summary
 
 

@@ -21,7 +21,28 @@ from typing import Any
 
 from tracker.adapters.base import BaseAPISurfaceAdapter, NormalizedUsage, usage_snapshot
 from tracker.adapters.base import field_value as _field
-from tracker.models.enums import PrecisionLevel, TokenType, UsageSource
+from tracker.models.enums import DataQualityFlag, PrecisionLevel, TokenType, UsageSource
+
+
+def _finish_reason_flags(response: Any) -> list[str]:
+    choices = _field(response, "choices", []) or []
+    reasons = {
+        _field(choice, "finish_reason")
+        for choice in choices
+        if _field(choice, "finish_reason") is not None
+    }
+    flags: list[str] = []
+    if reasons.intersection({"length", "content_filter"}):
+        flags.append(DataQualityFlag.PROVIDER_RESPONSE_INCOMPLETE.value)
+    if "content_filter" in reasons:
+        flags.append(DataQualityFlag.CONTENT_FILTER.value)
+    return flags
+
+
+def _usage_completeness_flags(usage: Any) -> list[str]:
+    if any(_field(usage, name) is None for name in ("prompt_tokens", "completion_tokens", "total_tokens")):
+        return [DataQualityFlag.PROVIDER_USAGE_MISSING.value]
+    return []
 
 
 class OpenAIChatCompletionsAdapter(BaseAPISurfaceAdapter):
@@ -71,13 +92,15 @@ class OpenAIChatCompletionsAdapter(BaseAPISurfaceAdapter):
     def extract_usage_from_response(self, response: Any) -> NormalizedUsage:
         usage = _field(response, "usage")
         model = _field(response, "model")
+        flags = _finish_reason_flags(response)
         if not usage:
             return NormalizedUsage(
                 provider=self.provider,
                 api_surface=self.api_surface,
                 model=model,
-                data_quality_flags=["raw_usage_missing"],
+                data_quality_flags=[*flags, "raw_usage_missing"],
             )
+        flags.extend(_usage_completeness_flags(usage))
         quantities = self._usage_to_quantities(usage, UsageSource.PROVIDER_RESPONSE)
         return NormalizedUsage(
             provider=self.provider,
@@ -85,13 +108,25 @@ class OpenAIChatCompletionsAdapter(BaseAPISurfaceAdapter):
             model=model,
             quantities=quantities,
             provider_total_tokens=_field(usage, "total_tokens"),
+            data_quality_flags=flags,
             raw_usage=usage_snapshot(usage),
         )
 
     def extract_usage_from_stream_event(self, event: Any) -> NormalizedUsage | None:
         usage = _field(event, "usage")
+        flags = _finish_reason_flags(event)
         if not usage:
-            return None
+            if not flags:
+                return None
+            return NormalizedUsage(
+                provider=self.provider,
+                api_surface=self.api_surface,
+                model=_field(event, "model"),
+                data_quality_flags=flags,
+                stream_terminal=False,
+                stream_status="incomplete",
+            )
+        flags.extend(_usage_completeness_flags(usage))
         quantities = self._usage_to_quantities(usage, UsageSource.PROVIDER_STREAM_FINAL)
         return NormalizedUsage(
             provider=self.provider,
@@ -99,6 +134,8 @@ class OpenAIChatCompletionsAdapter(BaseAPISurfaceAdapter):
             model=_field(event, "model"),
             quantities=quantities,
             provider_total_tokens=_field(usage, "total_tokens"),
+            data_quality_flags=flags,
             raw_usage=usage_snapshot(usage),
             stream_terminal=True,
+            stream_status="incomplete" if DataQualityFlag.PROVIDER_RESPONSE_INCOMPLETE.value in flags else "complete",
         )

@@ -505,7 +505,10 @@ class _DiskEventSnapshot:
 def _iter_fact_token_event_rows(events: Iterable[TokenEvent]) -> Iterator[dict[str, Any]]:
     for event in events:
         event_date, event_month, event_hour = _date_parts(event.timestamp)
-        duration = _duration_ms(event)
+        active = _is_authoritative_event(event)
+        # Latency belongs to the effective request observation. Retired retries and
+        # non-authoritative failures remain auditable rows but cannot bias latency measures.
+        duration = _duration_ms(event) if active else None
         yield {
             "event_id": event.event_id,
             "request_correlation_id": event.request_correlation_id,
@@ -542,8 +545,12 @@ def _iter_fact_token_event_rows(events: Iterable[TokenEvent]) -> Iterator[dict[s
             "embedding_tokens": _quantity_sum(event, TokenType.EMBEDDING),
             "rerank_tokens": _quantity_sum(event, TokenType.RERANK_INPUT, TokenType.RERANK_OUTPUT),
             "duration_ms": duration,
-            "time_to_first_token_ms": _number(event.observation.get("time_to_first_token_ms")),
-            "time_to_last_token_ms": _number(event.observation.get("time_to_last_token_ms")),
+            "time_to_first_token_ms": (
+                _number(event.observation.get("time_to_first_token_ms")) if active else None
+            ),
+            "time_to_last_token_ms": (
+                _number(event.observation.get("time_to_last_token_ms")) if active else None
+            ),
             "retry_count": _integer(event.observation.get("retry_count")),
             "measured": 1 if _is_measured(event) else 0,
             "error_count": 1 if _is_error(event) else 0,
