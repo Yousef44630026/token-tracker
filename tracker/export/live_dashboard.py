@@ -29,10 +29,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 from urllib import parse
 
-from tracker.derive.derived_fields import event_contributing_tokens
+from tracker.derive.aggregation_record import apply_headline_record
 from tracker.derive.headline import HeadlineBandAccumulator
-from tracker.derive.projection_index import effective_events_for_store
-from tracker.models.enums import DataQualityFlag, Overlap, PrecisionLevel, Trust
+from tracker.derive.projection_index import aggregation_records_for_store
+from tracker.models.enums import DataQualityFlag
 
 
 class ExclusiveThreadingHTTPServer(ThreadingHTTPServer):
@@ -248,8 +248,8 @@ def aggregate(
     under_attributed_tokens = 0
     over_attributed_tokens = 0
     request_latency: dict[str, dict[str, bool]] = {}
-    for event in effective_events_for_store(store):
-        timestamp = _event_time(event.timestamp)
+    for rec in aggregation_records_for_store(store):
+        timestamp = _event_time(rec["ts"])
         if timestamp is None and window != "all":
             undated_events += 1
             continue
@@ -258,30 +258,30 @@ def aggregate(
         if timestamp is not None and ((start is not None and timestamp < start) or (end is not None and timestamp >= end)):
             continue
         raw_events += 1
-        headline.add(event)
-        event_flags = set(event.data_quality_flags)
-        for flag in event.data_quality_flags:
+        apply_headline_record(headline, rec["hl"])
+        event_flags = set(rec["flags"])
+        for flag in rec["flags"]:
             flags[flag] += 1
         # A collision is an identity failure even when reconciliation retires the affected
         # row. Counting it before the supersession gate preserves the audit signal.
         correlation_risk_event_count += int(bool(event_flags & _CORRELATION_RISK_FLAGS))
-        if event.superseded:
+        if rec["superseded"]:
             superseded_events += 1
             continue
-        if not event.is_authoritative:
+        if not rec["authoritative"]:
             excluded_events += 1
             continue
 
         effective_events += 1
-        contributing = event_contributing_tokens(event)
+        contributing = rec["contrib"]
         total += contributing
-        provider_total_observations += int(event.provider_total_tokens is not None)
-        mismatch_event_count += int(event.event_total_mismatch not in (None, 0))
+        provider_total_observations += int(rec["provider_total_present"])
+        mismatch_event_count += int(rec["mismatch_nonzero"])
         schema_drift_event_count += int(DataQualityFlag.PROVIDER_SCHEMA_DRIFT.value in event_flags)
         usage_loss_event_count += int(bool(event_flags & _USAGE_LOSS_FLAGS))
-        under_attributed_tokens += event.under_attributed_tokens
-        over_attributed_tokens += event.over_attributed_tokens
-        request_id = event.request_correlation_id or event.event_id
+        under_attributed_tokens += rec["under"]
+        over_attributed_tokens += rec["over"]
+        request_id = rec["request_id"]
         local_log_import = bool(
             event_flags
             & {
@@ -290,24 +290,15 @@ def aggregate(
             }
         )
         request_state = request_latency.setdefault(request_id, {"observed": False, "applicable": False})
-        request_state["observed"] = request_state["observed"] or event.observation.get("duration_ms") is not None
+        request_state["observed"] = request_state["observed"] or rec["duration_observed"]
         request_state["applicable"] = request_state["applicable"] or not local_log_import
-        for quantity in event.quantities:
-            if quantity.precision_level == PrecisionLevel.EXACT:
-                exact_tokens += quantity.quantity_in_total
-            elif quantity.precision_level == PrecisionLevel.ESTIMATE:
-                estimated_tokens += quantity.quantity_in_total
-            elif quantity.precision_level == PrecisionLevel.UNKNOWN or quantity.quantity is None:
-                unknown_quantity_count += 1
-            if (
-                quantity.trust == Trust.UNVERIFIED
-                and quantity.overlap == Overlap.INDEPENDENT
-                and quantity.quantity is not None
-            ):
-                unverified_tokens += quantity.quantity
-        service = str(event.observation.get("service_name") or "unknown")
-        provider = event.provider or "unknown"
-        model = event.model or "unknown"
+        exact_tokens += rec["exact"]
+        estimated_tokens += rec["estimated"]
+        unverified_tokens += rec["unverified"]
+        unknown_quantity_count += rec["unknown"]
+        service = rec["service"]
+        provider = rec["provider"]
+        model = rec["model"]
         for bucket, key in ((by_service, service), (by_provider, provider), (by_model, model)):
             bucket[key][0] += 1
             bucket[key][1] += contributing

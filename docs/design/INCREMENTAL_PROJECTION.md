@@ -75,5 +75,16 @@ result. If incremental ever diverges from full-scan, the index is wrong — fail
   the `TRACKER_DISABLE_PROJECTION_INDEX` flag, a corrupt sidecar, or any index error; a
   mid-read failure fails loud rather than silently double-counting. Backup and the Doctor
   secret scan ignore the reconstructible sidecar. Equivalence falsifier pinned in CI.
-- **S5** (later) materialized per-bucket metric rollup for O(buckets) queries; optional Doctor
-  index-health check (the index already self-heals via rebuild-on-inconsistency).
+- **S5-lite** ✅ compact per-event aggregation record (`tracker/derive/aggregation_record.py`)
+  stored in the index (`agg` column, schema v2, recomputed on reconcile); `aggregate()` reads
+  records via `aggregation_records_for_store()` instead of rebuilding a `TokenEvent` per row.
+  Headline-band deltas are captured by running `HeadlineBandAccumulator.add` once per event, so
+  the record can never drift from that function. Measured ~1.4x (50k: 3.7s → 2.7s; interactive
+  ceiling ~27k → ~37k). The residual is now split between `json.loads` (~0.9s) and the Python
+  accumulation loop (~1.05s), not `from_dict` (which S5-lite eliminated).
+- **S5-sql** (future, not built) the stored records make SQL-side aggregation possible —
+  `SELECT SUM(json_extract(agg,'$.contrib')) … GROUP BY service` runs the additive metrics in
+  C (~0.4s at 50k, ~6x), with the window filter as an ISO-8601 `ts` range. It needs the additive
+  metrics rewritten as SQL and the Python full-scan kept as the disabled/corrupt/partitioned
+  fallback. Deferred deliberately: at the product's real scale (~4k) the current path is ~0.2s.
+- Optional Doctor index-health check (the index already self-heals via rebuild-on-inconsistency).

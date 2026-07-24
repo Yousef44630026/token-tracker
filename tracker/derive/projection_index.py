@@ -22,8 +22,10 @@ import json
 import logging
 import os
 import sqlite3
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
+from typing import Any
 
+from tracker.derive.aggregation_record import aggregation_record
 from tracker.derive.effective_events import iter_effective_events
 from tracker.models.token_event import TokenEvent
 from tracker.normalization.quality_flags import normalize_quality_flags
@@ -32,7 +34,8 @@ from tracker.storage.file_repository import FileRepository
 
 _logger = logging.getLogger(__name__)
 
-_SCHEMA_VERSION = "1"
+# v2 adds the compact aggregation record column; older sidecars rebuild automatically.
+_SCHEMA_VERSION = "2"
 _PREFIX_CHECK_BYTES = 65_536
 _BUSY_TIMEOUT_MS = 2_000
 DISABLE_FLAG = "TRACKER_DISABLE_PROJECTION_INDEX"
@@ -96,7 +99,8 @@ class ProjectionIndex:
                 payload TEXT NOT NULL,
                 superseded INTEGER NOT NULL DEFAULT 0,
                 superseded_by TEXT,
-                quality_flags TEXT NOT NULL DEFAULT '[]'
+                quality_flags TEXT NOT NULL DEFAULT '[]',
+                agg TEXT NOT NULL DEFAULT '{}'
             )
             """
         )
@@ -166,11 +170,22 @@ class ProjectionIndex:
         finally:
             connection.close()
 
+    def iter_aggregation_records(self) -> Iterator[dict[str, Any]]:
+        """Yield the compact per-event aggregation records in ledger order."""
+        connection = self._connect()
+        try:
+            self._ensure_schema(connection)
+            cursor = connection.execute("SELECT agg FROM events ORDER BY sequence")
+            for (agg,) in cursor:
+                yield json.loads(agg)
+        finally:
+            connection.close()
+
     # --- internals ----------------------------------------------------------
     def _insert_effective(self, connection: sqlite3.Connection, event: TokenEvent) -> None:
         connection.execute(
-            "INSERT OR IGNORE INTO events(event_id, rcid, payload, superseded, superseded_by, quality_flags) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT OR IGNORE INTO events(event_id, rcid, payload, superseded, superseded_by, quality_flags, agg) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
             (
                 event.event_id,
                 event.request_correlation_id,
@@ -178,6 +193,7 @@ class ProjectionIndex:
                 1 if event.superseded else 0,
                 event.superseded_by,
                 json.dumps(event.data_quality_flags, ensure_ascii=False, separators=(",", ":")),
+                json.dumps(aggregation_record(event), ensure_ascii=False, separators=(",", ":")),
             ),
         )
 
@@ -270,12 +286,13 @@ class ProjectionIndex:
         group = [TokenEvent.from_dict(json.loads(payload)) for _, payload in rows]
         reconcile_events(group)
         connection.executemany(
-            "UPDATE events SET superseded = ?, superseded_by = ?, quality_flags = ? WHERE sequence = ?",
+            "UPDATE events SET superseded = ?, superseded_by = ?, quality_flags = ?, agg = ? WHERE sequence = ?",
             [
                 (
                     1 if event.superseded else 0,
                     event.superseded_by,
                     json.dumps(event.data_quality_flags, ensure_ascii=False, separators=(",", ":")),
+                    json.dumps(aggregation_record(event), ensure_ascii=False, separators=(",", ":")),
                     sequence,
                 )
                 for (sequence, _), event in zip(rows, group, strict=True)
@@ -288,21 +305,18 @@ def _full_scan(store: str, fallback_source: Iterable[TokenEvent] | None) -> Iter
     yield from iter_effective_events(source)
 
 
-def effective_events_for_store(
-    store: str,
-    *,
-    fallback_source: Iterable[TokenEvent] | None = None,
-) -> Iterator[TokenEvent]:
-    """Yield the effective view for a single-file JSONL store via the incremental index.
+def _full_scan_records(store: str, fallback_source: Iterable[TokenEvent] | None) -> Iterator[dict[str, Any]]:
+    for event in _full_scan(store, fallback_source):
+        yield aggregation_record(event)
 
-    The index is a pure acceleration cache: on the disable flag, a corrupt/unusable sidecar,
-    or ANY index error, this falls back to the full-scan ``iter_effective_events`` path so the
-    reported numbers are byte-identical either way. A locked sidecar (another poll writing) is
-    tolerated — the read proceeds on the current state and catches up on the next refresh.
+
+def _prepare_index(store: str) -> ProjectionIndex | None:
+    """Return a refreshed index, or None if it is unusable (the caller then full-scans).
+
+    The index is a pure acceleration cache: a locked sidecar (another poll writing) is tolerated
+    by reading the current state; a corrupt/unreadable sidecar is discarded and rebuilt once; any
+    other error returns None so the caller falls back to the full scan.
     """
-    if os.environ.get(DISABLE_FLAG):
-        yield from _full_scan(store, fallback_source)
-        return
     try:
         index = ProjectionIndex(store)
         try:
@@ -313,22 +327,70 @@ def effective_events_for_store(
             _logger.warning("projection index for %s was unreadable; rebuilding", store)
             index.discard()
             index.rebuild()
+        return index
     except Exception:
         _logger.warning("projection index unusable for %s; using full scan", store, exc_info=True)
-        yield from _full_scan(store, fallback_source)
-        return
+        return None
+
+
+def _iter_with_fallback(items: Iterator[Any], fallback: Callable[[], Iterator[Any]], store: str) -> Iterator[Any]:
     started = False
     try:
-        for event in index.iter_effective_events():
+        for item in items:
             started = True
-            yield event
+            yield item
     except Exception:
         if started:
             # Some rows were already emitted; falling back now would double-count into a
             # silently-wrong total. Fail loud instead — never a confident wrong number.
             raise
         _logger.warning("projection index read failed for %s; using full scan", store, exc_info=True)
+        yield from fallback()
+
+
+def effective_events_for_store(
+    store: str,
+    *,
+    fallback_source: Iterable[TokenEvent] | None = None,
+) -> Iterator[TokenEvent]:
+    """Yield the effective view for a single-file JSONL store via the incremental index.
+
+    On the disable flag, a corrupt/unusable sidecar, or ANY index error, this falls back to the
+    full-scan ``iter_effective_events`` path so the reported numbers are byte-identical either way.
+    """
+    if os.environ.get(DISABLE_FLAG):
         yield from _full_scan(store, fallback_source)
+        return
+    index = _prepare_index(store)
+    if index is None:
+        yield from _full_scan(store, fallback_source)
+        return
+    yield from _iter_with_fallback(index.iter_effective_events(), lambda: _full_scan(store, fallback_source), store)
 
 
-__all__ = ["ProjectionIndex", "effective_events_for_store", "DISABLE_FLAG"]
+def aggregation_records_for_store(
+    store: str,
+    *,
+    fallback_source: Iterable[TokenEvent] | None = None,
+) -> Iterator[dict[str, Any]]:
+    """Yield the compact per-event aggregation records via the incremental index.
+
+    Same acceleration-cache contract as ``effective_events_for_store``: the disable flag or any
+    index problem falls back to computing records from a full scan, so the numbers are identical.
+    """
+    if os.environ.get(DISABLE_FLAG):
+        yield from _full_scan_records(store, fallback_source)
+        return
+    index = _prepare_index(store)
+    if index is None:
+        yield from _full_scan_records(store, fallback_source)
+        return
+    yield from _iter_with_fallback(index.iter_aggregation_records(), lambda: _full_scan_records(store, fallback_source), store)
+
+
+__all__ = [
+    "ProjectionIndex",
+    "effective_events_for_store",
+    "aggregation_records_for_store",
+    "DISABLE_FLAG",
+]
