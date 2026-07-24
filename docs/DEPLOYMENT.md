@@ -15,6 +15,14 @@ step. Provider capture status (what is *proven*, not assumed) lives in
 [OPERATIONAL_EVIDENCE.md](OPERATIONAL_EVIDENCE.md) — **Azure OpenAI is verified for production;
 Bedrock/Vertex are gated** until a real cloud capture proves them.
 
+**Volume ceiling (measured).** The single-file JSONL design is built for a personal / single-team
+ledger, not a high-volume fleet. Every dashboard and `/v1/stats` poll re-projects the whole ledger,
+so the live surfaces stay responsive to roughly **50,000 events** and the live dashboard's 2s poll
+keeps up to roughly **5,000**; past ~50k a read spills through a temp SQLite round-trip and takes
+tens of seconds to minutes. Beyond that you need a materialized rollup or the partitioned repository
+with stored totals — see the **Scale envelope** row in
+[OPERATIONAL_EVIDENCE.md](OPERATIONAL_EVIDENCE.md). Rotate/archive to keep the active file small.
+
 ## 1. Prerequisites
 
 - Windows 10/11, Python 3.11+ (a portable Python is fine; it need not be on PATH).
