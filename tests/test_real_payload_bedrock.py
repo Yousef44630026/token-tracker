@@ -54,8 +54,11 @@ check(qty(TokenType.INPUT) is not None, "real payload: input (inputTokens) extra
 check(qty(TokenType.OUTPUT) is not None, "real payload: output (outputTokens) extracted")
 check(ev.provider_total_tokens is not None, "real payload: provider total (totalTokens) present")
 
-# THE ground-truth property: input + output reconciles to the real total (cache fields, if
-# present, stay unverified/excluded until separately confirmed — see the capture script note)
+# THE ground-truth property: input + output reconciles to the real total. This captured turn
+# carries no cache fields, so the reconciliation here is pure input+output. Bedrock cache
+# read/write are counted as separate additive input buckets per AWS documentation (inputTokens
+# is non-cached input when prompt caching is on); that documented rule stays falsifiable at the
+# first real cache capture, but it is the project's assigned, counted semantics — not excluded.
 check(ev.event_total_mismatch == 0, "GROUND TRUTH: input + output reconciles to the real total")
 check(ev.event_contributing_tokens == ev.provider_total_tokens, "contributing == provider total on real data")
 check("raw_usage_missing" not in ev.data_quality_flags, "usage was readable on the real Bedrock response")
