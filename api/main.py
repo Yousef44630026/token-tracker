@@ -30,7 +30,7 @@ import json
 import os
 import sys
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 from urllib import request as urllib_request
@@ -42,6 +42,7 @@ if __package__ in (None, ""):
 
 from tracker.derive.derived_fields import event_contributing_tokens  # noqa: E402
 from tracker.derive.effective_events import iter_effective_events  # noqa: E402
+from tracker.derive.projection_index import effective_events_for_store  # noqa: E402
 from tracker.models.token_event import TokenEvent  # noqa: E402
 from tracker.ops.auth_token import load_auth_token  # noqa: E402
 from tracker.ops.runtime_fingerprint import runtime_fingerprint  # noqa: E402
@@ -66,6 +67,20 @@ def _is_loopback_host(host: str | None) -> bool:
 
 
 Repository = FileRepository | PartitionedFileRepository
+
+
+def _effective_event_stream(repo: Repository) -> Iterator[TokenEvent]:
+    """Effective events for stats, via the incremental index for a single-file store.
+
+    A ``FileRepository`` exposes its JSONL path, so reads go through the acceleration index
+    (with an automatic full-scan fallback). A partitioned store has no single path and keeps
+    the direct full-scan projection.
+    """
+    store_path = getattr(repo, "path", None)
+    if store_path is not None:
+        return effective_events_for_store(store_path)
+    source = repo.iter_events() if hasattr(repo, "iter_events") else repo.read_all()
+    return iter_effective_events(source)
 
 
 def _json_nesting_exceeds(raw_body: bytes, max_depth: int) -> bool:
@@ -117,8 +132,7 @@ def _make_handler(
         effective_count = 0
         superseded_count = 0
         total = 0
-        source = repo.iter_events() if hasattr(repo, "iter_events") else repo.read_all()
-        for event in iter_effective_events(source):
+        for event in _effective_event_stream(repo):
             raw_count += 1
             if event.superseded:
                 superseded_count += 1
@@ -212,8 +226,7 @@ def _make_handler(
             count = 0
             effective_count = 0
             superseded_count = 0
-            source = repo.iter_events() if hasattr(repo, "iter_events") else repo.read_all()
-            for e in iter_effective_events(source):
+            for e in _effective_event_stream(repo):
                 count += 1
                 if e.superseded:
                     superseded_count += 1

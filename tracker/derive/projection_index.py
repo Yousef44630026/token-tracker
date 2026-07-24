@@ -19,9 +19,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import sqlite3
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 
 from tracker.derive.effective_events import iter_effective_events
 from tracker.models.token_event import TokenEvent
@@ -29,8 +30,12 @@ from tracker.normalization.quality_flags import normalize_quality_flags
 from tracker.normalization.reconciler import reconcile_events
 from tracker.storage.file_repository import FileRepository
 
+_logger = logging.getLogger(__name__)
+
 _SCHEMA_VERSION = "1"
 _PREFIX_CHECK_BYTES = 65_536
+_BUSY_TIMEOUT_MS = 2_000
+DISABLE_FLAG = "TRACKER_DISABLE_PROJECTION_INDEX"
 
 
 def _archive_signature(repo: FileRepository) -> str:
@@ -68,9 +73,17 @@ class ProjectionIndex:
 
     # --- connection / schema ------------------------------------------------
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.index_path)
-        connection.execute("PRAGMA journal_mode=WAL")
+        connection = sqlite3.connect(self.index_path, timeout=_BUSY_TIMEOUT_MS / 1000)
+        connection.execute(f"PRAGMA busy_timeout={_BUSY_TIMEOUT_MS}")
         return connection
+
+    def discard(self) -> None:
+        """Delete the sidecar (and its WAL companions). The next refresh rebuilds."""
+        for suffix in ("", "-wal", "-shm"):
+            try:
+                os.remove(self.index_path + suffix)
+            except FileNotFoundError:
+                pass
 
     @staticmethod
     def _ensure_schema(connection: sqlite3.Connection) -> None:
@@ -270,4 +283,52 @@ class ProjectionIndex:
         )
 
 
-__all__ = ["ProjectionIndex"]
+def _full_scan(store: str, fallback_source: Iterable[TokenEvent] | None) -> Iterator[TokenEvent]:
+    source = fallback_source if fallback_source is not None else FileRepository(store).iter_events()
+    yield from iter_effective_events(source)
+
+
+def effective_events_for_store(
+    store: str,
+    *,
+    fallback_source: Iterable[TokenEvent] | None = None,
+) -> Iterator[TokenEvent]:
+    """Yield the effective view for a single-file JSONL store via the incremental index.
+
+    The index is a pure acceleration cache: on the disable flag, a corrupt/unusable sidecar,
+    or ANY index error, this falls back to the full-scan ``iter_effective_events`` path so the
+    reported numbers are byte-identical either way. A locked sidecar (another poll writing) is
+    tolerated — the read proceeds on the current state and catches up on the next refresh.
+    """
+    if os.environ.get(DISABLE_FLAG):
+        yield from _full_scan(store, fallback_source)
+        return
+    try:
+        index = ProjectionIndex(store)
+        try:
+            index.refresh()
+        except sqlite3.OperationalError as exc:  # e.g. "database is locked": read current state
+            _logger.debug("projection index busy for %s (%s); reading current state", store, exc)
+        except sqlite3.DatabaseError:  # corrupt/unreadable sidecar: discard and rebuild once
+            _logger.warning("projection index for %s was unreadable; rebuilding", store)
+            index.discard()
+            index.rebuild()
+    except Exception:
+        _logger.warning("projection index unusable for %s; using full scan", store, exc_info=True)
+        yield from _full_scan(store, fallback_source)
+        return
+    started = False
+    try:
+        for event in index.iter_effective_events():
+            started = True
+            yield event
+    except Exception:
+        if started:
+            # Some rows were already emitted; falling back now would double-count into a
+            # silently-wrong total. Fail loud instead — never a confident wrong number.
+            raise
+        _logger.warning("projection index read failed for %s; using full scan", store, exc_info=True)
+        yield from _full_scan(store, fallback_source)
+
+
+__all__ = ["ProjectionIndex", "effective_events_for_store", "DISABLE_FLAG"]

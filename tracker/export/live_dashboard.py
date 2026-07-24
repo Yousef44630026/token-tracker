@@ -30,10 +30,9 @@ from typing import Any
 from urllib import parse
 
 from tracker.derive.derived_fields import event_contributing_tokens
-from tracker.derive.effective_events import iter_effective_events
 from tracker.derive.headline import HeadlineBandAccumulator
+from tracker.derive.projection_index import effective_events_for_store
 from tracker.models.enums import DataQualityFlag, Overlap, PrecisionLevel, Trust
-from tracker.storage.file_repository import FileRepository
 
 
 class ExclusiveThreadingHTTPServer(ThreadingHTTPServer):
@@ -225,7 +224,6 @@ def aggregate(
         timezone_offset_minutes=timezone_offset_minutes,
         now=generated_at,
     )
-    repo = FileRepository(store)
     raw_events = 0
     effective_events = 0
     superseded_events = 0
@@ -250,7 +248,7 @@ def aggregate(
     under_attributed_tokens = 0
     over_attributed_tokens = 0
     request_latency: dict[str, dict[str, bool]] = {}
-    for event in iter_effective_events(repo.iter_events()):
+    for event in effective_events_for_store(store):
         timestamp = _event_time(event.timestamp)
         if timestamp is None and window != "all":
             undated_events += 1

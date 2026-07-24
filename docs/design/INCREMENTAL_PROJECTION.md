@@ -66,10 +66,14 @@ result. If incremental ever diverges from full-scan, the index is wrong — fail
 
 ## Phases
 
-- **S0** design + falsifier (red). ← this commit
-- **S1** byte-offset incremental read + rotation/truncation detection in `FileRepository`.
-- **S2** persistent projection index; `rebuild()` == `iter_effective_events`.
-- **S3** incremental `refresh()` == `rebuild()`; the falsifier goes green.
-- **S4** wire `aggregate()`/`/v1/stats` to the index with automatic full-scan fallback; Doctor
-  health check; O(Δ) bench.
-- **S5** (later) materialized per-bucket metric rollup for O(buckets) queries.
+- **S0** ✅ design + falsifier (red).
+- **S1–S3** ✅ `tracker/derive/projection_index.py`: byte-offset incremental read, persistent
+  projection, incremental `refresh()` re-reconciling only touched groups; falsifier green.
+  Measured at 20k events: a poll's projection drops ~3.3s → ~37ms (+5 new) / ~4.5ms (no-op).
+- **S4** ✅ `effective_events_for_store()` wired into `aggregate()` and the collector
+  `/v1/stats` (single-file stores only; partitioned keeps the full scan). Full-scan fallback on
+  the `TRACKER_DISABLE_PROJECTION_INDEX` flag, a corrupt sidecar, or any index error; a
+  mid-read failure fails loud rather than silently double-counting. Backup and the Doctor
+  secret scan ignore the reconstructible sidecar. Equivalence falsifier pinned in CI.
+- **S5** (later) materialized per-bucket metric rollup for O(buckets) queries; optional Doctor
+  index-health check (the index already self-heals via rebuild-on-inconsistency).

@@ -37,7 +37,8 @@ jobs:
             "tests/test_stream_supersession_no_double_count.py",
             "tests/test_export_totals_match_model.py",
             "tests/test_context_propagation_async.py",
-            "tests/test_context_propagation_nested_agent.py"
+            "tests/test_context_propagation_nested_agent.py",
+            "tests/test_projection_index_equivalence.py"
           )
           # Track failures explicitly: a pwsh step's exit code is the LAST command's,
           # so without this a failing test mid-list is masked by a passing final test.
